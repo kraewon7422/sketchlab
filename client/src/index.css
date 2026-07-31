@@ -1,0 +1,55 @@
+@import "tailwindcss";
+
+/*
+ * Pretendard Variable — 한글 UI 폰트 (§4).
+ *
+ * 통짜 VF 파일은 2MB라 초기 로드에 부적합해서 dynamic-subset을 쓴다.
+ * 유니코드 범위별로 93개 조각으로 나뉘어 있고, 브라우저는 실제로 화면에 나온
+ * 글자가 속한 조각만 내려받는다 (한글 UI 기준 보통 수백 KB).
+ *
+ * CDN이 아니라 로컬 번들인 이유: P7의 PWA 오프라인 동작 때문.
+ * ⚠️ P7에서 precache glob을 짤 때 woff2 93개(총 4.8MB)를 통째로 캐싱하지 말 것.
+ *    실제로 쓰이는 조각만 골라야 한다.
+ *
+ * 수식 폰트는 KaTeX가 따로 관리한다 — 여기서 건드리지 않는다.
+ */
+@import "pretendard/dist/web/variable/pretendardvariable-dynamic-subset.css";
+
+/*
+ * 베이스 레이어 — 여기에는 색을 쓰지 않는다.
+ *
+ * 색·간격·모션은 전부 render/theme.ts 가 단일 진실이고,
+ * applyThemeVars()가 부팅 시 :root 에 --sl-* 변수로 주입한다.
+ * 이 파일에 hex를 적으면 토큰과 어긋날 수 있으므로 금지 (규약 §2-7).
+ */
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  /* 캔버스 앱이므로 브라우저의 스크롤·당겨서새로고침을 막는다 (§12.4) */
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 잉크 캔버스 위에서 텍스트 선택 커서가 뜨지 않도록 */
+#root {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* 접근성: 모션을 줄이면 전환을 끈다 (§10, 품질 게이트) */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

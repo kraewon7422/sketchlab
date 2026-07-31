@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>SketchLab 환경 점검</title>
+    <style>
+      /* 이 페이지는 앱 번들 밖의 정적 진단 페이지다. theme.ts를 못 쓰므로 값을 직접 적는다. */
+      body {
+        margin: 0;
+        padding: 24px 16px calc(24px + env(safe-area-inset-bottom));
+        font-family: system-ui, sans-serif;
+        color: #1a1a1a;
+        background: #fff;
+      }
+      h1 { font-size: 18px; margin: 0 0 4px; }
+      p.sub { margin: 0 0 20px; color: #9ca3af; font-size: 13px; line-height: 1.5; }
+      table { border-collapse: collapse; width: 100%; max-width: 540px; font-size: 14px; }
+      td { padding: 8px 4px; border-bottom: 1px solid #d4d4d4; }
+      td.name { color: #1a1a1a; }
+      td.val { text-align: right; white-space: nowrap; }
+      .ok { color: #059669; }
+      .bad { color: #dc2626; font-weight: 600; }
+      #verdict { margin-top: 20px; padding: 12px; border-radius: 12px; font-size: 14px; line-height: 1.6; }
+      #verdict.pass { background: rgba(5, 150, 105, 0.08); color: #059669; }
+      #verdict.fail { background: rgba(220, 38, 38, 0.08); color: #dc2626; }
+      code { background: #f4f4f4; padding: 1px 5px; border-radius: 4px; font-size: 13px; }
+    </style>
+  </head>
+  <body>
+    <h1>SketchLab 환경 점검</h1>
+    <p class="sub">
+      이 기기(태블릿·폰·PC)에서 내보내기 기능이 동작할지 미리 확인합니다.<br />
+      <strong>http로 접속하면 아래 항목 대부분이 빨간색이 됩니다</strong> — 그때는 주소를
+      <code>https://</code> 로 바꿔 접속하세요.
+    </p>
+
+    <table id="rows"></table>
+    <div id="verdict"></div>
+
+    <script>
+      // 필수 = 하나라도 없으면 내보내기(§13)가 실패하는 기능
+      const CHECKS = [
+        ["접속 주소", () => location.origin, false],
+        ["보안 컨텍스트 (isSecureContext)", () => window.isSecureContext, true],
+        ["클립보드 쓰기", () => typeof navigator.clipboard?.write === "function", true],
+        ["ClipboardItem", () => typeof window.ClipboardItem === "function", true],
+        ["공유 시트 (navigator.share)", () => typeof navigator.share === "function", false],
+        ["공유 가능 여부 확인 (canShare)", () => typeof navigator.canShare === "function", false],
+        ["SHA-256 해시 (crypto.subtle)", () => typeof crypto?.subtle?.digest === "function", true],
+        ["IndexedDB 저장소", () => typeof indexedDB === "object" && indexedDB !== null, true],
+        ["포인터 이벤트", () => typeof window.PointerEvent === "function", true],
+        ["필압·보간 이벤트 (getCoalescedEvents)", () => typeof PointerEvent?.prototype?.getCoalescedEvents === "function", false],
+        ["WebGL 2 (3D 렌더링)", () => !!document.createElement("canvas").getContext("webgl2"), false],
+      ];
+
+      const table = document.getElementById("rows");
+      let requiredFailures = 0;
+
+      for (const [name, probe, required] of CHECKS) {
+        let value;
+        try {
+          value = probe();
+        } catch (err) {
+          value = false;
+        }
+
+        const passed = value !== false && value !== undefined && value !== null;
+        if (required && !passed) requiredFailures++;
+
+        const tr = document.createElement("tr");
+        const label = document.createElement("td");
+        label.className = "name";
+        label.textContent = required ? name + " *" : name;
+
+        const val = document.createElement("td");
+        val.className = "val " + (passed ? "ok" : "bad");
+        val.textContent = typeof value === "string" ? value : passed ? "사용 가능" : "없음";
+
+        tr.append(label, val);
+        table.append(tr);
+      }
+
+      const verdict = document.getElementById("verdict");
+      if (requiredFailures === 0) {
+        verdict.className = "pass";
+        verdict.textContent = "✅ 이 기기에서 SketchLab 내보내기가 정상 동작합니다. (* = 필수 항목)";
+      } else {
+        verdict.className = "fail";
+        verdict.textContent =
+          "❌ 필수 항목 " + requiredFailures + "개가 없습니다. https로 접속했는지 확인하세요. (* = 필수 항목)";
+      }
+    </script>
+  </body>
+</html>

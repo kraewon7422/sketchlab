@@ -1,0 +1,17 @@
+{
+  "name": "@sketchlab/shared",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "클라이언트·서버가 공유하는 계약(Scene IR 스키마, 해시)",
+  "exports": {
+    ".": "./src/index.ts",
+    "./ir": "./src/ir.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
+  }
+}

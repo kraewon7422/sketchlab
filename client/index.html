@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <!--
+      maximum-scale=1 : 펜/손가락 입력 중 브라우저가 확대해버리는 것을 막는다 (§12.4)
+      viewport-fit=cover : 노치/홈바 기기에서 safe-area-inset-* 을 쓰기 위해 필요
+    -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover"
+    />
+    <meta name="color-scheme" content="light" />
+    <meta name="description" content="손그림을 교과서 품질의 도형·그래프·수식·화학구조로" />
+    <title>SketchLab</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
