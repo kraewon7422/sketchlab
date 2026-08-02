@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!--
+    16px에서도 읽히도록 형태를 극단적으로 단순화했다.
+    색은 theme.ts 의 ink(#1A1A1A) / accent(#2563EB) 와 같은 값이다.
+    (정적 파일이라 토큰을 import 할 수 없어 값을 직접 적는다.)
+  -->
+  <rect width="32" height="32" rx="7" fill="#1A1A1A" />
+  <!-- 손그림이 반듯한 도형으로 바뀐다는 제품의 한 줄 요약 -->
+  <path d="M8 23 L16 9 L24 23 Z" fill="none" stroke="#FFFFFF" stroke-width="2.4"
+        stroke-linejoin="round" />
+  <circle cx="24" cy="9" r="3" fill="#2563EB" />
+</svg>

@@ -2,8 +2,9 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import { ErrorBoundary } from "./ErrorBoundary";
-import { installGlobalHandlers } from "./debug";
+import { debugLog, installGlobalHandlers } from "./debug";
 import { applyThemeVars } from "./render/theme";
+import { startPersistence } from "./store/persistence";
 import "./index.css";
 
 /**
@@ -11,9 +12,12 @@ import "./index.css";
  *
  * 1. 전역 에러 핸들러 먼저. 이후 단계에서 터지는 것도 디버그 패널에 남게.
  * 2. 테마 변수를 첫 페인트 전에 동기로 주입. 색이 늦게 들어오는 깜빡임 방지.
- * 3. 그 다음에야 React 마운트.
+ * 3. React 마운트.
+ * 4. 저장된 세션 복원 + 저장 구독 시작 (비동기 — 화면을 막지 않는다).
  *
- * P1에서 immer의 enablePatches()가 여기 2번과 3번 사이에 들어간다 (D6).
+ * immer의 enablePatches()는 store/session.ts 최상단에서 호출된다 (D6).
+ * 여기서 부르지 않는 이유: 스토어를 import 하는 모든 경로에서 자동으로 보장되어야
+ * "부팅 코드에 한 줄 넣는 걸 깜빡했다"가 불가능해지기 때문이다.
  */
 installGlobalHandlers();
 applyThemeVars(document.documentElement);
@@ -31,3 +35,9 @@ createRoot(container).render(
     </ErrorBoundary>
   </StrictMode>,
 );
+
+// 복원이 늦어도 화면은 이미 떠 있다. 실패해도 앱은 계속 쓸 수 있어야 하므로
+// 던지지 않고 로그만 남긴다 (규약 §2-6 — 대신 조용히 넘어가지도 않는다).
+void startPersistence().catch((error: unknown) => {
+  debugLog.error("persistence", "저장소 초기화에 실패했습니다", error);
+});

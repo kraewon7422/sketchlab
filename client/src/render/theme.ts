@@ -56,6 +56,21 @@ export const stroke = {
   asymptoteDash: [6, 4],
 } as const;
 
+/** 손글씨 잉크 관련 값. 렌더링 굵기(stroke)와 구분해 둔다. */
+export const ink = {
+  /** 필압 0.5(=필압 미지원 입력) 기준 획 굵기 px */
+  width: 2.6,
+  /** 획 단위 지우개의 반경 px. 터치 최소 타깃보다 작아야 정밀하게 지워진다. */
+  eraserRadius: 14,
+  /**
+   * 획을 확정할 때 적용하는 RDP 임계값 px.
+   * 크게 잡으면 글씨가 각지고, 0에 가까우면 path가 비대해진다.
+   */
+  simplifyEpsilon: 0.6,
+  /** 활성 그룹 하이라이트가 획에서 떨어지는 여백 px */
+  groupHintPad: 8,
+} as const;
+
 export type Theme = typeof theme;
 
 /**

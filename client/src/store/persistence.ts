@@ -1,0 +1,118 @@
+import { openDB, type IDBPDatabase } from "idb";
+import { debugLog } from "../debug";
+import type { CanvasItem } from "../ink/types";
+import { sessionStore } from "./session";
+
+/**
+ * 세션 영속화 — 새로고침해도 그린 내용이 남게 한다.
+ *
+ * 설계 규칙 (§5.3, D6)
+ * - **스토어 → DB 단방향.** DB가 스토어를 갱신하는 건 부팅 시 1회 복원뿐이다.
+ *   양방향으로 만들면 어느 쪽이 진실인지 알 수 없어진다.
+ * - **쓰기는 items가 실제로 바뀔 때만.** pointermove 중에는 절대 쓰지 않는다.
+ *   immer가 변경이 있을 때만 새 참조를 주므로, 참조 비교만으로 정확히 걸러진다.
+ * - localStorage를 쓰지 않는다 (함정 #13 — 용량 한계).
+ *
+ * 실패해도 앱은 계속 돈다. 다만 조용히 넘어가지 않고 디버그 로그에 남긴다 (규약 §2-6).
+ */
+
+const DB_NAME = "sketchlab";
+const DB_VERSION = 1;
+const STORE_NAME = "session";
+const ITEMS_KEY = "items";
+
+let dbPromise: Promise<IDBPDatabase> | null = null;
+
+function getDB(): Promise<IDBPDatabase> | null {
+  if (typeof indexedDB === "undefined") {
+    debugLog.warn("persistence", "IndexedDB를 쓸 수 없는 환경입니다. 저장이 비활성화됩니다.");
+    return null;
+  }
+
+  dbPromise ??= openDB(DB_NAME, DB_VERSION, {
+    upgrade(db) {
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        db.createObjectStore(STORE_NAME);
+      }
+    },
+  });
+
+  return dbPromise;
+}
+
+export async function loadItems(): Promise<CanvasItem[] | null> {
+  const db = getDB();
+  if (!db) return null;
+
+  try {
+    const stored: unknown = await (await db).get(STORE_NAME, ITEMS_KEY);
+    if (!Array.isArray(stored)) return null;
+    return stored as CanvasItem[];
+  } catch (error) {
+    debugLog.error("persistence", "저장된 내용을 불러오지 못했습니다", error);
+    return null;
+  }
+}
+
+/**
+ * 저장 중에 또 저장 요청이 오면 마지막 것만 남긴다.
+ *
+ * 빠르게 획을 여러 개 그으면 쓰기가 겹칠 수 있다. 그대로 두면 늦게 시작한 쓰기가
+ * 먼저 끝나 옛 상태가 최종본이 되는 순서 뒤집힘이 생긴다.
+ */
+let writing = false;
+let pending: CanvasItem[] | null = null;
+
+export async function saveItems(items: CanvasItem[]): Promise<void> {
+  const db = getDB();
+  if (!db) return;
+
+  if (writing) {
+    pending = items;
+    return;
+  }
+
+  writing = true;
+  try {
+    await (await db).put(STORE_NAME, items, ITEMS_KEY);
+  } catch (error) {
+    debugLog.error("persistence", "저장에 실패했습니다", error);
+  } finally {
+    writing = false;
+    const next = pending;
+    pending = null;
+    if (next) void saveItems(next);
+  }
+}
+
+export async function clearPersisted(): Promise<void> {
+  const db = getDB();
+  if (!db) return;
+  try {
+    await (await db).delete(STORE_NAME, ITEMS_KEY);
+  } catch (error) {
+    debugLog.error("persistence", "저장 내용을 지우지 못했습니다", error);
+  }
+}
+
+/**
+ * 부팅 시 1회 복원한 뒤, items 변경을 구독해 저장을 시작한다.
+ * 반환값은 구독 해제 함수.
+ */
+export async function startPersistence(): Promise<() => void> {
+  const restored = await loadItems();
+
+  if (restored && restored.length > 0) {
+    sessionStore.getState().hydrate(restored);
+    debugLog.info("persistence", `이전 세션 복원 — 항목 ${restored.length}개`);
+  }
+
+  let lastItems = sessionStore.getState().items;
+
+  return sessionStore.subscribe((state) => {
+    // 참조가 그대로면 items는 바뀌지 않은 것이다 (선택·활성 그룹만 변한 경우).
+    if (state.items === lastItems) return;
+    lastItems = state.items;
+    void saveItems(state.items);
+  });
+}
