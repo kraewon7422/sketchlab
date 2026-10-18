@@ -154,7 +154,7 @@ export function markFresh(id: string, now = performance.now()): void {
   freshUntil.set(id, now + theme.motion.base * 4);
 }
 
-function isFresh(id: string): boolean {
+export function isFresh(id: string): boolean {
   const until = freshUntil.get(id);
   if (until === undefined) return false;
   if (performance.now() > until) {
@@ -168,8 +168,10 @@ export const ObjectItemView = memo(function ObjectItemView({ item }: { item: Obj
   const fresh = isFresh(item.id);
 
   if (item.ir.kind !== "shape2d") {
-    // P3 이후 kind별 렌더러가 붙는다. 그 전까지는 원본 잉크라도 보여 준다 — 빈 자리 금지.
-    return <InkStrokes strokes={item.sourceStrokes} />;
+    // 그래프·수식은 HTML 층(ObjectOverlays)이 그린다. 손그림에서 온 객체면 원본 잉크도 남긴다.
+    return item.sourceStrokes.length > 0 && !["plot2d", "formula", "chemEq"].includes(item.ir.kind) ? (
+      <InkStrokes strokes={item.sourceStrokes} />
+    ) : null;
   }
 
   return (

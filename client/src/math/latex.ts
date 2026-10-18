@@ -1,5 +1,4 @@
-import { ComputeEngine } from "@cortex-js/compute-engine";
-import { compile } from "@cortex-js/compute-engine/compile";
+import { ComputeEngine, compile } from "@cortex-js/compute-engine";
 import { isTrigOnly } from "./axes";
 
 /**

@@ -1,9 +1,10 @@
-import { Eraser, Lasso, Pen, Redo2, Sparkles, Undo2 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
+import { Eraser, Lasso, Pen, Redo2, Sparkles, SquareFunction, Undo2 } from "lucide-react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactElement } from "react";
 import { DebugPanel } from "./DebugPanel";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { PointerCanvas, type Tool } from "./ink/PointerCanvas";
 import { recognizeGroup } from "./recognize/recognize";
+import { ObjectOverlays } from "./render/ObjectOverlays";
 import { theme } from "./render/theme";
 import { sessionStore, useSession } from "./store/session";
 import { useLayoutMode, type LayoutMode } from "./ui/layoutMode";
@@ -19,12 +20,20 @@ import { useLayoutMode, type LayoutMode } from "./ui/layoutMode";
  *   └─────────────────────────────┘   wide·split은 위, compact(팝업 창·폰)는 아래.
  */
 
+/** 수식 입력 시트 — Compute Engine·KaTeX를 쓰므로 처음 열 때 내려받는다 */
+const FormulaSheet = lazy(() => import("./ui/FormulaSheet"));
+
 const NO_MATCH_MESSAGE = "도형으로 알아보지 못했어요 · 수식·그래프 인식은 다음 단계에서 붙어요";
 
 export function App(): ReactElement {
   const [tool, setTool] = useState<Tool>("pen");
   const mode = useLayoutMode();
   const { toast, showToast } = useToast();
+  const [sheetArea, setSheetArea] = useState<{ width: number; height: number } | null>(null);
+  const openSheet = useCallback(() => {
+    const r = document.querySelector("main")?.getBoundingClientRect();
+    setSheetArea({ width: r?.width ?? window.innerWidth, height: r?.height ?? window.innerHeight });
+  }, []);
 
   const recognize = useCallback(
     (groupId: string | null) => {
@@ -37,7 +46,7 @@ export function App(): ReactElement {
 
   useKeyboardShortcuts(() => recognize(sessionStore.getState().activeGroupId));
 
-  const toolbar = <Toolbar tool={tool} onToolChange={setTool} mode={mode} />;
+  const toolbar = <Toolbar tool={tool} onToolChange={setTool} mode={mode} onFormula={openSheet} />;
 
   return (
     <div
@@ -66,11 +75,17 @@ export function App(): ReactElement {
         <ErrorBoundary area="canvas">
           <PointerCanvas tool={tool} onHoldSnap={recognize} />
         </ErrorBoundary>
+        <ObjectOverlays />
 
         <EmptyHint />
         <Toast message={toast} />
         <RecognizeFab onRecognize={() => recognize(sessionStore.getState().activeGroupId)} />
         <DebugPanel />
+        {sheetArea && (
+          <Suspense fallback={null}>
+            <FormulaSheet area={sheetArea} onClose={() => setSheetArea(null)} />
+          </Suspense>
+        )}
       </main>
 
       {mode === "compact" && toolbar}
@@ -114,9 +129,10 @@ interface ToolbarProps {
   tool: Tool;
   onToolChange: (tool: Tool) => void;
   mode: LayoutMode;
+  onFormula: () => void;
 }
 
-function Toolbar({ tool, onToolChange, mode }: ToolbarProps): ReactElement {
+function Toolbar({ tool, onToolChange, mode, onFormula }: ToolbarProps): ReactElement {
   const canUndo = useSession((s) => s.history.undo.length > 0);
   const canRedo = useSession((s) => s.history.redo.length > 0);
   const bottom = mode === "compact";
@@ -153,6 +169,7 @@ function Toolbar({ tool, onToolChange, mode }: ToolbarProps): ReactElement {
         onClick={() => onToolChange("eraser")}
       />
       <ToolButton label="올가미" Icon={Lasso} disabled hint="P7에서 활성화" />
+      <ToolButton label="수식·그래프 입력" Icon={SquareFunction} onClick={onFormula} hint="y=x^2, sin(x), x^2+y^2=4 …" />
 
       {!bottom && <span style={{ width: theme.space[2] }} />}
 
@@ -172,7 +189,7 @@ function Toolbar({ tool, onToolChange, mode }: ToolbarProps): ReactElement {
       {mode === "wide" && (
         <>
           <span style={{ flex: 1 }} />
-          <span style={{ fontSize: 12, color: theme.color.asymptote }}>SketchLab · P2</span>
+          <span style={{ fontSize: 12, color: theme.color.asymptote }}>SketchLab · P3</span>
         </>
       )}
     </header>
@@ -247,7 +264,7 @@ function EmptyHint(): ReactElement {
       <p style={{ margin: 0, color: theme.color.asymptote, fontSize: 15, lineHeight: 1.6 }}>
         도형을 그리고 ✨를 누르세요
         <br />
-        <span style={{ fontSize: 13 }}>획 끝에서 펜을 잠깐 멈추면 바로 반듯해져요</span>
+        <span style={{ fontSize: 13 }}>획 끝에서 펜을 잠깐 멈추면 바로 반듯해져요 · 그래프는 ƒ 버튼</span>
       </p>
     </div>
   );

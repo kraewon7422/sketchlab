@@ -4,7 +4,7 @@ import { useStore } from "zustand";
 import { createStore, type StoreApi } from "zustand/vanilla";
 import { bboxOfPoints, distanceToPolyline, unionBBoxes } from "../ink/geometry";
 import { shouldJoinGroup } from "../ink/grouping";
-import type { CanvasItem, InkItem, ObjectItem, Stroke } from "../ink/types";
+import type { BBox, CanvasItem, InkItem, ObjectItem, Stroke } from "../ink/types";
 import { distanceToShape2D, type ObjectTransform } from "../render/shape2dGeometry";
 
 /**
@@ -53,6 +53,14 @@ export interface SessionState extends Doc {
    * 대상이 없거나 잉크가 아니면 null.
    */
   replaceWithObject(inkId: string, ir: SceneIR, transform: ObjectTransform): string | null;
+  /** 손그림 없이 만든 객체(수식 입력 등)를 추가한다. Undo 1단위 "객체 추가". */
+  addObject(ir: SceneIR, transform: ObjectTransform, bbox: BBox): string;
+  /**
+   * 객체 IR을 이력 없이 바꾼다 — 슬라이더를 끄는 동안 매 프레임 호출된다.
+   * 끝나면 commitObjectIR로 한 번에 기록한다 (Undo가 슬라이더 틱마다 쌓이지 않게).
+   */
+  previewObjectIR(id: string, ir: SceneIR): void;
+  commitObjectIR(id: string, before: SceneIR, after: SceneIR, label: string): void;
   /** 지정한 지점 근처의 획을 지운다. 지운 개수를 돌려준다. */
   eraseAt(x: number, y: number, radius: number): number;
   setSelection(ids: string[]): void;
@@ -177,6 +185,30 @@ export const sessionStore: StoreApi<SessionState> = createStore<SessionState>((s
       return object.id;
     },
 
+    addObject(ir, transform, bbox) {
+      const object: ObjectItem = { id: newId("obj"), kind: "object", ir, bbox, sourceStrokes: [], transform };
+      commit("객체 추가", (draft) => {
+        draft.items.push(object);
+        draft.activeGroupId = null;
+      });
+      return object.id;
+    },
+
+    previewObjectIR(id, ir) {
+      set({
+        items: get().items.map((item) => (item.id === id && item.kind === "object" ? { ...item, ir } : item)),
+      });
+    },
+
+    commitObjectIR(id, before, after, label) {
+      // 미리보기로 바뀐 상태를 "이전"으로 되돌린 뒤 정식으로 기록 — 패치가 before → after 한 단계가 된다.
+      get().previewObjectIR(id, before);
+      commit(label, (draft) => {
+        const target = draft.items.find((i) => i.id === id);
+        if (target && target.kind === "object") target.ir = after;
+      });
+    },
+
     eraseAt(x, y, radius) {
       let removed = 0;
 
@@ -187,6 +219,11 @@ export const sessionStore: StoreApi<SessionState> = createStore<SessionState>((s
           if (item.kind === "object") {
             // 인식된 객체는 선에 닿으면 통째로 지운다 (획 단위 지우개와 같은 감각). Undo로 복구.
             if (item.ir.kind === "shape2d" && distanceToShape2D(item.ir.data, item.transform, x, y) <= radius) {
+              removed += 1;
+              continue;
+            }
+            // 그래프·수식 객체는 영역을 문지르면 지운다 (선이 많아 선 단위 판정이 의미 없다)
+            if (item.ir.kind !== "shape2d" && x >= item.bbox.minX && x <= item.bbox.maxX && y >= item.bbox.minY && y <= item.bbox.maxY) {
               removed += 1;
               continue;
             }

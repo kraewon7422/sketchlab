@@ -194,6 +194,8 @@ const Plot2D = z.object({
     )
     .optional(),
   annotations: z.array(z.enum(["roots", "yIntercept", "extrema"])).optional(),
+  /** 그래프 아래에 보여 줄 원래 식 (LaTeX). 정적분처럼 그린 함수와 입력 식이 다를 때 쓴다. */
+  caption: z.string().optional(),
 });
 
 // ─────────────────────────────────────────────────────────── 수식·화학

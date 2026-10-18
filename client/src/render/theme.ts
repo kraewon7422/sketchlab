@@ -87,6 +87,25 @@ export const ink = {
   hoverRadius: 4,
 } as const;
 
+/** 그래프 객체 (§11). 단위 월드 px. */
+export const plot = {
+  /** 기본 그래프 폭 — 화면이 좁으면 줄인다 */
+  width: 420,
+  /** 높이/폭 */
+  aspect: 0.75,
+  /** 눈금 표시 길이 */
+  tick: 4,
+  /** 축 끝 화살촉 */
+  arrow: 7,
+  /** 눈금 라벨 글자 크기 */
+  labelSize: 11,
+  /** 여러 함수일 때 색 순서 — 첫째는 잉크색 */
+  palette: ["#1A1A1A", "#2563EB", "#DC2626", "#059669"],
+  /** 넓이 음영 */
+  shade: "rgba(37,99,235,0.14)",
+  shadeNegative: "rgba(220,38,38,0.12)",
+} as const;
+
 /** 인식된 평면도형 그리기 값 (§11.1 교과서 시각 언어). 단위 월드 px. */
 export const shape = {
   /** 화살촉 길이 */
