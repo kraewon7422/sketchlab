@@ -43,7 +43,7 @@ that must pass before the next one starts. The full design is in the
 | **P2** | **Local shape recognition (Tier 0): lines, arrows, polygons, circles, arcs, parabolas, ellipses, smooth curves** | ✅ **← the live demo** |
 | **P3a** | **Graph engine + typed input: textbook axes (1:1 scale, π ticks, dashed asymptotes), coefficient sliders, integrals** | ✅ |
 | P3b | Handwriting → LaTeX / graphs via a vision model | planned |
-| **P4** | **3D solids with smooth, inertial rotation and exact hidden lines** (3D coordinate space next) | ✅ / 🔜 |
+| **P4** | **3D solids and 3D coordinate space, with smooth inertial rotation and exact hidden lines** | ✅ |
 | P5 | Chemistry: structure recognition, validation and drawing (RDKit) | planned |
 | **P6** | **Into your notes: tap → Copy / Save / Share as a crisp 3× PNG** (drag & drop and re-edit links next) | ✅ / 🔜 |
 | P7 | Correction UI, offline PWA, share-to-SketchLab from notes apps | planned |
@@ -87,6 +87,9 @@ Textbook solids are line drawings, so SketchLab draws them that way — as vecto
 - **Smooth rotation.** Drag to turn (turntable, pitch limited to ±85°), release to let it glide. The glide
   slows by `ω ← ω·e^(−k·dt)` — time-based, so it feels the same on 60 Hz and 120 Hz screens. Double-tap
   returns to the standard view; the angle is saved with the drawing (one undo step).
+- **3D coordinate space**: type points like `A(2,3,4)` to get the textbook picture — x, y, z axes, the point
+  with its coordinates, and the dashed box of perpendiculars to the coordinate planes with the feet marked
+  on the axes. Rotates the same way.
 - No WebGL and no 3D library: a few hundred edges per frame in plain SVG, sharp at any zoom, and ready to
   export as vectors. 14 solids: cube, box, the five Platonic solids, prism, pyramid, frustum, cylinder, cone,
   conical frustum, sphere, hemisphere.
