@@ -164,6 +164,28 @@ const gen = {
     const v = handDraw((t) => vPath(t * 0.5), wing * 2, rand, { closed: false });
     return strokesOf(shaft, v);
   },
+  parabola(rand: () => number): Stroke[] {
+    // U자 포물선 v = h·(2u/w)², 임의 회전
+    const w = 120 + rand() * 200;
+    const h = w * (0.4 + rand() * 0.8);
+    const rot = rand() * Math.PI * 2;
+    const path: Path = (t) => {
+      const u = (t - 0.5) * w;
+      const v = h * (2 * u / w) ** 2 - h / 2;
+      return rotate({ x: C.x + u, y: C.y + v }, C, rot);
+    };
+    return strokesOf(handDraw(path, Math.max(w, h), rand, { closed: false }));
+  },
+  ellipse(rand: () => number): Stroke[] {
+    const rx = 80 + rand() * 100;
+    const ry = rx * (0.4 + rand() * 0.35);
+    const rot = rand() * Math.PI;
+    const path: Path = (t) => {
+      const a = 2 * Math.PI * t;
+      return rotate({ x: C.x + rx * Math.cos(a), y: C.y + ry * Math.sin(a) }, C, rot);
+    };
+    return strokesOf(handDraw(path, 2 * rx, rand, { closed: true }));
+  },
 };
 
 const EXPECTED: Record<keyof typeof gen, string> = {
@@ -172,9 +194,55 @@ const EXPECTED: Record<keyof typeof gen, string> = {
   circle: "circle",
   line: "line",
   arrow: "arrow",
+  parabola: "parabola",
+  ellipse: "ellipse",
 };
 
-describe("Tier 0 Acceptance — 5도형 손그림 인식률 ≥ 80%", () => {
+/** 열린 꺾은선을 따라가는 경로 (글씨 흉내용) */
+function openPath(verts: readonly V[]): Path {
+  const lens = verts.slice(1).map((v, i) => Math.hypot(v.x - (verts[i] as V).x, v.y - (verts[i] as V).y));
+  const total = lens.reduce((a, b) => a + b, 0);
+  return (t) => {
+    let d = Math.min(1, Math.max(0, t)) * total;
+    for (let i = 0; i < lens.length; i++) {
+      const l = lens[i] as number;
+      if (d <= l || i === lens.length - 1) {
+        const a = verts[i] as V;
+        const b = verts[i + 1] as V;
+        const f = l === 0 ? 0 : Math.min(1, d / l);
+        return { x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f };
+      }
+      d -= l;
+    }
+    return verts[verts.length - 1] as V;
+  };
+}
+
+/** 작은 손글씨 "2x=" (획 5개, 글자 높이 ~30px) */
+function handwriting(rand: () => number): Stroke[] {
+  const ox = 200 + rand() * 300;
+  const oy = 200 + rand() * 200;
+  const s = 0.8 + rand() * 0.5;
+  const P = (x: number, y: number): V => ({ x: ox + x * s, y: oy + y * s });
+  const two = openPath([
+    ...Array.from({ length: 9 }, (_, i) => {
+      const a = Math.PI + (i / 8) * Math.PI * 1.2;
+      return P(10 * Math.cos(a), -6 + 9 * Math.sin(a));
+    }),
+    P(-10, 16),
+    P(11, 16),
+  ]);
+  const seg = (a: V, b: V) => openPath([a, b]);
+  return strokesOf(
+    handDraw(two, 30 * s, rand, { closed: false }),
+    handDraw(seg(P(22, -2), P(40, 16)), 25 * s, rand, { closed: false }),
+    handDraw(seg(P(40, -2), P(22, 16)), 25 * s, rand, { closed: false }),
+    handDraw(seg(P(50, 2), P(66, 2)), 16 * s, rand, { closed: false }),
+    handDraw(seg(P(50, 10), P(66, 10)), 16 * s, rand, { closed: false }),
+  );
+}
+
+describe("Tier 0 Acceptance — 7도형 손그림 인식률 ≥ 80%", () => {
   const TRIALS = 40;
   for (const name of Object.keys(gen) as Array<keyof typeof gen>) {
     it(`${name}: ${TRIALS}회 중 80% 이상 정답`, () => {
@@ -189,18 +257,10 @@ describe("Tier 0 Acceptance — 5도형 손그림 인식률 ≥ 80%", () => {
     });
   }
 
-  it("글씨 거부: S자 + 선분 그룹 200개 중 도형으로 둔갑하는 것은 2% 이하", () => {
+  it("글씨 보호: 작은 손글씨 그룹(\"2x=\") 200개 중 도형으로 바뀌는 것은 2% 이하", () => {
     let leaked = 0;
     for (let i = 0; i < 200; i++) {
-      const rand = mulberry32(9000 + i);
-      const s = handDraw(
-        (t) => ({ x: C.x + 60 * Math.sin(2 * Math.PI * t), y: C.y - 100 + 200 * t }),
-        200,
-        rand,
-        { closed: false },
-      );
-      const line = gen.line(rand)[0] as Stroke;
-      if (run([...strokesOf(s), line]) !== null) leaked++;
+      if (run(handwriting(mulberry32(9000 + i))) !== null) leaked++;
     }
     expect(leaked).toBeLessThanOrEqual(4);
   });
@@ -281,17 +341,70 @@ describe("스냅 규칙", () => {
     expect(primitiveKinds(strokesOf(seg(A, B), seg(B, D), seg(D, A)))).toBe("polygon3");
   });
 
-  it("손글씨 같은 곡선(S자)이 섞이면 그룹 전체를 포기한다 — 반만 반듯한 글씨 금지", () => {
-    const rand = mulberry32(9);
-    const s = handDraw(
-      (t) => ({ x: C.x + 60 * Math.sin(2 * Math.PI * t), y: C.y - 100 + 200 * t }),
-      200,
-      rand,
-      { closed: false },
-    );
-    const line = gen.line(rand)[0] as Stroke;
-    expect(run(strokesOf(s))).toBeNull();
-    expect(run([...strokesOf(s), line])).toBeNull();
+  it("큰 S자 곡선은 지그재그가 아니라 모양 그대로 매끈한 곡선이 된다 (원래 선에서 6px 이내)", () => {
+    const ideal = (t: number) => ({ x: C.x + 60 * Math.sin(2 * Math.PI * t), y: C.y - 100 + 200 * t });
+    const strokes = strokesOf(handDraw(ideal, 200, mulberry32(9), { closed: false }));
+    const r = run(strokes);
+    if (!r || r.ir.kind !== "shape2d") throw new Error("인식 실패");
+    const curve = r.ir.data.primitives[0];
+    if (curve?.t !== "curve") throw new Error(`curve가 아님: ${curve?.t}`);
+    const dense = Array.from({ length: 400 }, (_, i) => ideal(i / 399));
+    for (const [lx, ly] of curve.pts) {
+      const x = r.transform.x + lx * r.transform.scale;
+      const y = r.transform.y + ly * r.transform.scale;
+      const d = Math.min(...dense.map((q) => Math.hypot(q.x - x, q.y - y)));
+      expect(d).toBeLessThan(6);
+    }
+  });
+
+  it("기울어진 포물선은 기울기를 유지한 정확한 포물선, 거의 대칭이면 정확히 대칭", () => {
+    const rot = (35 * Math.PI) / 180;
+    const path: Path = (t) => {
+      const u = (t - 0.5) * 200;
+      return rotate({ x: C.x + u, y: C.y + 160 * (u / 100) ** 2 }, C, rot);
+    };
+    const r = run(strokesOf(handDraw(path, 200, mulberry32(21), { closed: false })));
+    if (!r || r.ir.kind !== "shape2d") throw new Error("인식 실패");
+    const pb = r.ir.data.primitives[0];
+    if (pb?.t !== "parabola") throw new Error(`parabola가 아님: ${pb?.t}`);
+    // 대칭: 제어점에서 두 끝점까지 거리가 같다
+    const d0 = Math.hypot(pb.p0[0] - pb.c[0], pb.p0[1] - pb.c[1]);
+    const d1 = Math.hypot(pb.p1[0] - pb.c[0], pb.p1[1] - pb.c[1]);
+    expect(Math.abs(d0 - d1) / Math.max(d0, d1)).toBeLessThan(1e-6);
+    // 축 방향(꼭짓점→제어점의 반대 = 끝점 중점→제어점)이 원래 축(회전된 +y) 근처
+    const mid = [(pb.p0[0] + pb.p1[0]) / 2, (pb.p0[1] + pb.p1[1]) / 2];
+    const axis = Math.atan2(mid[1]! - pb.c[1], mid[0]! - pb.c[0]);
+    const expected = Math.PI / 2 + rot;
+    const diff = Math.abs(((axis - expected + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI);
+    expect((diff * 180) / Math.PI).toBeLessThan(5);
+  });
+
+  it("타원은 장단축비와 기울기를 유지한다", () => {
+    const rot = (20 * Math.PI) / 180;
+    const path: Path = (t) => rotate({ x: C.x + 150 * Math.cos(2 * Math.PI * t), y: C.y + 75 * Math.sin(2 * Math.PI * t) }, C, rot);
+    const r = run(strokesOf(handDraw(path, 300, mulberry32(31), { closed: true })));
+    if (!r || r.ir.kind !== "shape2d") throw new Error("인식 실패");
+    const e = r.ir.data.primitives[0];
+    if (e?.t !== "ellipse") throw new Error(`ellipse가 아님: ${e?.t}`);
+    expect(e.rx / e.ry).toBeGreaterThan(1.75);
+    expect(e.rx / e.ry).toBeLessThan(2.25);
+    const deg = ((((e.rot * 180) / Math.PI) % 180) + 180) % 180;
+    expect(Math.abs(deg - 20)).toBeLessThan(5);
+  });
+
+  it("원·타원·다각형이 아닌 닫힌 모양(D자)은 닫힌 매끈한 곡선 — 모서리는 뾰족하게 유지", () => {
+    const dShape: Path = (t) => {
+      // 왼쪽은 직선, 오른쪽은 반원 → 위아래에 모서리 2개
+      if (t < 0.3) return { x: C.x - 80, y: C.y + 120 - (t / 0.3) * 240 };
+      const a = -Math.PI / 2 + ((t - 0.3) / 0.7) * Math.PI;
+      return { x: C.x - 80 + 120 * Math.cos(a), y: C.y + 120 * Math.sin(a) };
+    };
+    const r = run(strokesOf(handDraw(dShape, 240, mulberry32(41), { closed: true })));
+    if (!r || r.ir.kind !== "shape2d") throw new Error("인식 실패");
+    const cv = r.ir.data.primitives[0];
+    if (cv?.t !== "curve") throw new Error(`curve가 아님: ${cv?.t}`);
+    const dup = cv.pts.filter((p, i) => i > 0 && p[0] === cv.pts[i - 1]![0] && p[1] === cv.pts[i - 1]![1]).length;
+    expect(dup).toBeGreaterThanOrEqual(1); // 모서리 표기(같은 점 두 번)
   });
 
   it("흔들려서 V로 안 읽히는 작은 화살촉도 몸통 끝에 있으면 화살표가 된다", () => {
@@ -309,7 +422,7 @@ describe("스냅 규칙", () => {
     expect(primitiveKinds(strokesOf(shaft, head))).toBe("arrow");
   });
 
-  it("몸통 끝이 아닌 곳의 낙서는 화살촉이 아니다 — 그룹 전체 포기", () => {
+  it("몸통 끝이 아닌 곳의 낙서는 화살촉이 아니다 — 선분 + 곡선으로 따로 남는다", () => {
     const shaft = handDraw((t) => ({ x: 100 + 300 * t, y: 400 }), 300, mulberry32(6), { closed: false });
     const doodle: Point[] = Array.from({ length: 30 }, (_, k) => ({
       x: 250 + 14 * Math.sin(k * 0.9),
@@ -317,7 +430,7 @@ describe("스냅 규칙", () => {
       p: 0.5,
       t: k * 8,
     }));
-    expect(run(strokesOf(shaft, doodle))).toBeNull();
+    expect(primitiveKinds(strokesOf(shaft, doodle))).toBe("curve+line");
   });
 
   it("반원 호는 arc로 인식되고 각도는 증가 방향으로 저장된다", () => {

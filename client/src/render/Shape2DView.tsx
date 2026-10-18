@@ -2,7 +2,7 @@ import type { Shape2DData, Shape2DMark, Shape2DPrimitive } from "@sketchlab/shar
 import { memo } from "react";
 import { InkStrokes } from "../ink/InkLayer";
 import type { ObjectItem } from "../ink/types";
-import { localToWorld, type ObjectTransform } from "./shape2dGeometry";
+import { catmullRomBeziers, localToWorld, type ObjectTransform } from "./shape2dGeometry";
 import { shape, stroke, theme } from "./theme";
 
 /**
@@ -60,6 +60,36 @@ function Primitive({ p, tf }: { p: Shape2DPrimitive; tf: ObjectTransform }) {
     case "polygon": {
       const pts = p.pts.map(W).map((q) => `${q.x},${q.y}`).join(" ");
       return p.closed ? <polygon points={pts} {...lineProps} /> : <polyline points={pts} {...lineProps} />;
+    }
+    case "parabola": {
+      const a = W(p.p0);
+      const c = W(p.c);
+      const b = W(p.p1);
+      // 포물선 구간은 정확히 2차 베지어 — 근사가 아니다
+      return <path d={`M ${a.x} ${a.y} Q ${c.x} ${c.y} ${b.x} ${b.y}`} {...lineProps} />;
+    }
+    case "ellipse": {
+      const c = W(p.c);
+      return (
+        <ellipse
+          cx={c.x}
+          cy={c.y}
+          rx={p.rx * tf.scale}
+          ry={p.ry * tf.scale}
+          transform={`rotate(${(p.rot * 180) / Math.PI} ${c.x} ${c.y})`}
+          {...lineProps}
+        />
+      );
+    }
+    case "curve": {
+      const segs = catmullRomBeziers(p.pts.map(W), p.closed);
+      const first = segs[0]?.[0];
+      if (!first) return null;
+      const d =
+        `M ${first.x} ${first.y}` +
+        segs.map(([, c1, c2, e]) => ` C ${c1.x} ${c1.y} ${c2.x} ${c2.y} ${e.x} ${e.y}`).join("") +
+        (p.closed ? " Z" : "");
+      return <path d={d} {...lineProps} strokeLinejoin="round" />;
     }
     case "arrow": {
       const a = W(p.a);

@@ -47,6 +47,21 @@ const Shape2D = z.object({
           closed: z.boolean(),
         }),
         z.object({ t: z.literal("arrow"), a: Vec2, b: Vec2 }),
+        /** 포물선 구간 = 정확히 2차 베지어 (p0 → 제어점 c → p1) */
+        z.object({ t: z.literal("parabola"), p0: Vec2, c: Vec2, p1: Vec2 }),
+        /** 타원. rot = 장축 방향(라디안) */
+        z.object({
+          t: z.literal("ellipse"),
+          c: Vec2,
+          rx: z.number().positive(),
+          ry: z.number().positive(),
+          rot: z.number(),
+        }),
+        /**
+         * 매끈한 자유 곡선 — 제어점을 지나는 Catmull-Rom 스플라인.
+         * 같은 점이 두 번 연속되면 그 자리는 뾰족한 모서리로 그린다.
+         */
+        z.object({ t: z.literal("curve"), pts: z.array(Vec2).min(2), closed: z.boolean() }),
       ]),
     )
     .min(1),

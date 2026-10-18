@@ -276,3 +276,222 @@ export function unit(a: V, b: V): V {
   const l = dist(a, b);
   return l === 0 ? { x: 0, y: 0 } : { x: (b.x - a.x) / l, y: (b.y - a.y) / l };
 }
+
+// ─────────────────────────────────────────────────────────── 곡선 (v2: 포물선·타원·매끈한 곡선)
+
+export interface ParabolaFit {
+  /** 회전된 좌표계 (u 축 방향 각도) — v = a·u² + b·u + c */
+  theta: number;
+  a: number;
+  b: number;
+  c: number;
+  /** 회전 좌표계 원점 (무게중심) */
+  origin: V;
+  /** 획 처음·끝의 u */
+  u0: number;
+  u1: number;
+  /** 평균제곱근 오차 (px) */
+  rms: number;
+}
+
+function solve3(m: number[][], r: number[]): [number, number, number] | null {
+  const det = (q: number[][]) =>
+    (q[0]![0]! * (q[1]![1]! * q[2]![2]! - q[1]![2]! * q[2]![1]!) -
+      q[0]![1]! * (q[1]![0]! * q[2]![2]! - q[1]![2]! * q[2]![0]!) +
+      q[0]![2]! * (q[1]![0]! * q[2]![1]! - q[1]![1]! * q[2]![0]!));
+  const D = det(m);
+  if (Math.abs(D) < 1e-12) return null;
+  const col = (k: number) => m.map((row, i) => row.map((v, j) => (j === k ? r[i]! : v)));
+  return [det(col(0)) / D, det(col(1)) / D, det(col(2)) / D];
+}
+
+/**
+ * 회전을 허용하는 포물선 맞춤. 각도를 훑으면서 각 방향에서 v = a·u² + b·u + c 최소제곱을 풀고
+ * 오차가 가장 작은 방향을 고른다 (u가 획을 따라 단조여야 그 방향의 함수 그래프로 볼 수 있다).
+ */
+export function fitParabola(pts: readonly V[]): ParabolaFit | null {
+  const n = pts.length;
+  if (n < 5) return null;
+  const origin = { x: pts.reduce((s, p) => s + p.x, 0) / n, y: pts.reduce((s, p) => s + p.y, 0) / n };
+
+  const tryTheta = (theta: number): ParabolaFit | null => {
+    const cos = Math.cos(theta);
+    const sin = Math.sin(theta);
+    const us: number[] = [];
+    const vs: number[] = [];
+    for (const p of pts) {
+      const x = p.x - origin.x;
+      const y = p.y - origin.y;
+      us.push(x * cos + y * sin);
+      vs.push(-x * sin + y * cos);
+    }
+    const u0 = at(us, 0);
+    const u1 = at(us, n - 1);
+    const span = Math.max(...us) - Math.min(...us);
+    if (span <= 0) return null;
+    const dir = Math.sign(u1 - u0);
+    if (dir === 0) return null;
+    for (let i = 1; i < n; i++) if ((at(us, i) - at(us, i - 1)) * dir < -0.02 * span) return null;
+
+    let s0 = 0, s1 = 0, s2 = 0, s3 = 0, s4 = 0, t0 = 0, t1 = 0, t2 = 0;
+    for (let i = 0; i < n; i++) {
+      const u = at(us, i) / span;
+      const v = at(vs, i);
+      const u2 = u * u;
+      s0 += 1; s1 += u; s2 += u2; s3 += u2 * u; s4 += u2 * u2;
+      t0 += v; t1 += v * u; t2 += v * u2;
+    }
+    const sol = solve3([[s4, s3, s2], [s3, s2, s1], [s2, s1, s0]], [t2, t1, t0]);
+    if (!sol) return null;
+    // 정규화(u/span)를 되돌린다
+    const a = sol[0] / (span * span);
+    const b = sol[1] / span;
+    const c = sol[2];
+    let sq = 0;
+    for (let i = 0; i < n; i++) {
+      const u = at(us, i);
+      const e = at(vs, i) - (a * u * u + b * u + c);
+      sq += e * e;
+    }
+    return { theta, a, b, c, origin, u0, u1, rms: Math.sqrt(sq / n) };
+  };
+
+  let best: ParabolaFit | null = null;
+  const consider = (th: number) => {
+    const f = tryTheta(th);
+    if (f && (!best || f.rms < best.rms)) best = f;
+  };
+  for (let d = 0; d < 180; d += 3) consider((d * Math.PI) / 180);
+  const coarse = best as ParabolaFit | null;
+  if (coarse) for (let d = -3; d <= 3; d += 0.25) consider(coarse.theta + (d * Math.PI) / 180);
+  return best;
+}
+
+/** 포물선 위 u의 점 (원래 좌표계) */
+export function parabolaPoint(f: ParabolaFit, u: number): V {
+  const v = f.a * u * u + f.b * u + f.c;
+  const cos = Math.cos(f.theta);
+  const sin = Math.sin(f.theta);
+  return { x: f.origin.x + u * cos - v * sin, y: f.origin.y + u * sin + v * cos };
+}
+
+/** 포물선 구간 [u0,u1]은 정확히 2차 베지어 하나 — 제어점 = 양 끝 접선의 교점 */
+export function parabolaBezier(f: ParabolaFit, u0: number, u1: number): { p0: V; c: V; p1: V } {
+  const v0 = f.a * u0 * u0 + f.b * u0 + f.c;
+  const slope0 = 2 * f.a * u0 + f.b;
+  const uc = (u0 + u1) / 2;
+  const vc = v0 + slope0 * (uc - u0);
+  const cos = Math.cos(f.theta);
+  const sin = Math.sin(f.theta);
+  return {
+    p0: parabolaPoint(f, u0),
+    c: { x: f.origin.x + uc * cos - vc * sin, y: f.origin.y + uc * sin + vc * cos },
+    p1: parabolaPoint(f, u1),
+  };
+}
+
+export interface EllipseFit {
+  c: V;
+  rx: number;
+  ry: number;
+  /** 장축 방향 (라디안) */
+  rot: number;
+  /** 정규화 반지름의 std/mean */
+  residual: number;
+}
+
+/**
+ * 타원 맞춤 (닫힌 획, 호 길이 균등 재표본 전제). 주성분으로 축 방향을 잡고,
+ * 각 축 방향의 양 끝(손떨림 대비 2~98 백분위)으로 반지름을 구한 뒤 잔차를 잰다.
+ */
+export function fitEllipse(pts: readonly V[]): EllipseFit | null {
+  const n = pts.length;
+  if (n < 8) return null;
+  let cx = pts.reduce((s, p) => s + p.x, 0) / n;
+  let cy = pts.reduce((s, p) => s + p.y, 0) / n;
+  let sxx = 0, syy = 0, sxy = 0;
+  for (const p of pts) {
+    const dx = p.x - cx;
+    const dy = p.y - cy;
+    sxx += dx * dx; syy += dy * dy; sxy += dx * dy;
+  }
+  const rot = 0.5 * Math.atan2(2 * sxy, sxx - syy);
+  const cos = Math.cos(rot);
+  const sin = Math.sin(rot);
+  const proj = (p: V) => [(p.x - cx) * cos + (p.y - cy) * sin, -(p.x - cx) * sin + (p.y - cy) * cos] as const;
+  const pct = (arr: number[], q: number) => {
+    const s = [...arr].sort((a, b) => a - b);
+    return at(s, Math.min(s.length - 1, Math.max(0, Math.round(q * (s.length - 1)))));
+  };
+  let us = pts.map((p) => proj(p)[0]);
+  let vs = pts.map((p) => proj(p)[1]);
+  // 중심 보정: 축 방향 양 끝의 중점
+  const du = (pct(us, 0.98) + pct(us, 0.02)) / 2;
+  const dv = (pct(vs, 0.98) + pct(vs, 0.02)) / 2;
+  cx += du * cos - dv * sin;
+  cy += du * sin + dv * cos;
+  us = pts.map((p) => proj(p)[0]);
+  vs = pts.map((p) => proj(p)[1]);
+  const rx = (pct(us, 0.98) - pct(us, 0.02)) / 2;
+  const ry = (pct(vs, 0.98) - pct(vs, 0.02)) / 2;
+  if (!(rx > 0) || !(ry > 0)) return null;
+  const rho = us.map((u, i) => Math.hypot(u / rx, at(vs, i) / ry));
+  const mean = rho.reduce((s, r) => s + r, 0) / n;
+  const sd = Math.sqrt(rho.reduce((s, r) => s + (r - mean) ** 2, 0) / n);
+  return rx >= ry
+    ? { c: { x: cx, y: cy }, rx, ry, rot, residual: sd / mean }
+    : { c: { x: cx, y: cy }, rx: ry, ry: rx, rot: rot + Math.PI / 2, residual: sd / mean };
+}
+
+/** 가우시안 평활 (열린 곡선은 양 끝 고정) */
+export function gaussianSmooth(pts: readonly V[], sigma: number, closed: boolean): V[] {
+  const n = pts.length;
+  if (n < 3 || sigma <= 0) return [...pts];
+  const half = Math.ceil(sigma * 2.5);
+  const w = Array.from({ length: 2 * half + 1 }, (_, i) => Math.exp(-((i - half) ** 2) / (2 * sigma * sigma)));
+  return pts.map((p, i) => {
+    if (!closed && (i === 0 || i === n - 1)) return { ...p };
+    let sx = 0, sy = 0, sw = 0;
+    for (let k = -half; k <= half; k++) {
+      let j = i + k;
+      if (closed) j = mod(j, n);
+      else if (j < 0 || j >= n) continue;
+      const q = at(pts, j);
+      const wk = at(w, k + half);
+      sx += q.x * wk; sy += q.y * wk; sw += wk;
+    }
+    return { x: sx / sw, y: sy / sw };
+  });
+}
+
+/** 좌표 전용 RDP (ink/simplify.ts는 필압·시각을 가진 Point용) */
+export function rdp(pts: readonly V[], eps: number): V[] {
+  if (pts.length <= 2) return [...pts];
+  const keep = new Uint8Array(pts.length);
+  keep[0] = 1;
+  keep[pts.length - 1] = 1;
+  const stack: Array<[number, number]> = [[0, pts.length - 1]];
+  while (stack.length) {
+    const [s, e] = stack.pop() as [number, number];
+    const a = at(pts, s);
+    const b = at(pts, e);
+    let worst = -1;
+    let wi = -1;
+    for (let i = s + 1; i < e; i++) {
+      const p = at(pts, i);
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const l = Math.hypot(dx, dy);
+      const d = l === 0 ? dist(p, a) : Math.abs(dx * (a.y - p.y) - (a.x - p.x) * dy) / l;
+      if (d > worst) {
+        worst = d;
+        wi = i;
+      }
+    }
+    if (worst > eps && wi > 0) {
+      keep[wi] = 1;
+      stack.push([s, wi], [wi, e]);
+    }
+  }
+  return pts.filter((_, i) => keep[i] === 1);
+}

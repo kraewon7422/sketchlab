@@ -5,11 +5,15 @@ import {
   dist,
   findCorners,
   fitCircle,
+  fitEllipse,
   fitLine,
+  fitParabola,
+  gaussianSmooth,
   interiorAngle,
   intersectLines,
   mod,
   normAngle,
+  parabolaBezier,
   pathLength,
   polygonArea,
   projectOnLine,
@@ -75,6 +79,18 @@ export interface Tier0Options {
   arrowHeadRatio: number;
   /** 화살촉 날개와 몸통 사이 각 상한 (도) */
   arrowWingDeg: number;
+  /** 포물선 판정: RMS 오차 / 도형 크기 상한 */
+  parabolaRms: number;
+  /** 호와 포물선이 둘 다 맞으면 호를 고르는 여유 (호 오차 ≤ 포물선 오차 × 이 값) */
+  arcPreference: number;
+  /** 타원 판정: 정규화 반지름 std/mean 상한, 그리고 최소 장단축비(이보다 동그라면 원) */
+  ellipseResidual: number;
+  ellipseMinRatio: number;
+  /** 글씨 추정: 획 3개 이상 + 획 크기 중앙값이 이보다 작고(px) 곡선 획이 있으면 손대지 않는다 */
+  textMaxSize: number;
+  /** 매끈한 곡선 안에서 모서리로 남길 기준 — 도형 꼭짓점보다 엄격 (꺾임각·날카로움) */
+  curveCornerDeg: number;
+  curveSharpRatio: number;
 }
 
 export const TIER0_DEFAULTS: Tier0Options = {
@@ -100,6 +116,13 @@ export const TIER0_DEFAULTS: Tier0Options = {
   joinRatio: 0.15,
   arrowHeadRatio: 0.45,
   arrowWingDeg: 65,
+  parabolaRms: 0.03,
+  arcPreference: 1.1,
+  ellipseResidual: 0.07,
+  ellipseMinRatio: 1.15,
+  textMaxSize: 45,
+  curveCornerDeg: 70,
+  curveSharpRatio: 0.75,
 };
 
 /** 획 하나의 분류 결과 (월드 좌표) */
@@ -108,7 +131,10 @@ export type StrokeShape =
   | { kind: "circle"; c: V; r: number; residual: number }
   | { kind: "arc"; c: V; r: number; from: number; to: number; residual: number }
   | { kind: "polygon"; pts: V[]; residual: number }
-  | { kind: "polyline"; pts: V[]; residual: number };
+  | { kind: "polyline"; pts: V[]; residual: number }
+  | { kind: "parabola"; p0: V; c: V; p1: V; residual: number }
+  | { kind: "ellipse"; c: V; rx: number; ry: number; rot: number; residual: number }
+  | { kind: "curve"; pts: V[]; closed: boolean; residual: number };
 
 export interface Tier0Result {
   ir: SceneIR;
@@ -150,6 +176,16 @@ export function classifyStroke(
   }
 
   if (closed) {
+    // 길쭉한 타원을 먼저 본다 — 원 판정의 잔차 허용 범위 안에 살짝 찌그러진 타원이 들어오기 때문
+    const ellipse = fitEllipse(pts);
+    if (
+      ellipse &&
+      corners.length < 3 &&
+      ellipse.residual < o.ellipseResidual &&
+      ellipse.rx / ellipse.ry > o.ellipseMinRatio
+    ) {
+      return { kind: "ellipse", c: ellipse.c, rx: ellipse.rx, ry: ellipse.ry, rot: ellipse.rot, residual: ellipse.residual };
+    }
     const circle = fitCircle(pts);
     if (
       circle &&
@@ -157,8 +193,12 @@ export function classifyStroke(
     ) {
       return { kind: "circle", c: circle.c, r: circle.r, residual: circle.residual };
     }
-    if (corners.length < 3 || corners.length > 6) return null;
-    return polygonFromCorners(pts, corners, k, o);
+    if (corners.length >= 3 && corners.length <= 6) {
+      const polygon = polygonFromCorners(pts, corners, k, o);
+      if (polygon) return polygon;
+    }
+    // 원·타원·다각형이 아닌 닫힌 모양(하트, D자, 구름…) → 모양 그대로 매끈하게
+    return curveFrom(trimOvershoot(raw), true, o);
   }
 
   if (corners.length === 0) {
@@ -171,11 +211,117 @@ export function classifyStroke(
         residual: line.maxDev / len,
       };
     }
-    return arcFrom(pts, o);
+    // 호와 포물선 둘 다 맞춰 보고 더 잘 맞는 쪽 (비슷하면 호 — 교과서 그림에 더 흔하다)
+    const arc = arcFrom(pts, o);
+    const parabola = parabolaFrom(pts, diag, o);
+    if (arc && arc.kind === "arc" && (!parabola || arc.residual * arc.r <= parabola.rms * o.arcPreference)) return arc;
+    if (parabola) return parabola.shape;
+    return curveFrom(raw, false, o);
   }
 
-  if (corners.length > 6) return null;
-  return polylineFromCorners(pts, corners, k, o);
+  if (corners.length <= 6) {
+    const polyline = polylineFromCorners(pts, corners, k, o);
+    if (polyline) return polyline;
+  }
+  // 좁은 U자 포물선은 꼭짓점이 급해서 "모서리"로 잡힌다 — 꺾은선이 아니면 포물선도 시험해 본다
+  if (corners.length <= 2) {
+    const parabola = parabolaFrom(pts, diag, o);
+    if (parabola) return parabola.shape;
+  }
+  // 직선 조각으로 설명되지 않는 열린 획 → 모서리는 살리고 나머지는 매끈하게
+  return curveFrom(raw, false, o);
+}
+
+/**
+ * 매끈한 곡선 안의 "진짜 모서리"만 찾는다 (하트 꼭지, D자 귀퉁이 같은 곳).
+ * 도형 분류용 꼭짓점 기준보다 훨씬 엄격하다 — 사인파 봉우리·S자 굽이 같은 급한 굽이를
+ * 모서리로 잡으면 매끈하게 다듬은 곡선이 오히려 꺾여 보인다 (실측으로 확인한 문제).
+ */
+function detectCorners(pts: readonly V[], closed: boolean, o: Tier0Options): number[] {
+  const spacing = pathLength(pts, closed) / (closed ? pts.length : pts.length - 1) || 1;
+  const maxK = Math.max(2, Math.floor(pts.length / 6));
+  const k = Math.min(maxK, Math.max(2, Math.round(o.armRatio * pts.length), Math.ceil(o.minArmPx / spacing)));
+  const wide = turningAngles(pts, k, closed);
+  const kShort = Math.min(k - 1, Math.max(1, Math.round(k / 2.5), Math.ceil(o.minShortArmPx / spacing)));
+  const short = turningAngles(pts, kShort, closed);
+  return findCorners(wide, o.curveCornerDeg, k, closed).filter(
+    (i) => at(short, i) >= o.curveSharpRatio * at(wide, i),
+  );
+}
+
+/**
+ * 포물선 (회전 허용). 대칭에 가까우면 정확히 대칭으로 다듬는다 — 꼭짓점을 축으로
+ * 양 팔 길이를 평균. 결과는 2차 베지어 하나(정확한 포물선 구간)로 저장된다.
+ */
+function parabolaFrom(
+  pts: readonly V[],
+  size: number,
+  o: Tier0Options,
+): { shape: StrokeShape; rms: number } | null {
+  const f = fitParabola(pts);
+  if (!f || f.rms > o.parabolaRms * size || f.a === 0) return null;
+  let u0 = f.u0;
+  let u1 = f.u1;
+  const uv = -f.b / (2 * f.a);
+  const lo = Math.min(u0, u1);
+  const hi = Math.max(u0, u1);
+  const v = (u: number) => f.a * u * u + f.b * u + f.c;
+  const height = Math.max(Math.abs(v(u0) - v(uv)), Math.abs(v(u1) - v(uv)));
+  if (uv > lo + 0.15 * (hi - lo) && uv < hi - 0.15 * (hi - lo) && Math.abs(v(u0) - v(u1)) < 0.12 * height) {
+    const half = (Math.abs(u0 - uv) + Math.abs(u1 - uv)) / 2;
+    u0 = uv + Math.sign(u0 - uv) * half;
+    u1 = uv + Math.sign(u1 - uv) * half;
+  }
+  const bz = parabolaBezier(f, u0, u1);
+  return { shape: { kind: "parabola", p0: bz.p0, c: bz.c, p1: bz.p1, residual: f.rms / size }, rms: f.rms };
+}
+
+/**
+ * 매끈한 자유 곡선: 촘촘히 재표본 → 모서리에서 나눠 각 조각을 가우시안 평활 → RDP로 제어점 추림.
+ * 모서리 점은 두 번 넣어 렌더러(Catmull-Rom)가 그 자리를 뾰족하게 유지하게 한다.
+ */
+function curveFrom(raw: readonly V[], closed: boolean, o: Tier0Options): StrokeShape | null {
+  const len = pathLength(raw, closed);
+  if (len === 0) return null;
+  const n = Math.round(Math.min(300, Math.max(48, len / 3)));
+  const pts = resample(raw, n, closed);
+  const sigma = Math.max(1, n * 0.012);
+  // 제어점은 호 길이로 **균등하게** — RDP처럼 들쭉날쭉하면 Catmull-Rom이 굽이를 뾰족하게,
+  // 긴 구간을 직선처럼 만든다(사인파 봉우리가 천막 모양이 되던 실측 문제).
+  const ctrlSpacing = Math.min(14, Math.max(6, len / 40));
+  const corners = detectCorners(pts, closed, o);
+
+  if (closed && corners.length === 0) {
+    const smooth = gaussianSmooth(pts, sigma, true);
+    const step = Math.max(1, Math.round(n / 36));
+    const ctrl = smooth.filter((_, i) => i % step === 0);
+    return { kind: "curve", pts: ctrl, closed: true, residual: 0.03 };
+  }
+
+  // 열린 획: [시작, 모서리…, 끝] / 닫힌 획: 첫 모서리에서 시작해 한 바퀴
+  const order = closed
+    ? Array.from({ length: n + 1 }, (_, i) => mod(at(corners, 0) + i, n))
+    : Array.from({ length: n }, (_, i) => i);
+  const cornerSet = new Set(corners);
+  const out: V[] = [];
+  let seg: V[] = [];
+  const flush = () => {
+    if (seg.length === 0) return;
+    const smooth = gaussianSmooth(seg, sigma, false);
+    const m = Math.max(2, Math.round(pathLength(smooth) / ctrlSpacing) + 1);
+    out.push(...resample(smooth, m, false));
+    seg = [];
+  };
+  order.forEach((idx, j) => {
+    const p = at(pts, idx);
+    seg.push(p);
+    if (j > 0 && j < order.length - 1 && cornerSet.has(idx)) {
+      flush();
+      seg.push(p); // 모서리 점이 다음 조각의 시작 — 출력에 두 번 들어가 뾰족하게 그려진다
+    }
+  });
+  flush();
+  return { kind: "curve", pts: out, closed: false, residual: 0.03 };
 }
 
 /**
@@ -330,6 +476,16 @@ export function recognizeTier0(
   // 전부 낙서면 볼 것도 없다 — 화살표 몸통(선분)이 하나도 없으면 낙서가 쓰일 곳이 없다.
   if (shapes.every((sh) => sh.kind === "scribble")) return null;
 
+  // 글씨처럼 보이는 그룹(작은 획 여러 개 + 곡선 획)은 손대지 않는다 — 글씨를 도형으로 바꾸면
+  // 원본보다 나빠진다. 손글씨 인식(P3b)이 처리할 몫이다.
+  const sizes = strokes
+    .map((st) => Math.hypot(st.bbox.maxX - st.bbox.minX, st.bbox.maxY - st.bbox.minY))
+    .sort((p, q) => p - q);
+  const medianSize = at(sizes, Math.floor(sizes.length / 2));
+  // 직선류(선분·꺾은선·다각형)가 아닌 획이 하나라도 있으면 글씨일 수 있다
+  const curvy = shapes.some((sh) => sh.kind !== "line" && sh.kind !== "polyline" && sh.kind !== "polygon");
+  if (strokes.length >= 3 && medianSize < o.textMaxSize && curvy) return null;
+
   const pieces: Piece[] = shapes.map((shape) => ({ shape, used: false }));
   const prims: WorldPrimitive[] = [];
   const marks: WorldMark[] = [];
@@ -346,7 +502,16 @@ export function recognizeTier0(
     const s = piece.shape;
     switch (s.kind) {
       case "scribble":
-        return null; // 화살촉으로 쓰이지 못한 낙서 = 글씨일 가능성 → 그룹 전체 포기
+        return null; // 화살촉으로 쓰이지 못한 아주 작은 획(점 등) → 그룹 전체 포기
+      case "parabola":
+        prims.push({ t: "parabola", p0: s.p0, c: s.c, p1: s.p1 });
+        break;
+      case "ellipse":
+        prims.push({ t: "ellipse", c: s.c, rx: s.rx, ry: s.ry, rot: s.rot });
+        break;
+      case "curve":
+        prims.push({ t: "curve", pts: s.pts, closed: s.closed });
+        break;
       case "line":
         prims.push({ t: "line", a: s.a, b: s.b });
         break;
@@ -381,7 +546,10 @@ type WorldPrimitive =
   | { t: "arrow"; a: V; b: V }
   | { t: "circle"; c: V; r: number }
   | { t: "arc"; c: V; r: number; from: number; to: number }
-  | { t: "polygon"; pts: V[]; closed: boolean };
+  | { t: "polygon"; pts: V[]; closed: boolean }
+  | { t: "parabola"; p0: V; c: V; p1: V }
+  | { t: "ellipse"; c: V; rx: number; ry: number; rot: number }
+  | { t: "curve"; pts: V[]; closed: boolean };
 
 type WorldMark = { t: "rightAngle"; at: V; dirs: [V, V] };
 
@@ -396,7 +564,12 @@ function shapeSize(s: PieceShape): number {
       return dist(s.a, s.b);
     case "polyline":
     case "polygon":
+    case "curve":
       return pathLength(s.pts);
+    case "parabola":
+      return dist(s.p0, s.c) + dist(s.c, s.p1);
+    case "ellipse":
+      return 2 * s.rx;
     default:
       return 2 * s.r;
   }
@@ -440,7 +613,7 @@ function collectArrows(pieces: Piece[], out: WorldPrimitive[], o: Tier0Options):
           if (dist(s.a, tip) < tol) return wingOk(s.a, s.b);
           if (dist(s.b, tip) < tol) return wingOk(s.b, s.a);
         }
-        if (s.kind === "scribble") {
+        if (s.kind === "scribble" || (s.kind === "curve" && !s.closed)) {
           // 촉 근처에서 시작/통과하고, 몸통 쪽으로 젖혀진 덩어리면 화살촉
           const nearest = Math.min(...s.pts.map((q) => dist(q, tip)));
           const c = {
@@ -453,7 +626,9 @@ function collectArrows(pieces: Piece[], out: WorldPrimitive[], o: Tier0Options):
       });
 
       // V자 한 획이나 낙서 촉은 그 자체로 완성된 촉이라 하나만 허용
-      const isV = heads.some((h) => h.shape.kind === "polyline" || h.shape.kind === "scribble");
+      const isV = heads.some(
+        (h) => h.shape.kind === "polyline" || h.shape.kind === "scribble" || h.shape.kind === "curve",
+      );
       if (heads.length === 0 || heads.length > 2 || (isV && heads.length > 1)) continue;
 
       shaft.used = true;
@@ -704,6 +879,12 @@ function toResult(
         return { t: "arc", c: L(p.c), r: p.r / scale, from: p.from, to: p.to };
       case "polygon":
         return { t: "polygon", pts: p.pts.map(L), closed: p.closed };
+      case "parabola":
+        return { t: "parabola", p0: L(p.p0), c: L(p.c), p1: L(p.p1) };
+      case "ellipse":
+        return { t: "ellipse", c: L(p.c), rx: p.rx / scale, ry: p.ry / scale, rot: p.rot };
+      case "curve":
+        return { t: "curve", pts: p.pts.map(L), closed: p.closed };
     }
   });
   const irMarks: Shape2DMark[] = marks.map((m) => ({ t: m.t, at: L(m.at), dirs: [D(m.dirs[0]), D(m.dirs[1])] }));

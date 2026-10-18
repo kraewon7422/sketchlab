@@ -18,6 +18,88 @@ export function localToWorld([lx, ly]: readonly [number, number], tf: ObjectTran
   return { x: tf.x + lx * tf.scale, y: tf.y + ly * tf.scale };
 }
 
+type P2 = { x: number; y: number };
+
+/**
+ * Catmull-Rom 제어점 → 3차 베지어 조각들 (균일 CR: c1 = p1 + (p2−p0)/6, c2 = p2 − (p3−p1)/6).
+ * 같은 점이 연속되면 그쪽 접선이 짧아져 뾰족한 모서리가 된다 — 곡선 IR의 모서리 표기와 짝.
+ */
+export function catmullRomBeziers(pts: readonly P2[], closed: boolean): Array<[P2, P2, P2, P2]> {
+  const n = pts.length;
+  const P = (i: number): P2 =>
+    closed ? (pts[((i % n) + n) % n] as P2) : (pts[Math.max(0, Math.min(n - 1, i))] as P2);
+  const out: Array<[P2, P2, P2, P2]> = [];
+  const last = closed ? n : n - 1;
+  for (let i = 0; i < last; i++) {
+    const p0 = P(i - 1);
+    const p1 = P(i);
+    const p2 = P(i + 1);
+    const p3 = P(i + 2);
+    out.push([
+      p1,
+      { x: p1.x + (p2.x - p0.x) / 6, y: p1.y + (p2.y - p0.y) / 6 },
+      { x: p2.x - (p3.x - p1.x) / 6, y: p2.y - (p3.y - p1.y) / 6 },
+      p2,
+    ]);
+  }
+  return out;
+}
+
+const cubicAt = ([a, b, c, d]: readonly [P2, P2, P2, P2], t: number): P2 => {
+  const u = 1 - t;
+  return {
+    x: u * u * u * a.x + 3 * u * u * t * b.x + 3 * u * t * t * c.x + t * t * t * d.x,
+    y: u * u * u * a.y + 3 * u * u * t * b.y + 3 * u * t * t * c.y + t * t * t * d.y,
+  };
+};
+
+/** 곡선류 도형을 촘촘한 꺾은선으로 (월드 좌표) — 지우개 히트 판정용 */
+export function primitivePolyline(p: Shape2DPrimitive, tf: ObjectTransform): P2[] {
+  const W = (v: readonly [number, number]) => localToWorld(v, tf);
+  switch (p.t) {
+    case "parabola": {
+      const a = W(p.p0);
+      const c = W(p.c);
+      const b = W(p.p1);
+      return Array.from({ length: 33 }, (_, i) => {
+        const t = i / 32;
+        const u = 1 - t;
+        return { x: u * u * a.x + 2 * u * t * c.x + t * t * b.x, y: u * u * a.y + 2 * u * t * c.y + t * t * b.y };
+      });
+    }
+    case "ellipse": {
+      const c = W(p.c);
+      const rx = p.rx * tf.scale;
+      const ry = p.ry * tf.scale;
+      return Array.from({ length: 65 }, (_, i) => {
+        const th = (i / 64) * 2 * Math.PI;
+        const ex = rx * Math.cos(th);
+        const ey = ry * Math.sin(th);
+        return { x: c.x + ex * Math.cos(p.rot) - ey * Math.sin(p.rot), y: c.y + ex * Math.sin(p.rot) + ey * Math.cos(p.rot) };
+      });
+    }
+    case "curve": {
+      const out: P2[] = [];
+      for (const bz of catmullRomBeziers(p.pts.map(W), p.closed)) {
+        for (let i = 0; i <= 8; i++) out.push(cubicAt(bz, i / 8));
+      }
+      return out;
+    }
+    default:
+      return [];
+  }
+}
+
+function distanceToPolylinePts(x: number, y: number, pts: readonly P2[]): number {
+  let best = Number.POSITIVE_INFINITY;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const a = pts[i] as P2;
+    const b = pts[i + 1] as P2;
+    best = Math.min(best, distanceToSegment(x, y, a.x, a.y, b.x, b.y));
+  }
+  return best;
+}
+
 /** 월드 좌표의 점에서 도형 한 조각의 선까지 거리 */
 export function distanceToPrimitive(p: Shape2DPrimitive, tf: ObjectTransform, x: number, y: number): number {
   const W = (v: readonly [number, number]) => localToWorld(v, tf);
@@ -57,6 +139,10 @@ export function distanceToPrimitive(p: Shape2DPrimitive, tf: ObjectTransform, x:
       }
       return best;
     }
+    case "parabola":
+    case "ellipse":
+    case "curve":
+      return distanceToPolylinePts(x, y, primitivePolyline(p, tf));
   }
 }
 
