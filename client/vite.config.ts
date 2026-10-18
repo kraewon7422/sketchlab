@@ -27,6 +27,9 @@ import { defineConfig, type PluginOption } from "vite";
 const httpsEnabled = process.env["SKETCHLAB_NO_HTTPS"] !== "1";
 
 export default defineConfig({
+  // GitHub Pages는 https://<user>.github.io/sketchlab/ 아래에서 서빙한다.
+  // 배포 워크플로가 SKETCHLAB_BASE=/sketchlab/ 로 빌드하고, 로컬은 기본값 "/" 그대로.
+  base: process.env["SKETCHLAB_BASE"] ?? "/",
   plugins: [
     react(),
     tailwindcss(),
