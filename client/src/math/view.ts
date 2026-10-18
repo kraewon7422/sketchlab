@@ -42,18 +42,14 @@ export function fitView(fns: readonly Fn[], options: FitOptions): View {
   }
   // x축이 화면 밖이지만 가까우면(반 화면 이내) 보이도록 옮긴다
   let ymin = center - yspan / 2;
-  let ymax = center + yspan / 2;
   if (ymin > 0 && ymin < yspan * 0.5) {
-    ymax -= ymin - yspan * 0.1;
-    ymin = yspan * 0.1;
-    ymin = ymax - yspan;
-  } else if (ymax < 0 && ymax > -yspan * 0.5) {
-    ymin += -ymax - yspan * 0.1;
-    ymax = ymin + yspan;
+    ymin = -yspan * 0.1; // x축이 바로 아래 → 아래 여백 10%로 끌어올림
+  } else if (ymin + yspan < 0 && ymin + yspan > -yspan * 0.5) {
+    ymin = yspan * 0.1 - yspan; // x축이 바로 위 → 위 여백 10%
   }
   // 깔끔한 값으로 (0.5 단위)
-  const shift = Math.round(ymin * 2) / 2 - ymin;
-  return { xmin, xmax, ymin: ymin + shift, ymax: ymax + shift };
+  ymin = Math.round(ymin * 2) / 2;
+  return { xmin, xmax, ymin, ymax: ymin + yspan };
 }
 
 /** 그래프 상자 안 x,y → 상자 로컬 px (y 위쪽이 +) */
