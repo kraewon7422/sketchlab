@@ -1,5 +1,5 @@
 import { Copy, Download, Share2, Trash2 } from "lucide-react";
-import { useLayoutEffect, useState, type ReactElement } from "react";
+import { useEffect, useLayoutEffect, useState, type CSSProperties, type ReactElement } from "react";
 import type { CanvasItem } from "../ink/types";
 import { theme } from "../render/theme";
 import { sessionStore, useSession } from "../store/session";
@@ -48,6 +48,25 @@ export function SelectionBar({ onMessage }: { onMessage: (message: string) => vo
 
   useLayoutEffect(() => {
     setBox(item ? boxOf(item) : null);
+  }, [item]);
+
+  // 끌어서 노트에 놓을 수 있는 미리보기 이미지 (선택할 때마다 새로 만든다)
+  const [thumb, setThumb] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    setThumb(null);
+    if (!item) return;
+    void import("../export/exportImage")
+      .then((m) => m.pngDataUrl(item))
+      .then((url) => {
+        if (alive) setThumb(url);
+      })
+      .catch(() => {
+        /* 미리보기가 없어도 복사·저장 버튼은 그대로 쓸 수 있다 */
+      });
+    return () => {
+      alive = false;
+    };
   }, [item]);
 
   if (!item || !box) return null;
@@ -127,6 +146,25 @@ export function SelectionBar({ onMessage }: { onMessage: (message: string) => vo
           zIndex: 15,
         }}
       >
+        {thumb && (
+          <img
+            src={thumb}
+            alt="끌어서 노트에 놓기"
+            title="분할 화면에서 노트 앱으로 끌어다 놓기"
+            draggable
+            style={{
+              height: barH,
+              maxWidth: barH * 1.6,
+              objectFit: "contain",
+              border: `1px solid ${theme.color.sub}`,
+              borderRadius: theme.radius.s,
+              background: theme.color.bg,
+              cursor: "grab",
+              userSelect: "auto",
+              WebkitUserDrag: "element",
+            } as CSSProperties}
+          />
+        )}
         {button("복사", Copy, () => void act("copy"))}
         {button("저장", Download, () => void act("save"))}
         {canShare && button("공유", Share2, () => void act("share"))}

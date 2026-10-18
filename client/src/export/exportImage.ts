@@ -127,6 +127,14 @@ export async function toPng(r: Rendered, background: "white" | "transparent" = e
   }
 }
 
+/**
+ * 끌어다 놓기용 PNG data URL (분할 화면에서 노트 앱으로 드래그, v4 §14.3 경로 ①).
+ * blob: URL은 다른 앱이 읽을 수 없어서 data: URL로 준다.
+ */
+export async function pngDataUrl(item: CanvasItem): Promise<string> {
+  return blobToDataUrl(await toPng(await objectToSvg(item)));
+}
+
 export type ExportResult = { ok: true; message: string } | { ok: false; message: string };
 
 /**
