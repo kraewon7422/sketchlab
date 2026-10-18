@@ -92,15 +92,18 @@ export const ink = {
   tapSlop: 8,
 } as const;
 
-/** 펜 팔레트 — 필기용 6색(검정·파랑·빨강·초록·주황·보라), 형광펜 4색, 굵기 3단계 */
+/** 펜 팔레트 — 자주 쓰는 색 + 무지개·색상/채도/밝기로 아무 색이나, 굵기는 슬라이더 */
 export const penOpts = {
   colors: ["#1A1A1A", "#2563EB", "#DC2626", "#16A34A", "#EA580C", "#7C3AED"],
   colorNames: ["검정", "파랑", "빨강", "초록", "주황", "보라"],
   highlightColors: ["#FACC15", "#4ADE80", "#F472B6", "#60A5FA"],
   highlightNames: ["노랑", "연두", "분홍", "하늘"],
-  /** 펜 굵기 px (필압 0.5 기준) — 가늘게·보통·굵게 */
-  sizes: [1.8, 2.6, 4],
-  highlightSizes: [12, 18, 26],
+  /** 굵기 슬라이더 범위 px (필압 0.5 기준) */
+  penWidth: { min: 0.8, max: 12, default: 2.6 },
+  highlightWidth: { min: 6, max: 48, default: 18 },
+  /** 무지개 줄의 채도·밝기 — 펜은 진하게, 형광펜은 밝게 */
+  rainbowPen: { s: 80, l: 42 },
+  rainbowHighlight: { s: 90, l: 62 },
   /** 형광펜은 반투명 + 곱하기 합성: 아래 글씨가 비쳐 보인다 */
   highlightOpacity: 0.38,
   /** 흔들림 보정 기본값 (0~1) */
