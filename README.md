@@ -12,7 +12,8 @@
 
 **▶ Try it: [kraewon7422.github.io/sketchlab](https://kraewon7422.github.io/sketchlab/)**. Draw a shape, then tap ✨ (or press <kbd>Enter</kbd>).
 On a tablet, finish a stroke and hold the pen still for half a second: that stroke snaps on its own.
-Tap the **ƒ** button to type an equation (`y=x^2-3`, `y=a sin(bx)`, `x^2+y^2=4`, `\int_0^2 x^2 dx`) and get a textbook graph.
+Tap the **ƒ** button to type an equation (`y=x^2-3`, `y=a sin(bx)`, `x^2+y^2=4`, `\int_0^2 x^2 dx`) and get a textbook graph,
+or pick a 3D solid and turn it with your finger.
 
 > 🇰🇷 [한국어 설명은 아래에 있습니다](#한국어)
 
@@ -42,7 +43,7 @@ that must pass before the next one starts. The full design is in the
 | **P2** | **Local shape recognition (Tier 0): lines, arrows, polygons, circles, arcs, parabolas, ellipses, smooth curves** | ✅ **← the live demo** |
 | **P3a** | **Graph engine + typed input: textbook axes (1:1 scale, π ticks, dashed asymptotes), coefficient sliders, integrals** | ✅ |
 | P3b | Handwriting → LaTeX / graphs via a vision model | planned |
-| P4 | 3D solids and 3D coordinate space with smooth, inertial rotation and exact hidden lines | planned |
+| **P4** | **3D solids with smooth, inertial rotation and exact hidden lines** (3D coordinate space next) | ✅ / 🔜 |
 | P5 | Chemistry: structure recognition, validation and drawing (RDKit) | planned |
 | P6 | Export into Samsung Notes / GoodNotes (drag & drop, clipboard, share sheet) | planned |
 | P7 | Correction UI, offline PWA, share-to-SketchLab from notes apps | planned |
@@ -70,6 +71,25 @@ Typed equations become graphs that follow textbook conventions rather than plott
 Parsing and evaluation use [Compute Engine](https://cortexjs.io/compute-engine/) (compiled to JS,
 strict real mode so √(−1) is a gap, not a complex number) and formulas are typeset with
 [KaTeX](https://katex.org). Both load only when the first graph is created.
+
+## Rotatable 3D solids
+
+![Eight solids drawn as textbook line drawings: cube, cylinder, cone, sphere, square pyramid, octahedron, conical frustum and icosahedron, with hidden edges dashed](docs/images/solids.png)
+
+Textbook solids are line drawings, so SketchLab draws them that way — as vectors, not shaded 3D meshes:
+
+- **Exact hidden lines.** Parallel projection; a face is visible when its rotated normal faces the viewer,
+  which on these convex solids decides every edge exactly: an edge is solid if it touches a visible face,
+  dashed if it doesn't (a cube from the standard view: 9 solid, 3 dashed).
+- **Curved surfaces** are smooth groups of small facets. Edges inside a group are never drawn — only the
+  rims and the **silhouette**, where facing flips. A cylinder gets its two generator lines, a sphere its
+  outline and a half-dashed equator, from the same single rule.
+- **Smooth rotation.** Drag to turn (turntable, pitch limited to ±85°), release to let it glide. The glide
+  slows by `ω ← ω·e^(−k·dt)` — time-based, so it feels the same on 60 Hz and 120 Hz screens. Double-tap
+  returns to the standard view; the angle is saved with the drawing (one undo step).
+- No WebGL and no 3D library: a few hundred edges per frame in plain SVG, sharp at any zoom, and ready to
+  export as vectors. 14 solids: cube, box, the five Platonic solids, prism, pyramid, frustum, cylinder, cone,
+  conical frustum, sphere, hemisphere.
 
 ## How shape recognition works
 
@@ -179,6 +199,7 @@ client/src/
   ink/             pen input, palm rejection, stroke outlines, grouping
   recognize/tier0/ local shape recognition (fit.ts, classify.ts + tests)
   math/            graph engine: sampling, asymptotes, ticks, view, LaTeX analysis
+  solid/           3D catalog meshes, projection and hidden-line classification
   render/          SVG renderers, design tokens
   store/           session store (undo/redo), IndexedDB persistence
   ui/              responsive layout modes
@@ -209,8 +230,9 @@ docs/              master spec (design source of truth, Korean)
 
 ### 현재 단계
 
-P3a까지 완료. **ƒ 버튼으로 식을 입력하면 교과서식 그래프**(1:1 축 비율, π 눈금, 점선 점근선, 계수 슬라이더,
-정적분 넓이와 정확한 값)가 그려집니다. 그리고 펜 입력(필압·팜 리젝션·되돌리기, **획 하나를 매끈한 외곽선 하나로 그려 고해상도 화면에서도 선명**) +
+**ƒ 버튼으로 식을 입력하면 교과서식 그래프**(1:1 축 비율, π 눈금, 점선 점근선, 계수 슬라이더,
+정적분 넓이와 정확한 값)가 그려지고, **입체도형 14종**(정육면체·원기둥·원뿔·구·정다면체 등)을 손가락으로 돌려 볼 수 있습니다
+(숨은선은 정확한 점선, 관성 회전, 두 번 탭하면 처음 각도). 그리고 펜 입력(필압·팜 리젝션·되돌리기, **획 하나를 매끈한 외곽선 하나로 그려 고해상도 화면에서도 선명**) +
 **로컬 도형 인식**(선분·화살표·원·호·다각형·**포물선·타원·매끈한 자유 곡선**, 정삼각형·직사각형·정사각형 스냅,
 기울기 보존, 직각 표시). 인식은 전부 브라우저 안에서 돌아가며
 서버·네트워크가 필요 없습니다. 다음은 손글씨 수식 인식, 그 뒤로 3D, 화학, 삼성노트·GoodNotes 내보내기 순서입니다.
