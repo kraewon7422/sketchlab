@@ -169,7 +169,7 @@ export const ObjectItemView = memo(function ObjectItemView({ item }: { item: Obj
 
   if (item.ir.kind !== "shape2d") {
     // 그래프·수식은 HTML 층(ObjectOverlays)이 그린다. 손그림에서 온 객체면 원본 잉크도 남긴다.
-    return item.sourceStrokes.length > 0 && !["plot2d", "formula", "chemEq", "solid3d"].includes(item.ir.kind) ? (
+    return item.sourceStrokes.length > 0 && !["plot2d", "formula", "chemEq", "solid3d", "space3d"].includes(item.ir.kind) ? (
       <InkStrokes strokes={item.sourceStrokes} />
     ) : null;
   }

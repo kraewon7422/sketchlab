@@ -27,6 +27,7 @@ const EXAMPLES: Array<[label: string, latex: string]> = [
   ["원", "x^2+y^2=4"],
   ["극좌표", "r=1+\\cos\\theta"],
   ["정적분", "\\int_0^2 x^2\\,dx"],
+  ["공간좌표", "A(2,3,4)"],
   ["수식", "\\sum_{k=1}^{n} k=\\frac{n(n+1)}{2}"],
 ];
 
@@ -81,6 +82,14 @@ export default function FormulaSheet({ onClose, area }: FormulaSheetProps): Reac
     const r = buildFromInput(input);
     if (!r.ok) {
       setError(r.message);
+      return;
+    }
+    if (r.ir.kind === "space3d") {
+      const S = Math.min(solid.size + 40, area.width - theme.space[6] * 2);
+      const pos = freeSpot(S, S + 24, area);
+      const sid = sessionStore.getState().addObject(r.ir, { x: pos.x, y: pos.y, scale: S }, { minX: pos.x, minY: pos.y, maxX: pos.x + S, maxY: pos.y + S + 24 });
+      markFresh(sid);
+      onClose();
       return;
     }
     const isPlot = r.ir.kind === "plot2d";
@@ -157,7 +166,7 @@ export default function FormulaSheet({ onClose, area }: FormulaSheetProps): Reac
             setText(e.target.value);
             setError(null);
           }}
-          placeholder="예: y=x^2-3   y=sin(x)   x^2+y^2=4"
+          placeholder="예: y=x^2-3   y=sin(x)   x^2+y^2=4   A(2,3,4)"
           spellCheck={false}
           autoCapitalize="off"
           autoCorrect="off"

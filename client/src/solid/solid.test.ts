@@ -85,3 +85,29 @@ describe("교과서 숨은선 — 정확한 가시성", () => {
     expect(performance.now() - t0).toBeLessThan(1500);
   });
 });
+
+describe("공간좌표 — 점과 수선", () => {
+  it("입력 'A(2,3,4), B(-1, 2, 0.5)' → 점 2개, 다른 글자가 섞이면 null", async () => {
+    const { parsePoints } = await import("./space");
+    expect(parsePoints("A(2,3,4), B(-1, 2, 0.5)")).toEqual([
+      { label: "A", at: [2, 3, 4] },
+      { label: "B", at: [-1, 2, 0.5] },
+    ]);
+    expect(parsePoints("y=x^2")).toBeNull();
+    expect(parsePoints("A(2,3)")).toBeNull();
+  });
+
+  it("점 P(2,3,4)의 수선 = 직육면체 모서리 9개(점선), 축 위 눈금 3개", async () => {
+    const { drawSpace } = await import("./space");
+    const d = drawSpace({ view: { range: 5 }, points: [{ at: [2, 3, 4], label: "P" }], showProjections: true }, iso, 30, 0, 0);
+    expect(d.dashed.length).toBe(9);
+    expect(d.ticks.map((t) => t.label).sort()).toEqual(["2", "3", "4"]);
+    expect(d.points[0]?.label).toBe("P(2, 3, 4)");
+  });
+
+  it("좌표평면 위의 점(z=0)은 길이 0인 수선을 그리지 않는다", async () => {
+    const { drawSpace } = await import("./space");
+    const d = drawSpace({ view: { range: 5 }, points: [{ at: [2, 3, 0] }], showProjections: true }, iso, 30, 0, 0);
+    expect(d.dashed.length).toBe(2);
+  });
+});

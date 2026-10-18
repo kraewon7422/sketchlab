@@ -140,6 +140,8 @@ const Space3D = z.object({
   surfaces: z.array(z.object({ latex: z.string() })).optional(),
   /** 점에서 각 좌표평면으로 점선 수선 — 교과서 공간좌표 그림의 핵심 */
   showProjections: z.boolean().default(false),
+  /** 보는 각도 (라디안) */
+  view3: z.object({ yaw: z.number(), pitch: z.number() }).optional(),
 });
 
 // ─────────────────────────────────────────────────────────── 평면좌표·그래프

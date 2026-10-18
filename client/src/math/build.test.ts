@@ -62,3 +62,13 @@ describe("입력 → Scene IR", () => {
     expect(r.ok).toBe(false);
   });
 });
+
+describe("공간좌표 입력", () => {
+  it("A(2,3,4) → space3d, 수선 표시, 범위는 좌표보다 넉넉히", () => {
+    const ir = build("A(2,3,4)");
+    if (ir.kind !== "space3d") throw new Error(ir.kind);
+    expect(ir.data.showProjections).toBe(true);
+    expect(ir.data.points?.[0]).toEqual({ at: [2, 3, 4], label: "A" });
+    expect(ir.data.view.range).toBeGreaterThanOrEqual(5);
+  });
+});

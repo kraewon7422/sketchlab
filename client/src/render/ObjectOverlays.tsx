@@ -13,8 +13,9 @@ import { ErrorBoundary } from "../ErrorBoundary";
 const PlotObject = lazy(() => import("./PlotObject"));
 /** 입체는 따로 — 수학 엔진 없이 가벼운 청크라 그래프 청크를 끌어오지 않는다 */
 const SolidObject = lazy(() => import("./SolidObject"));
+const SpaceObject = lazy(() => import("./SpaceObject"));
 
-const OVERLAY_KINDS = new Set(["plot2d", "formula", "chemEq", "solid3d"]);
+const OVERLAY_KINDS = new Set(["plot2d", "formula", "chemEq", "solid3d", "space3d"]);
 
 /** interactive: 펜 도구일 때만 입체를 돌릴 수 있다 (지우개일 땐 터치가 캔버스로 가야 지워진다) */
 export function ObjectOverlays({ interactive }: { interactive: boolean }): ReactElement {
@@ -28,6 +29,8 @@ export function ObjectOverlays({ interactive }: { interactive: boolean }): React
           {overlays.map((item) =>
             item.ir.kind === "solid3d" ? (
               <SolidObject key={item.id} item={item} interactive={interactive} />
+            ) : item.ir.kind === "space3d" ? (
+              <SpaceObject key={item.id} item={item} interactive={interactive} />
             ) : (
               <PlotObject key={item.id} item={item} />
             ),
