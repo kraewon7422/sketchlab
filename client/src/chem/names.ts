@@ -4,7 +4,7 @@
  */
 
 /** [SMILES, 한국어 이름, 다른 이름들…] — 첫 한국어 이름이 그림 아래 캡션이 된다 */
-const MOLECULES: Array<[smiles: string, name: string, ...aliases: string[]]> = [
+export const MOLECULES: Array<[smiles: string, name: string, ...aliases: string[]]> = [
   ["C", "메테인", "메탄", "methane"],
   ["CC", "에테인", "에탄", "ethane"],
   ["CCC", "프로페인", "프로판", "propane"],

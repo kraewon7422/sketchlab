@@ -10,6 +10,7 @@ import { theme } from "./render/theme";
 import { sessionStore, useSession } from "./store/session";
 import { useViewport, viewportStore } from "./store/viewport";
 import { useLayoutMode, type LayoutMode } from "./ui/layoutMode";
+import { aiConfigured, modelName } from "./ai/settings";
 import { PenPalette } from "./ui/PenPalette";
 
 /**
@@ -27,7 +28,7 @@ import { PenPalette } from "./ui/PenPalette";
 const FormulaSheet = lazy(() => import("./ui/FormulaSheet"));
 const AiSettings = lazy(() => import("./ui/AiSettings"));
 
-const NO_MATCH_MESSAGE = "도형으로 알아보지 못했어요 · 수식·그래프 인식은 다음 단계에서 붙어요";
+const NO_MATCH_MESSAGE = "도형이 아니에요 · 손글씨(글자·수식·화학)를 알아보려면 🤖 AI 설정에서 연결해 주세요";
 
 export function App(): ReactElement {
   const [tool, setTool] = useState<Tool>("pen");
@@ -44,10 +45,20 @@ export function App(): ReactElement {
   }, []);
 
   const recognize = useCallback(
-    (groupId: string | null) => {
+    (groupId: string | null, useAi = true) => {
       if (!groupId) return;
       const outcome = recognizeGroup(groupId);
-      if (!outcome.ok && outcome.reason === "no-match") showToast(NO_MATCH_MESSAGE);
+      if (outcome.ok || outcome.reason !== "no-match") return;
+      // 도형이 아니면 손글씨 — AI에게 (멈춤 스냅은 도형 전용이라 AI로 넘기지 않는다)
+      if (!useAi) return;
+      if (!aiConfigured()) {
+        showToast(NO_MATCH_MESSAGE);
+        return;
+      }
+      showToast(`AI가 읽는 중… (${modelName()})`, 120_000);
+      void import("./ai/recognize")
+        .then((m) => m.recognizeWithAi(groupId))
+        .then((r) => showToast(r.ok ? `${r.label}(으)로 바꿨어요 · 되돌리기로 손글씨 복구` : r.message));
     },
     [showToast],
   );
@@ -82,7 +93,7 @@ export function App(): ReactElement {
       >
         {/* 캔버스가 죽어도 툴바까지 백지가 되지는 않게 따로 감싼다. */}
         <ErrorBoundary area="canvas">
-          <PointerCanvas tool={tool} onHoldSnap={recognize} />
+          <PointerCanvas tool={tool} onHoldSnap={(id) => recognize(id, false)} />
         </ErrorBoundary>
         <ObjectOverlays interactive={tool === "pen"} />
 
@@ -374,14 +385,14 @@ function RecognizeFab({ onRecognize }: { onRecognize: () => void }): ReactElemen
 
 // ─────────────────────────────────────────────────────────── 토스트
 
-function useToast(): { toast: string | null; showToast: (message: string) => void } {
+function useToast(): { toast: string | null; showToast: (message: string, ms?: number) => void } {
   const [toast, setToast] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const showToast = useCallback((message: string) => {
+  const showToast = useCallback((message: string, ms = 2600) => {
     setToast(message);
     if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => setToast(null), 2600);
+    timer.current = setTimeout(() => setToast(null), ms);
   }, []);
 
   useEffect(

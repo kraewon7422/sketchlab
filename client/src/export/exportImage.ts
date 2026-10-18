@@ -98,7 +98,7 @@ export async function objectToSvg(item: CanvasItem): Promise<Rendered> {
 }
 
 /** SVG → PNG (3배, 기본 흰 배경) */
-export async function toPng(r: Rendered, background: "white" | "transparent" = exportOpts.background): Promise<Blob> {
+export async function toPng(r: Rendered, background: "white" | "transparent" = exportOpts.background, scale: number = exportOpts.scale): Promise<Blob> {
   // ⚠️ blob: URL로 불러오면 Chrome이 foreignObject(수식 HTML)가 든 SVG를 "오염(tainted)"으로 보고
   //    toBlob을 막는다. data: URL은 막지 않는다 (실측). 그래서 data: URL로 그린다.
   const url = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(r.svg)}`;
@@ -110,7 +110,7 @@ export async function toPng(r: Rendered, background: "white" | "transparent" = e
       img.onerror = () => reject(new Error("그림을 만들지 못했어요"));
       img.src = url;
     });
-    const s = exportOpts.scale;
+    const s = scale;
     const canvas = document.createElement("canvas");
     canvas.width = Math.round(r.width * s);
     canvas.height = Math.round(r.height * s);
@@ -134,6 +134,11 @@ export async function toPng(r: Rendered, background: "white" | "transparent" = e
  */
 export async function pngDataUrl(item: CanvasItem): Promise<string> {
   return blobToDataUrl(await toPng(await objectToSvg(item)));
+}
+
+/** SVG → PNG data URL (AI에 보낼 손글씨 그림 — 크기는 호출측이 정한다) */
+export async function svgToPngDataUrl(r: Rendered, scale = 1): Promise<string> {
+  return blobToDataUrl(await toPng(r, "white", scale));
 }
 
 export type ExportResult = { ok: true; message: string } | { ok: false; message: string };

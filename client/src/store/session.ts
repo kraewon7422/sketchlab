@@ -52,7 +52,8 @@ export interface SessionState extends Doc {
    * 잉크 그룹을 인식 결과 객체로 그 자리에서 교체한다 (§12.2 in-place). Undo 1단위 "인식 적용".
    * 대상이 없거나 잉크가 아니면 null.
    */
-  replaceWithObject(inkId: string, ir: SceneIR, transform: ObjectTransform): string | null;
+  /** bbox: 바뀐 객체가 차지할 자리 (없으면 원래 잉크 자리) */
+  replaceWithObject(inkId: string, ir: SceneIR, transform: ObjectTransform, bbox?: BBox): string | null;
   /** 손그림 없이 만든 객체(수식 입력 등)를 추가한다. Undo 1단위 "객체 추가". */
   addObject(ir: SceneIR, transform: ObjectTransform, bbox: BBox): string;
   /**
@@ -164,7 +165,7 @@ export const sessionStore: StoreApi<SessionState> = createStore<SessionState>((s
       return groupId;
     },
 
-    replaceWithObject(inkId, ir, transform) {
+    replaceWithObject(inkId, ir, transform, bbox) {
       const target = get().items.find((i) => i.id === inkId);
       if (!target || target.kind !== "ink") return null;
 
@@ -172,7 +173,7 @@ export const sessionStore: StoreApi<SessionState> = createStore<SessionState>((s
         id: newId("obj"),
         kind: "object",
         ir,
-        bbox: target.bbox,
+        bbox: bbox ?? target.bbox,
         sourceStrokes: target.strokes,
         transform,
       };

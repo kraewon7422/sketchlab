@@ -104,6 +104,26 @@ describe("자동 그룹핑", () => {
     expect(shouldJoinGroup(one, l)).toBe(true);
   });
 
+  it("손글씨 H: 28px 떨어진 두 세로획(높이 40)과 가로획이 한 그룹 (H₂O가 갈라지던 버그)", () => {
+    const left = strokeAt(300, 300, 0, 40, 1000);
+    const right = strokeAt(328, 300, 0, 40, 1200);
+    const bar = strokeAt(300, 320, 28, 0, 1400);
+    expect(shouldJoinGroup(left, right)).toBe(true);
+    expect(shouldJoinGroup(right, bar)).toBe(true);
+  });
+
+  it("가는 획이라도 글자 크기보다 훨씬 멀면 다른 그룹", () => {
+    const a = strokeAt(0, 0, 0, 40, 1000);
+    const b = strokeAt(60, 0, 0, 40, 1200);
+    expect(shouldJoinGroup(a, b)).toBe(false);
+  });
+
+  it("둥근 도형은 예전처럼: 원 두 개가 50px 떨어지면 따로", () => {
+    const a = strokeAt(0, 0, 60, 60, 1000);
+    const b = strokeAt(110, 0, 60, 60, 1200);
+    expect(shouldJoinGroup(a, b)).toBe(false);
+  });
+
   it("경계 조건: 정확히 2초는 새 그룹", () => {
     const a = strokeAt(0, 0, 30, 30, 1000);
     const b = strokeAt(10, 10, 30, 30, 3000);

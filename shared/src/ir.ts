@@ -214,6 +214,8 @@ const Formula = z.object({
   latex: z.string().min(1),
   /** 정적분·시그마 등 수치값 "≈" 병기 */
   evaluate: z.boolean().default(false),
+  /** 글자 크기 px — 손글씨에서 온 수식은 손글씨 크기에 맞춘다 (없으면 기본) */
+  fontSize: z.number().positive().optional(),
 });
 
 const Chem = z.object({
@@ -229,7 +231,15 @@ const Chem = z.object({
 });
 
 /** 화학 반응식 — mhchem `\ce{...}` 의 안쪽 문자열 */
-const ChemEquation = z.object({ ce: z.string().min(1) });
+const ChemEquation = z.object({ ce: z.string().min(1), fontSize: z.number().positive().optional() });
+
+/** 손글씨를 알아본 글자 (P3b) — 깔끔한 활자로 */
+const Text = z.object({
+  text: z.string().min(1),
+  fontSize: z.number().positive().optional(),
+  /** 쓴 펜의 색 */
+  color: z.string().optional(),
+});
 
 // ─────────────────────────────────────────────────────────── 조립
 
@@ -248,6 +258,7 @@ export const SceneIRSchema = z.discriminatedUnion("kind", [
   z.object({ ...meta, kind: z.literal("formula"), data: Formula }),
   z.object({ ...meta, kind: z.literal("chem"), data: Chem }),
   z.object({ ...meta, kind: z.literal("chemEq"), data: ChemEquation }),
+  z.object({ ...meta, kind: z.literal("text"), data: Text }),
 ]);
 
 /**

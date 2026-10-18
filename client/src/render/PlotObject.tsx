@@ -53,13 +53,13 @@ function KaTeX({ latex, display = false, size }: { latex: string; display?: bool
 }
 
 export default memo(function PlotObject({ item }: { item: ObjectItem }): ReactElement | null {
-  if (item.ir.kind === "formula") return <FormulaBox item={item} latex={item.ir.data.latex} />;
-  if (item.ir.kind === "chemEq") return <FormulaBox item={item} latex={`\\ce{${item.ir.data.ce}}`} />;
+  if (item.ir.kind === "formula") return <FormulaBox item={item} latex={item.ir.data.latex} fontSize={item.ir.data.fontSize} />;
+  if (item.ir.kind === "chemEq") return <FormulaBox item={item} latex={`\\ce{${item.ir.data.ce}}`} fontSize={item.ir.data.fontSize} />;
   if (item.ir.kind === "plot2d") return <PlotBox item={item} ir={item.ir} />;
   return null;
 });
 
-function FormulaBox({ item, latex }: { item: ObjectItem; latex: string }) {
+function FormulaBox({ item, latex, fontSize }: { item: ObjectItem; latex: string; fontSize?: number | undefined }) {
   const fresh = isFresh(item.id);
   return (
     <div
@@ -69,12 +69,14 @@ function FormulaBox({ item, latex }: { item: ObjectItem; latex: string }) {
         position: "absolute",
         left: item.transform.x,
         top: item.transform.y,
-        maxWidth: item.bbox.maxX - item.bbox.minX,
+        // 손글씨에서 온 수식(fontSize 있음)은 한 줄로 — 손글씨 폭에 맞춰 줄바꿈하면 오히려 어색하다
+        maxWidth: fontSize ? undefined : item.bbox.maxX - item.bbox.minX,
+        whiteSpace: fontSize ? "nowrap" : undefined,
         color: theme.color.ink,
         pointerEvents: "none",
       }}
     >
-      <KaTeX latex={latex} display size={22} />
+      <KaTeX latex={latex} display={!fontSize} size={fontSize ?? 22} />
     </div>
   );
 }

@@ -3,6 +3,7 @@ import type { ObjectItem } from "../ink/types";
 import { useSession } from "../store/session";
 import { useViewport } from "../store/viewport";
 import { ErrorBoundary } from "../ErrorBoundary";
+import { TextObject } from "./TextObject";
 
 /**
  * 그래프·수식 객체 층 — 캔버스(SVG) 위에 겹친 HTML 층.
@@ -18,7 +19,7 @@ const SpaceObject = lazy(() => import("./SpaceObject"));
 /** 화학은 RDKit(WASM 약 7 MB)을 쓰는 따로 된 청크 — 구조식을 처음 그릴 때만 내려받는다 */
 const ChemObject = lazy(() => import("./ChemObject"));
 
-const OVERLAY_KINDS = new Set(["plot2d", "formula", "chemEq", "solid3d", "space3d", "chem"]);
+const OVERLAY_KINDS = new Set(["plot2d", "formula", "chemEq", "solid3d", "space3d", "chem", "text"]);
 
 /** interactive: 펜 도구일 때만 입체를 돌릴 수 있다 (지우개일 땐 터치가 캔버스로 가야 지워진다) */
 export function ObjectOverlays({ interactive }: { interactive: boolean }): ReactElement {
@@ -41,6 +42,8 @@ export function ObjectOverlays({ interactive }: { interactive: boolean }): React
               <SpaceObject key={item.id} item={item} interactive={interactive} />
             ) : item.ir.kind === "chem" ? (
               <ChemObject key={item.id} item={item} />
+            ) : item.ir.kind === "text" ? (
+              <TextObject key={item.id} item={item} />
             ) : (
               <PlotObject key={item.id} item={item} />
             ),
