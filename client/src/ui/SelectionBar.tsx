@@ -3,6 +3,7 @@ import { useEffect, useLayoutEffect, useState, type CSSProperties, type ReactEle
 import type { CanvasItem } from "../ink/types";
 import { theme } from "../render/theme";
 import { sessionStore, useSession } from "../store/session";
+import { useViewport, viewportStore } from "../store/viewport";
 
 /**
  * 선택한 객체의 작은 메뉴 — 노트로 보내기 (마스터스펙 v4 §14).
@@ -37,7 +38,8 @@ function boxOf(item: CanvasItem): Box {
     return { left: r.left - main.left, top: r.top - main.top, width: r.width, height: r.height };
   }
   const { minX, minY, maxX, maxY } = item.bbox;
-  return { left: minX, top: minY, width: maxX - minX, height: maxY - minY };
+  const { tx, ty, k } = viewportStore.getState();
+  return { left: minX * k + tx, top: minY * k + ty, width: (maxX - minX) * k, height: (maxY - minY) * k };
 }
 
 export function SelectionBar({ onMessage }: { onMessage: (message: string) => void }): ReactElement | null {
@@ -46,6 +48,7 @@ export function SelectionBar({ onMessage }: { onMessage: (message: string) => vo
   const item = selection.length === 1 ? items.find((i) => i.id === selection[0]) : undefined;
   const [box, setBox] = useState<Box | null>(null);
   const [busy, setBusy] = useState<Action | null>(null);
+  const viewKey = useViewport((s) => `${s.tx},${s.ty},${s.k}`);
 
   useLayoutEffect(() => {
     setBox(item ? boxOf(item) : null);
@@ -56,11 +59,13 @@ export function SelectionBar({ onMessage }: { onMessage: (message: string) => vo
     const ro = new ResizeObserver(() => setBox(boxOf(item)));
     ro.observe(el);
     return () => ro.disconnect();
-  }, [item]);
+  }, [item, viewKey]);
 
   // 끌어서 노트에 놓을 수 있는 미리보기 이미지 (선택할 때마다, 그림 크기가 바뀔 때마다 새로 만든다)
   const [thumb, setThumb] = useState<string | null>(null);
-  const sizeKey = box ? `${Math.round(box.width)}x${Math.round(box.height)}` : "";
+  // 미리보기는 그림 자체가 바뀔 때만 (확대·이동으로 상자 크기가 바뀌는 건 무시)
+  const zoom = useViewport((s) => s.k);
+  const sizeKey = box ? `${Math.round(box.width / zoom)}x${Math.round(box.height / zoom)}` : "";
   useEffect(() => {
     let alive = true;
     setThumb(null);

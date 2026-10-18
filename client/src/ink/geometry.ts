@@ -9,9 +9,29 @@ import type { BBox, Point } from "./types";
 
 export const EMPTY_BBOX: BBox = { minX: 0, minY: 0, maxX: 0, maxY: 0 };
 
-/** 화면 좌표 → 월드 좌표. 팬·줌이 생기면 여기만 고친다. */
-export function toWorld(clientX: number, clientY: number, rect: DOMRect): { x: number; y: number } {
-  return { x: clientX - rect.left, y: clientY - rect.top };
+/** 화면 이동·확대 상태: 화면 = 월드 × k + (tx, ty) */
+export interface View {
+  tx: number;
+  ty: number;
+  k: number;
+}
+
+export const IDENTITY_VIEW: View = { tx: 0, ty: 0, k: 1 };
+
+/** 화면 좌표 → 월드 좌표 (팬·줌 반영) */
+export function toWorld(clientX: number, clientY: number, rect: Pick<DOMRect, "left" | "top">, view: View = IDENTITY_VIEW): { x: number; y: number } {
+  return { x: (clientX - rect.left - view.tx) / view.k, y: (clientY - rect.top - view.ty) / view.k };
+}
+
+/**
+ * (sx, sy) 화면 점을 고정한 채 확대 배율을 k로 — 핀치·Ctrl+휠의 공통 계산.
+ * 손가락 사이(또는 커서) 아래의 그림이 제자리에 머문다.
+ */
+export function zoomAbout(view: View, sx: number, sy: number, k: number, min: number, max: number): View {
+  const nk = Math.min(max, Math.max(min, k));
+  const wx = (sx - view.tx) / view.k;
+  const wy = (sy - view.ty) / view.k;
+  return { k: nk, tx: sx - wx * nk, ty: sy - wy * nk };
 }
 
 export function bboxOfPoints(points: readonly Point[]): BBox {

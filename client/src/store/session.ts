@@ -232,11 +232,8 @@ export const sessionStore: StoreApi<SessionState> = createStore<SessionState>((s
               removed += 1;
               continue;
             }
-            // 그래프·수식 객체는 영역을 문지르면 지운다 (선이 많아 선 단위 판정이 의미 없다)
-            if (item.ir.kind !== "shape2d" && x >= item.bbox.minX && x <= item.bbox.maxX && y >= item.bbox.minY && y <= item.bbox.maxY) {
-              removed += 1;
-              continue;
-            }
+            // 그래프·화학 구조식·입체·수식은 지우개로 지우지 않는다 — 옆 필기를 지우다 통째로 날아가지 않게.
+            // 눌러서 선택 메뉴의 [삭제]로만 지운다.
             survivors.push(item);
             continue;
           }

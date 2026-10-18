@@ -87,6 +87,19 @@ describe("지우개가 객체도 지운다", () => {
     s().undo();
     expect(s().items[0]?.kind).toBe("object");
   });
+
+  it("그래프·화학 구조식은 지우개로 지워지지 않는다 (선택 메뉴의 삭제로만)", () => {
+    const meta = { version: "4.0" as const, confidence: 1, source: "manual" as const };
+    const box = { minX: 0, minY: 0, maxX: 300, maxY: 300 };
+    s().addObject(
+      { ...meta, kind: "plot2d", data: { functions: [{ latex: "x^2", kind: "explicit" }], view: { xmin: -5, xmax: 5, ymin: -5, ymax: 5, aspect: "equal", xTicks: "auto" }, grid: false, showAxes: true, showCaption: true } },
+      { x: 0, y: 0, scale: 300 },
+      box,
+    );
+    s().addObject({ ...meta, kind: "chem", data: { smiles: "c1ccccc1", style: "skeletal", aromaticCircle: false } }, { x: 0, y: 0, scale: 36 }, box);
+    expect(s().eraseAt(150, 150, 14)).toBe(0);
+    expect(s().items).toHaveLength(2);
+  });
 });
 
 describe("저장소 복원 시 IR 검증", () => {

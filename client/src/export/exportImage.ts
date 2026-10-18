@@ -74,7 +74,8 @@ export async function objectToSvg(item: CanvasItem): Promise<Rendered> {
   // 2) 그래프·입체·수식: HTML 층의 상자 — foreignObject로 통째로
   const box = document.querySelector<HTMLElement>(`[data-overlay-id="${item.id}"]`);
   if (!box) throw new Error("화면에서 이 객체를 찾지 못했어요");
-  const rect = box.getBoundingClientRect();
+  // getBoundingClientRect는 화면 확대가 곱해진 크기 — offset 크기가 원래(월드) 크기다
+  const rect = { width: box.offsetWidth, height: box.offsetHeight };
   const clone = box.cloneNode(true) as HTMLElement;
   clone.querySelectorAll("input, [data-export-skip]").forEach((n) => (n.closest("label") ?? n).remove()); // 슬라이더·안내 문구
   clone.style.position = "static";

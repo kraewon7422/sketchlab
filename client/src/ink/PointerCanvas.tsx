@@ -1,10 +1,11 @@
 import { useEffect, useRef } from "react";
 import { debugLog } from "../debug";
 import { ObjectItemView } from "../render/Shape2DView";
-import { ink, theme } from "../render/theme";
+import { ink, theme, viewport } from "../render/theme";
 import { createStroke, sessionStore, useSession } from "../store/session";
+import { useViewport, viewportStore } from "../store/viewport";
 import { GroupHint, InkItemView } from "./InkLayer";
-import { distance, toWorld } from "./geometry";
+import { distance, toWorld, zoomAbout, type View } from "./geometry";
 import { simplifyRDP } from "./simplify";
 import { smoothStrokePath } from "./smoothOutline";
 import { createPalmRejector } from "./palmRejection";
@@ -45,6 +46,10 @@ interface PointerCanvasProps {
  *    예측 점은 화면에 그릴 때만 덧붙이고 확정 획(drawing.points)에는 절대 넣지 않는다.
  *  - 측면 버튼: 누른 채 닿으면 그 획은 지우개
  *  - 그리고 멈추기: 획 끝에서 ink.holdMs 동안 멈추면 그 획만 바로 도형으로
+ *
+ * 이동·확대 (v4 §12.2): 손가락 두 개 = 이동 + 핀치 확대, 휠 = 이동, Ctrl+휠(트랙패드 핀치) = 확대.
+ * 펜으로 그리는 중에는 손(손바닥) 터치를 무시한다 — 획이 끊기지 않게.
+ * 그림은 <g transform> 하나 안에 월드 좌표 그대로 있고, 포인터 → 월드 변환은 toWorld 한 곳.
  */
 export function PointerCanvas({ tool, onHoldSnap }: PointerCanvasProps) {
   const svgRef = useRef<SVGSVGElement>(null);
@@ -53,6 +58,9 @@ export function PointerCanvas({ tool, onHoldSnap }: PointerCanvasProps) {
 
   const items = useSession((s) => s.items);
   const activeGroupId = useSession((s) => s.activeGroupId);
+  const tx = useViewport((s) => s.tx);
+  const ty = useViewport((s) => s.ty);
+  const k = useViewport((s) => s.k);
 
   // 리스너를 다시 붙이지 않기 위해 도구·콜백은 ref로 읽는다.
   const toolRef = useRef<Tool>(tool);
@@ -69,6 +77,7 @@ export function PointerCanvas({ tool, onHoldSnap }: PointerCanvasProps) {
     /** 진행 중인 획. null이면 그리는 중이 아니다. */
     let drawing: {
       pointerId: number;
+      pointerType: string;
       points: Point[];
       startedAt: number;
       length: number;
@@ -78,6 +87,8 @@ export function PointerCanvas({ tool, onHoldSnap }: PointerCanvasProps) {
     } | null = null;
     /** 지우개 드래그 중인 포인터 */
     let erasingPointerId: number | null = null;
+    /** 지우개 탭 판정용 시작점 (화면 좌표) — 지우개로 그래프를 톡 치면 선택 메뉴(삭제)가 뜬다 */
+    let eraseStart: { x: number; y: number; t: number; moved: number } | null = null;
     /** getBoundingClientRect는 비싸다. 획 시작 시·리사이즈 시에만 읽는다. */
     let rect: DOMRect | null = null;
     /** 아직 화면에 반영되지 않은 좌표 */
@@ -86,6 +97,13 @@ export function PointerCanvas({ tool, onHoldSnap }: PointerCanvasProps) {
     let predicted: Point[] = [];
     let frame: number | null = null;
     let holdTimer: ReturnType<typeof setTimeout> | null = null;
+    /** 화면에 닿아 있는 손가락 (화면 좌표) */
+    const touches = new Map<number, { x: number; y: number }>();
+    /** 두 손가락 제스처: 시작 때의 중점·거리·화면 상태 */
+    let gesture: { mx: number; my: number; dist: number; view: View } | null = null;
+    /** 제스처 뒤 남은 손가락은 다 뗄 때까지 그리지 않는다 (한 손가락 떼는 순간 점이 찍히지 않게) */
+    let gestureLock = false;
+    const view = (): View => viewportStore.getState();
 
     /**
      * 포인터 캡처는 던질 수 있다 — 포인터가 이미 해제됐거나 다른 요소가 잡고 있으면
@@ -111,7 +129,7 @@ export function PointerCanvas({ tool, onHoldSnap }: PointerCanvasProps) {
 
     const sample = (event: PointerEvent, startedAt: number): Point | null => {
       if (!rect) return null;
-      const { x, y } = toWorld(event.clientX, event.clientY, rect);
+      const { x, y } = toWorld(event.clientX, event.clientY, rect, view());
       return {
         x,
         y,
@@ -126,7 +144,7 @@ export function PointerCanvas({ tool, onHoldSnap }: PointerCanvasProps) {
       const dot = hoverRef.current;
       if (!dot) return;
       rect ??= svg.getBoundingClientRect();
-      const { x, y } = toWorld(event.clientX, event.clientY, rect);
+      const { x, y } = toWorld(event.clientX, event.clientY, rect, view());
       dot.setAttribute("cx", String(x));
       dot.setAttribute("cy", String(y));
       dot.setAttribute("visibility", "visible");
@@ -191,12 +209,71 @@ export function PointerCanvas({ tool, onHoldSnap }: PointerCanvasProps) {
 
     const eraseAtEvent = (event: PointerEvent): void => {
       if (!rect) return;
-      const { x, y } = toWorld(event.clientX, event.clientY, rect);
-      sessionStore.getState().eraseAt(x, y, ink.eraserRadius);
+      const v = view();
+      const { x, y } = toWorld(event.clientX, event.clientY, rect, v);
+      // 지우개 반경은 화면 기준 — 확대해도 손에 느껴지는 크기가 같게
+      sessionStore.getState().eraseAt(x, y, ink.eraserRadius / v.k);
+    };
+
+    // ── 이동·확대 ─────────────────────────────────────────
+    const gestureFrame = (): { mx: number; my: number; dist: number } | null => {
+      const [a, b] = [...touches.values()];
+      if (!a || !b) return null;
+      return { mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2, dist: Math.hypot(a.x - b.x, a.y - b.y) || 1 };
+    };
+    const startGesture = (): void => {
+      const f = gestureFrame();
+      if (!f) return;
+      rect = svg.getBoundingClientRect();
+      gesture = { dist: f.dist, mx: f.mx - rect.left, my: f.my - rect.top, view: { ...view() } };
+      gestureLock = true;
+    };
+    const moveGesture = (): void => {
+      const f = gestureFrame();
+      if (!gesture || !f || !rect) return;
+      const g = gesture;
+      const mx = f.mx - rect.left;
+      const my = f.my - rect.top;
+      // 시작 화면에서 중점 아래 있던 점을 기준으로 확대한 뒤, 손가락 중점이 움직인 만큼 옮긴다
+      const zoomed = zoomAbout(g.view, g.mx, g.my, g.view.k * (f.dist / g.dist), viewport.minZoom, viewport.maxZoom);
+      viewportStore.getState().setView({ k: zoomed.k, tx: zoomed.tx + (mx - g.mx), ty: zoomed.ty + (my - g.my) });
+    };
+
+    const onWheel = (event: WheelEvent): void => {
+      event.preventDefault();
+      rect ??= svg.getBoundingClientRect();
+      const v = view();
+      const unit = event.deltaMode === 1 ? 16 : 1;
+      if (event.ctrlKey) {
+        // Ctrl+휠, 트랙패드 핀치(브라우저가 ctrlKey로 보낸다)
+        const nk = v.k * Math.exp(-event.deltaY * unit * viewport.wheelZoom);
+        viewportStore.getState().setView(zoomAbout(v, event.clientX - rect.left, event.clientY - rect.top, nk, viewport.minZoom, viewport.maxZoom));
+      } else {
+        viewportStore.getState().setView({ ...v, tx: v.tx - event.deltaX * unit, ty: v.ty - event.deltaY * unit });
+      }
     };
 
     const onPointerDown = (event: PointerEvent): void => {
       hideHover();
+
+      if (event.pointerType === "touch") {
+        // 펜으로 그리는 중의 손 터치는 손바닥 — 무시한다 (획을 끊지 않는다)
+        if (drawing && drawing.pointerType === "pen") return;
+        touches.set(event.pointerId, { x: event.clientX, y: event.clientY });
+        if (touches.size >= 2) {
+          // 두 번째 손가락: 그리던 한 손가락 획은 버리고 이동·확대로
+          if (drawing) {
+            release(drawing.pointerId);
+            drawing = null;
+          }
+          erasingPointerId = null;
+          clearLive();
+          if (!gesture) startGesture();
+          event.preventDefault();
+          return;
+        }
+        if (gestureLock) return;
+      }
 
       // 이미 그리는 중에 두 번째 포인터가 들어왔다 — 팬·줌 의도로 본다 (§12.2).
       // 진행 중인 획을 버리지 않으면 화면에 지렁이 같은 획이 남는다.
@@ -228,6 +305,7 @@ export function PointerCanvas({ tool, onHoldSnap }: PointerCanvasProps) {
 
       if (toolRef.current === "eraser" || isBarrelPressed(event)) {
         erasingPointerId = event.pointerId;
+        eraseStart = { x: event.clientX, y: event.clientY, t: event.timeStamp, moved: 0 };
         capture(event.pointerId);
         eraseAtEvent(event);
         return;
@@ -238,14 +316,22 @@ export function PointerCanvas({ tool, onHoldSnap }: PointerCanvasProps) {
       if (!first) return;
 
       capture(event.pointerId);
-      drawing = { pointerId: event.pointerId, points: [first], startedAt, length: 0, anchor: first, held: false };
+      drawing = { pointerId: event.pointerId, pointerType: event.pointerType, points: [first], startedAt, length: 0, anchor: first, held: false };
       armHold();
 
       livePathRef.current?.setAttribute("d", smoothStrokePath([first], { baseWidth: ink.width }));
     };
 
     const onPointerMove = (event: PointerEvent): void => {
+      if (touches.has(event.pointerId)) {
+        touches.set(event.pointerId, { x: event.clientX, y: event.clientY });
+        if (gesture) {
+          moveGesture();
+          return;
+        }
+      }
       if (erasingPointerId === event.pointerId) {
+        if (eraseStart) eraseStart.moved = Math.max(eraseStart.moved, distance(eraseStart.x, eraseStart.y, event.clientX, event.clientY));
         eraseAtEvent(event);
         return;
       }
@@ -330,10 +416,39 @@ export function PointerCanvas({ tool, onHoldSnap }: PointerCanvasProps) {
       clearLive();
     };
 
+    /** 손가락을 뗐다: 제스처 정리. 제스처에 쓰인 손가락이면 true */
+    const liftTouch = (pointerId: number): boolean => {
+      if (!touches.delete(pointerId)) return false;
+      if (touches.size < 2) gesture = null;
+      const wasLocked = gestureLock;
+      if (touches.size === 0) gestureLock = false;
+      return wasLocked;
+    };
+
     const onPointerUp = (event: PointerEvent): void => {
+      if (liftTouch(event.pointerId)) return;
       if (erasingPointerId === event.pointerId) {
         erasingPointerId = null;
         release(event.pointerId);
+        const start = eraseStart;
+        eraseStart = null;
+        // 지우개로 톡: 지우개가 안 지우는 객체(그래프·화학 구조식…)면 선택해서 [삭제] 버튼을 띄운다
+        if (start && rect && start.moved < ink.tapMaxMove && event.timeStamp - start.t < ink.tapMaxMs) {
+          const { x, y } = toWorld(start.x, start.y, rect, view());
+          const state = sessionStore.getState();
+          const hit = [...state.items]
+            .reverse()
+            .find(
+              (i) =>
+                i.kind === "object" &&
+                i.ir.kind !== "shape2d" &&
+                x >= i.bbox.minX - ink.tapSlop &&
+                x <= i.bbox.maxX + ink.tapSlop &&
+                y >= i.bbox.minY - ink.tapSlop &&
+                y <= i.bbox.maxY + ink.tapSlop,
+            );
+          state.setSelection(hit ? [hit.id] : []);
+        }
         return;
       }
       if (!drawing || drawing.pointerId !== event.pointerId) return;
@@ -342,6 +457,7 @@ export function PointerCanvas({ tool, onHoldSnap }: PointerCanvasProps) {
     };
 
     const onPointerCancel = (event: PointerEvent): void => {
+      liftTouch(event.pointerId);
       // 시스템이 포인터를 회수했다(전화 수신, 제스처 인식 등). 획은 버린다.
       if (erasingPointerId === event.pointerId) erasingPointerId = null;
       if (drawing?.pointerId === event.pointerId) drawing = null;
@@ -359,6 +475,7 @@ export function PointerCanvas({ tool, onHoldSnap }: PointerCanvasProps) {
     svg.addEventListener("pointercancel", onPointerCancel);
     svg.addEventListener("pointerleave", hideHover);
     svg.addEventListener("contextmenu", onContextMenu);
+    svg.addEventListener("wheel", onWheel, { passive: false });
 
     const resizeObserver = new ResizeObserver(() => {
       // 창 크기가 바뀌면 캐시해 둔 rect가 낡는다.
@@ -373,6 +490,7 @@ export function PointerCanvas({ tool, onHoldSnap }: PointerCanvasProps) {
       svg.removeEventListener("pointercancel", onPointerCancel);
       svg.removeEventListener("pointerleave", hideHover);
       svg.removeEventListener("contextmenu", onContextMenu);
+      svg.removeEventListener("wheel", onWheel);
       resizeObserver.disconnect();
       if (frame !== null) cancelAnimationFrame(frame);
       clearHold();
@@ -397,6 +515,7 @@ export function PointerCanvas({ tool, onHoldSnap }: PointerCanvasProps) {
         cursor: tool === "eraser" ? "cell" : "crosshair",
       }}
     >
+      <g transform={`translate(${tx} ${ty}) scale(${k})`}>
       {activeGroup && <GroupHint item={activeGroup} />}
 
       {items.map((item) =>
@@ -419,6 +538,7 @@ export function PointerCanvas({ tool, onHoldSnap }: PointerCanvasProps) {
         visibility="hidden"
         pointerEvents="none"
       />
+      </g>
     </svg>
   );
 }

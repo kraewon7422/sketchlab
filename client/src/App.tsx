@@ -8,6 +8,7 @@ import { ObjectOverlays } from "./render/ObjectOverlays";
 import { runExport, SelectionBar } from "./ui/SelectionBar";
 import { theme } from "./render/theme";
 import { sessionStore, useSession } from "./store/session";
+import { useViewport, viewportStore } from "./store/viewport";
 import { useLayoutMode, type LayoutMode } from "./ui/layoutMode";
 
 /**
@@ -30,10 +31,14 @@ export function App(): ReactElement {
   const [tool, setTool] = useState<Tool>("pen");
   const mode = useLayoutMode();
   const { toast, showToast } = useToast();
-  const [sheetArea, setSheetArea] = useState<{ width: number; height: number } | null>(null);
+  const [sheetArea, setSheetArea] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
   const openSheet = useCallback(() => {
     const r = document.querySelector("main")?.getBoundingClientRect();
-    setSheetArea({ width: r?.width ?? window.innerWidth, height: r?.height ?? window.innerHeight });
+    // 이동·확대된 화면에서 지금 보이는 부분 (월드 좌표)
+    const { tx, ty, k } = viewportStore.getState();
+    const w = r?.width ?? window.innerWidth;
+    const h = r?.height ?? window.innerHeight;
+    setSheetArea({ x: -tx / k, y: -ty / k, width: w / k, height: h / k });
   }, []);
 
   const recognize = useCallback(
@@ -82,6 +87,7 @@ export function App(): ReactElement {
         <Toast message={toast} />
         <SelectionBar onMessage={showToast} />
         <RecognizeFab onRecognize={() => recognize(sessionStore.getState().activeGroupId)} />
+        <ZoomReset />
         <DebugPanel />
         {sheetArea && (
           <Suspense fallback={null}>
@@ -287,6 +293,37 @@ function EmptyHint(): ReactElement {
         <span style={{ fontSize: 13 }}>획 끝에서 펜을 잠깐 멈추면 바로 반듯해져요 · 그래프는 ƒ 버튼</span>
       </p>
     </div>
+  );
+}
+
+/** 이동·확대했을 때만 보이는 "원래대로" 알약 — 지금 배율도 알려 준다 */
+function ZoomReset(): ReactElement | null {
+  const k = useViewport((s) => s.k);
+  const moved = useViewport((s) => s.tx !== 0 || s.ty !== 0 || s.k !== 1);
+  if (!moved) return null;
+  return (
+    <button
+      type="button"
+      onClick={() => viewportStore.getState().reset()}
+      title="원래 위치·크기로"
+      style={{
+        position: "absolute",
+        left: "50%",
+        transform: "translateX(-50%)",
+        bottom: `calc(${theme.space[4]}px + env(safe-area-inset-bottom))`,
+        minHeight: 36,
+        padding: `0 ${theme.space[4]}px`,
+        border: `1px solid ${theme.color.sub}`,
+        borderRadius: 999,
+        background: theme.color.bg,
+        color: theme.color.ink,
+        fontSize: 13,
+        boxShadow: "0 2px 10px rgba(26,26,26,0.10)",
+        cursor: "pointer",
+      }}
+    >
+      {Math.round(k * 100)}% · 원래대로
+    </button>
   );
 }
 

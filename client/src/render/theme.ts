@@ -92,6 +92,14 @@ export const ink = {
   tapSlop: 8,
 } as const;
 
+/** 캔버스 이동·확대 (v4 §12.2) — 두 손가락 핀치, 마우스 휠, Ctrl+휠. */
+export const viewport = {
+  minZoom: 0.4,
+  maxZoom: 4,
+  /** 휠 한 단위(deltaY 1)당 확대 비율 지수 */
+  wheelZoom: 0.0015,
+} as const;
+
 /** 그래프 객체 (§11). 단위 월드 px. */
 export const plot = {
   /** 기본 그래프 폭 — 화면이 좁으면 줄인다 */

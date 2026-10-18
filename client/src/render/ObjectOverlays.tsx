@@ -1,6 +1,7 @@
 import { lazy, Suspense, type ReactElement } from "react";
 import type { ObjectItem } from "../ink/types";
 import { useSession } from "../store/session";
+import { useViewport } from "../store/viewport";
 import { ErrorBoundary } from "../ErrorBoundary";
 
 /**
@@ -23,9 +24,14 @@ const OVERLAY_KINDS = new Set(["plot2d", "formula", "chemEq", "solid3d", "space3
 export function ObjectOverlays({ interactive }: { interactive: boolean }): ReactElement {
   const items = useSession((s) => s.items);
   const overlays = items.filter((i): i is ObjectItem => i.kind === "object" && OVERLAY_KINDS.has(i.ir.kind));
+  const tx = useViewport((s) => s.tx);
+  const ty = useViewport((s) => s.ty);
+  const k = useViewport((s) => s.k);
 
   return (
     <div style={{ position: "absolute", inset: 0, pointerEvents: "none", overflow: "hidden" }}>
+      {/* 캔버스와 같은 이동·확대 (화면 = 월드 × k + t) */}
+      <div style={{ position: "absolute", left: 0, top: 0, transformOrigin: "0 0", transform: `translate(${tx}px, ${ty}px) scale(${k})` }}>
       <ErrorBoundary area="graphs">
         <Suspense fallback={null}>
           {overlays.map((item) =>
@@ -41,6 +47,7 @@ export function ObjectOverlays({ interactive }: { interactive: boolean }): React
           )}
         </Suspense>
       </ErrorBoundary>
+      </div>
     </div>
   );
 }

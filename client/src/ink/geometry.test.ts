@@ -9,6 +9,9 @@ import {
   inflateBBox,
   signedArea,
   unionBBoxes,
+  toWorld,
+  zoomAbout,
+  IDENTITY_VIEW,
 } from "./geometry";
 import type { Point } from "./types";
 
@@ -134,5 +137,30 @@ describe("signedArea", () => {
 
   it("시계 방향은 음수 — 감김 방향 통일 판정의 근거", () => {
     expect(signedArea([{ x: 0, y: 3 }, { x: 4, y: 3 }, { x: 4, y: 0 }, { x: 0, y: 0 }])).toBe(-12);
+  });
+});
+
+describe("이동·확대 (toWorld, zoomAbout)", () => {
+  const rect = { left: 10, top: 20 };
+
+  it("확대·이동한 화면의 점을 월드 좌표로 되돌린다", () => {
+    const view = { tx: 100, ty: -50, k: 2 };
+    // 월드 (30, 40) → 화면 (30·2+100, 40·2−50) + rect
+    expect(toWorld(160 + 10, 30 + 20, rect, view)).toEqual({ x: 30, y: 40 });
+  });
+
+  it("핀치 중심 아래의 월드 점은 제자리에 머문다", () => {
+    const v0 = { tx: 40, ty: 30, k: 1.5 };
+    const v1 = zoomAbout(v0, 300, 200, 3, 0.4, 4);
+    const before = toWorld(300, 200, { left: 0, top: 0 }, v0);
+    const after = toWorld(300, 200, { left: 0, top: 0 }, v1);
+    expect(after.x).toBeCloseTo(before.x, 9);
+    expect(after.y).toBeCloseTo(before.y, 9);
+    expect(v1.k).toBe(3);
+  });
+
+  it("배율은 최소·최대 안으로 묶인다", () => {
+    expect(zoomAbout(IDENTITY_VIEW, 0, 0, 100, 0.4, 4).k).toBe(4);
+    expect(zoomAbout(IDENTITY_VIEW, 0, 0, 0.01, 0.4, 4).k).toBe(0.4);
   });
 });
