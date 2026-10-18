@@ -65,6 +65,8 @@ const Shape2D = z.object({
       ]),
     )
     .min(1),
+  /** 선 색 — 색 펜으로 그린 도형은 정리한 뒤에도 그 색 (없으면 기본 잉크색) */
+  color: z.string().optional(),
   labels: z.array(z.object({ text: z.string(), at: Vec2 })).optional(),
   marks: z
     .array(

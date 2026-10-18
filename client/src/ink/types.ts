@@ -31,8 +31,12 @@ export interface Stroke {
   bbox: BBox;
   /** 스트로크가 끝난 벽시계 시각(ms). 그룹핑의 2초 판정에 쓴다. */
   endedAt: number;
-  /** 지우개로 그린 획인지. 현재는 획 단위 지우개라 저장되지 않지만, 입력 종류 구분용. */
-  tool: "pen";
+  /** 펜 또는 형광펜 (형광펜은 반투명·넓은 획, 도형 인식 대상이 아니다) */
+  tool: "pen" | "highlighter";
+  /** 색 (없으면 기본 잉크색 — 예전에 저장된 획) */
+  color?: string;
+  /** 기본 굵기 px (없으면 ink.width) */
+  width?: number;
 }
 
 export interface InkItem {

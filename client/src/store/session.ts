@@ -319,13 +319,18 @@ export function __resetSession(): void {
 }
 
 /** 스트로크를 만든다. 컴포넌트와 테스트가 같은 경로를 쓰도록 여기 둔다. */
-export function createStroke(points: Stroke["points"], endedAt: number): Stroke {
+export function createStroke(
+  points: Stroke["points"],
+  endedAt: number,
+  style?: { tool: Stroke["tool"]; color: string; width: number },
+): Stroke {
   return {
     id: newId("stroke"),
     points,
     bbox: bboxOfPoints(points),
     endedAt,
-    tool: "pen",
+    tool: style?.tool ?? "pen",
+    ...(style ? { color: style.color, width: style.width } : {}),
   };
 }
 

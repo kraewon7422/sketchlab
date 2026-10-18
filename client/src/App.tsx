@@ -10,6 +10,7 @@ import { theme } from "./render/theme";
 import { sessionStore, useSession } from "./store/session";
 import { useViewport, viewportStore } from "./store/viewport";
 import { useLayoutMode, type LayoutMode } from "./ui/layoutMode";
+import { PenPalette } from "./ui/PenPalette";
 
 /**
  * 앱 셸 — 마스터스펙 v4 §15.2의 화면 구조.
@@ -194,6 +195,7 @@ function Toolbar({ tool, onToolChange, mode, onFormula }: ToolbarProps): ReactEl
         hint="S Pen 버튼을 누른 채 그어도 지워집니다"
         onClick={() => onToolChange("eraser")}
       />
+      <PenPalette onPick={() => onToolChange("pen")} openUp={bottom} />
       <ToolButton label="올가미" Icon={Lasso} disabled hint="P7에서 활성화" />
       <ToolButton label="수식·그래프 입력" Icon={SquareFunction} onClick={onFormula} hint="y=x^2, sin(x), x^2+y^2=4 …" />
 

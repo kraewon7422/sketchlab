@@ -25,7 +25,12 @@ export function recognizeGroup(inkId: string): RecognizeOutcome {
     return { ok: false, reason: "no-match" };
   }
 
-  const objectId = state.replaceWithObject(inkId, result.ir, result.transform);
+  // 한 가지 색 펜으로만 그렸으면 정리한 도형도 그 색
+  const colors = new Set(item.strokes.map((s) => s.color ?? ""));
+  const color = colors.size === 1 ? [...colors][0] : "";
+  const ir = color && result.ir.kind === "shape2d" ? { ...result.ir, data: { ...result.ir.data, color } } : result.ir;
+
+  const objectId = state.replaceWithObject(inkId, ir, result.transform);
   if (!objectId) return { ok: false, reason: "not-found" };
 
   markFresh(objectId);

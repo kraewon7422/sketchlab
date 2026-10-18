@@ -13,8 +13,9 @@ import { shape, stroke, theme } from "./theme";
  * 교과서 그림은 크기와 관계없이 선 굵기가 같아야 한다.
  */
 
+// 색은 바깥 <g color>에서 물려받는다 (currentColor) — 색 펜으로 그린 도형도 같은 코드로
 const lineProps = {
-  stroke: theme.color.ink,
+  stroke: "currentColor",
   strokeWidth: stroke.main,
   strokeLinecap: "round",
   strokeLinejoin: "miter",
@@ -24,7 +25,7 @@ const lineProps = {
 
 export function Shape2DView({ data, transform }: { data: Shape2DData; transform: ObjectTransform }) {
   return (
-    <g>
+    <g color={data.color ?? theme.color.ink}>
       {data.primitives.map((p, i) => (
         <Primitive key={i} p={p} tf={transform} />
       ))}
@@ -112,8 +113,8 @@ function Primitive({ p, tf }: { p: Shape2DPrimitive; tf: ObjectTransform }) {
           <line x1={a.x} y1={a.y} x2={neck.x} y2={neck.y} {...lineProps} />
           <polygon
             points={`${b.x},${b.y} ${w1.x},${w1.y} ${w2.x},${w2.y}`}
-            fill={theme.color.ink}
-            stroke={theme.color.ink}
+            fill="currentColor"
+            stroke="currentColor"
             strokeWidth={stroke.sub}
             strokeLinejoin="round"
           />
@@ -135,7 +136,7 @@ function Mark({ m, tf }: { m: Shape2DMark; tf: ObjectTransform }) {
     <polyline
       points={`${a.x},${a.y} ${b.x},${b.y} ${c.x},${c.y}`}
       fill="none"
-      stroke={theme.color.ink}
+      stroke="currentColor"
       strokeWidth={stroke.sub}
     />
   );

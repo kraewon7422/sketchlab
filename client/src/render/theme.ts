@@ -92,6 +92,23 @@ export const ink = {
   tapSlop: 8,
 } as const;
 
+/** 펜 팔레트 — 필기용 6색(검정·파랑·빨강·초록·주황·보라), 형광펜 4색, 굵기 3단계 */
+export const penOpts = {
+  colors: ["#1A1A1A", "#2563EB", "#DC2626", "#16A34A", "#EA580C", "#7C3AED"],
+  colorNames: ["검정", "파랑", "빨강", "초록", "주황", "보라"],
+  highlightColors: ["#FACC15", "#4ADE80", "#F472B6", "#60A5FA"],
+  highlightNames: ["노랑", "연두", "분홍", "하늘"],
+  /** 펜 굵기 px (필압 0.5 기준) — 가늘게·보통·굵게 */
+  sizes: [1.8, 2.6, 4],
+  highlightSizes: [12, 18, 26],
+  /** 형광펜은 반투명 + 곱하기 합성: 아래 글씨가 비쳐 보인다 */
+  highlightOpacity: 0.38,
+  /** 흔들림 보정 기본값 (0~1) */
+  defaultSmoothing: 0.45,
+  /** 보정 100%일 때 "줄" 길이 (화면 px) — 이보다 작은 떨림은 선에 안 나타난다 */
+  stabilizeMaxPx: 9,
+} as const;
+
 /** 캔버스 이동·확대 (v4 §12.2) — 두 손가락 핀치, 마우스 휠, Ctrl+휠. */
 export const viewport = {
   minZoom: 0.4,

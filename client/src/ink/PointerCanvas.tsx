@@ -1,9 +1,11 @@
 import { useEffect, useRef } from "react";
 import { debugLog } from "../debug";
 import { ObjectItemView } from "../render/Shape2DView";
-import { ink, theme, viewport } from "../render/theme";
+import { ink, penOpts, theme, viewport } from "../render/theme";
 import { createStroke, sessionStore, useSession } from "../store/session";
 import { useViewport, viewportStore } from "../store/viewport";
+import { currentStrokeStyle, penStore } from "../store/pen";
+import { createStabilizer } from "./stabilize";
 import { GroupHint, InkItemView } from "./InkLayer";
 import { distance, toWorld, zoomAbout, type View } from "./geometry";
 import { simplifyRDP } from "./simplify";
@@ -78,6 +80,11 @@ export function PointerCanvas({ tool, onHoldSnap }: PointerCanvasProps) {
     let drawing: {
       pointerId: number;
       pointerType: string;
+      /** 이 획의 펜 (그리는 중에 팔레트를 바꿔도 획은 그대로) */
+      style: ReturnType<typeof currentStrokeStyle>;
+      stabilizer: ReturnType<typeof createStabilizer>;
+      /** 보정 전 마지막 실제 펜촉 — 뗄 때 끝을 여기까지 잇는다 */
+      lastRaw: Point | undefined;
       points: Point[];
       startedAt: number;
       length: number;
@@ -104,6 +111,15 @@ export function PointerCanvas({ tool, onHoldSnap }: PointerCanvasProps) {
     /** 제스처 뒤 남은 손가락은 다 뗄 때까지 그리지 않는다 (한 손가락 떼는 순간 점이 찍히지 않게) */
     let gestureLock = false;
     const view = (): View => viewportStore.getState();
+    const drawingHighlighter = (): boolean => (drawing ? drawing.style.tool : penStore.getState().kind) === "highlighter";
+    /** 진행 중 획의 색·투명도를 그 펜에 맞춘다 */
+    const styleLive = (style: ReturnType<typeof currentStrokeStyle>): void => {
+      const path = livePathRef.current;
+      if (!path) return;
+      path.setAttribute("fill", style.color);
+      path.setAttribute("opacity", style.tool === "highlighter" ? String(penOpts.highlightOpacity) : "1");
+      path.style.mixBlendMode = style.tool === "highlighter" ? "multiply" : "";
+    };
 
     /**
      * 포인터 캡처는 던질 수 있다 — 포인터가 이미 해제됐거나 다른 요소가 잡고 있으면
@@ -134,7 +150,8 @@ export function PointerCanvas({ tool, onHoldSnap }: PointerCanvasProps) {
         x,
         y,
         // 필압 미지원 입력은 0을 준다. 그대로 쓰면 획이 사라지므로 중간값으로 대체.
-        p: event.pressure > 0 ? event.pressure : 0.5,
+        // 형광펜은 필압과 무관하게 일정한 굵기 (형광펜다움)
+        p: drawingHighlighter() ? 0.5 : event.pressure > 0 ? event.pressure : 0.5,
         t: event.timeStamp - startedAt,
       };
     };
@@ -164,7 +181,7 @@ export function PointerCanvas({ tool, onHoldSnap }: PointerCanvasProps) {
       clearHold();
       holdTimer = setTimeout(() => {
         holdTimer = null;
-        if (!drawing || drawing.length < ink.holdMinLength) return;
+        if (!drawing || drawing.length < ink.holdMinLength || drawing.style.tool === "highlighter") return;
         drawing.held = true;
         // 확정됐다는 신호: 진행 중 획 색을 강조색으로. 놓으면 도형으로 바뀐다.
         livePathRef.current?.setAttribute("fill", theme.color.accent);
@@ -188,7 +205,7 @@ export function PointerCanvas({ tool, onHoldSnap }: PointerCanvasProps) {
 
       // 예측 점은 그릴 때만 덧붙인다 — 다음 프레임에 실제 점으로 대체된다
       const shown = predicted.length > 0 ? [...drawing.points, ...predicted] : drawing.points;
-      path.setAttribute("d", smoothStrokePath(shown, { baseWidth: ink.width }));
+      path.setAttribute("d", smoothStrokePath(shown, { baseWidth: drawing.style.width }));
     };
 
     const schedulePaint = (): void => {
@@ -204,7 +221,6 @@ export function PointerCanvas({ tool, onHoldSnap }: PointerCanvasProps) {
         frame = null;
       }
       livePathRef.current?.setAttribute("d", "");
-      livePathRef.current?.setAttribute("fill", theme.color.ink);
     };
 
     const eraseAtEvent = (event: PointerEvent): void => {
@@ -312,14 +328,31 @@ export function PointerCanvas({ tool, onHoldSnap }: PointerCanvasProps) {
       }
 
       const startedAt = event.timeStamp;
-      const first = sample(event, startedAt);
-      if (!first) return;
+      const style = currentStrokeStyle();
+      // 줄 길이는 화면 기준 px — 확대해도 손에 느껴지는 보정이 같게
+      const stabilizer = createStabilizer((penStore.getState().smoothing * penOpts.stabilizeMaxPx) / view().k);
+      drawing = null;
+      const raw = sample(event, startedAt);
+      if (!raw) return;
+      const first = stabilizer.push(raw) ?? raw;
 
       capture(event.pointerId);
-      drawing = { pointerId: event.pointerId, pointerType: event.pointerType, points: [first], startedAt, length: 0, anchor: first, held: false };
+      drawing = {
+        pointerId: event.pointerId,
+        pointerType: event.pointerType,
+        style,
+        stabilizer,
+        lastRaw: raw,
+        points: [first],
+        startedAt,
+        length: 0,
+        anchor: first,
+        held: false,
+      };
       armHold();
 
-      livePathRef.current?.setAttribute("d", smoothStrokePath([first], { baseWidth: ink.width }));
+      styleLive(style);
+      livePathRef.current?.setAttribute("d", smoothStrokePath([first], { baseWidth: style.width }));
     };
 
     const onPointerMove = (event: PointerEvent): void => {
@@ -350,15 +383,18 @@ export function PointerCanvas({ tool, onHoldSnap }: PointerCanvasProps) {
       const samples = coalesced.length > 0 ? coalesced : [event];
 
       for (const raw of samples) {
-        const point = sample(raw, drawing.startedAt);
-        if (!point) continue;
+        const real = sample(raw, drawing.startedAt);
+        if (!real) continue;
+        drawing.lastRaw = real;
+        const point = drawing.stabilizer.push(real);
+        if (!point) continue; // 줄이 느슨함 — 떨림이라 선을 움직이지 않는다
         queued.push(point);
         // 멈춘 뒤 다시 움직이면 확정을 풀고 타이머를 다시 건다.
         if (distance(point.x, point.y, drawing.anchor.x, drawing.anchor.y) > ink.holdTolerance) {
           drawing.anchor = point;
           if (drawing.held) {
             drawing.held = false;
-            livePathRef.current?.setAttribute("fill", theme.color.ink);
+            livePathRef.current?.setAttribute("fill", drawing.style.color);
           }
           armHold();
         }
@@ -367,9 +403,12 @@ export function PointerCanvas({ tool, onHoldSnap }: PointerCanvasProps) {
       const next =
         typeof event.getPredictedEvents === "function" ? event.getPredictedEvents() : [];
       predicted = [];
-      for (const raw of next) {
-        const point = sample(raw, drawing.startedAt);
-        if (point) predicted.push(point);
+      // 보정 중이면 예측 점을 쓰지 않는다 — 늦게 따라가는 선 앞에 실제 펜촉 예측이 붙으면 끝이 튄다
+      if (penStore.getState().smoothing === 0) {
+        for (const raw of next) {
+          const point = sample(raw, drawing.startedAt);
+          if (point) predicted.push(point);
+        }
       }
       schedulePaint();
     };
@@ -378,6 +417,7 @@ export function PointerCanvas({ tool, onHoldSnap }: PointerCanvasProps) {
       if (!drawing) return;
 
       predicted = [];
+      queued.push(...drawing.stabilizer.finish(drawing.lastRaw)); // 뒤처진 끝을 펜촉까지
       paint(); // 아직 반영 안 된 좌표를 마저 흡수
       const captured = drawing;
       drawing = null;
@@ -408,10 +448,12 @@ export function PointerCanvas({ tool, onHoldSnap }: PointerCanvasProps) {
 
       const simplified = simplifyRDP(captured.points, ink.simplifyEpsilon);
       if (simplified.length > 0) {
-        const groupId = sessionStore
-          .getState()
-          .addStroke(createStroke(simplified, Date.now()), { newGroup: captured.held });
-        if (captured.held) holdSnapRef.current?.(groupId);
+        const highlighter = captured.style.tool === "highlighter";
+        const session = sessionStore.getState();
+        const groupId = session.addStroke(createStroke(simplified, Date.now(), captured.style), { newGroup: captured.held || highlighter });
+        // 형광펜 자국은 ✨ 정리 대상이 아니다 — 활성 그룹에서 빼 두면 다음 펜 획과도 섞이지 않는다
+        if (highlighter) sessionStore.getState().setActiveGroup(null);
+        else if (captured.held) holdSnapRef.current?.(groupId);
       }
       clearLive();
     };
