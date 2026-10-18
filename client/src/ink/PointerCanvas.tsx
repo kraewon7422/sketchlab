@@ -5,8 +5,8 @@ import { ink, theme } from "../render/theme";
 import { createStroke, sessionStore, useSession } from "../store/session";
 import { GroupHint, InkItemView } from "./InkLayer";
 import { distance, toWorld } from "./geometry";
-import { dotOutline, segmentOutline, subpathsToPathData } from "./outline";
 import { simplifyRDP } from "./simplify";
+import { smoothStrokePath } from "./smoothOutline";
 import { createPalmRejector } from "./palmRejection";
 import type { InkItem, Point } from "./types";
 
@@ -36,20 +36,19 @@ interface PointerCanvasProps {
  *   - 진행 중인 획은 React 상태가 아니라 ref + DOM 속성 직접 조작으로 그리고,
  *   - 스토어에는 획이 끝났을 때 딱 한 번 커밋한다 (§5.3).
  *
- * 진행 중 획을 매 프레임 통째로 다시 만들지 않고 새 구간만 이어 붙인다
- * (segmentOutline). 획이 길어져도 프레임당 비용이 일정하다.
+ * 진행 중 획은 프레임마다(rAF 1회) 매끈한 외곽선 하나로 통째로 다시 만든다 (smoothOutline.ts).
+ * 조각을 이어 붙이던 v1은 이음새가 고해상도 화면에서 흐려 보였다. 3000점 획도 수 ms라 충분히 빠르다.
  *
  * P1.5 추가 (v4 §6.1)
  *  - 호버 커서: S Pen이 화면 위 공중에 있으면 펜촉 위치에 작은 원
  *  - 예측 점: getPredictedEvents()로 1~2점 앞을 임시로 그려 체감 지연을 줄인다.
- *    예측 꼬리는 별도 path에만 그리고 확정 획에는 절대 넣지 않는다.
+ *    예측 점은 화면에 그릴 때만 덧붙이고 확정 획(drawing.points)에는 절대 넣지 않는다.
  *  - 측면 버튼: 누른 채 닿으면 그 획은 지우개
  *  - 그리고 멈추기: 획 끝에서 ink.holdMs 동안 멈추면 그 획만 바로 도형으로
  */
 export function PointerCanvas({ tool, onHoldSnap }: PointerCanvasProps) {
   const svgRef = useRef<SVGSVGElement>(null);
   const livePathRef = useRef<SVGPathElement>(null);
-  const predictedPathRef = useRef<SVGPathElement>(null);
   const hoverRef = useRef<SVGCircleElement>(null);
 
   const items = useSession((s) => s.items);
@@ -85,7 +84,6 @@ export function PointerCanvas({ tool, onHoldSnap }: PointerCanvasProps) {
     let queued: Point[] = [];
     /** 가장 최근의 예측 좌표 (확정 획 아님) */
     let predicted: Point[] = [];
-    let liveData = "";
     let frame: number | null = null;
     let holdTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -157,46 +155,22 @@ export function PointerCanvas({ tool, onHoldSnap }: PointerCanvasProps) {
     };
 
     // ── 진행 중 획 그리기 ───────────────────────────────────
-    const paintPredicted = (): void => {
-      const path = predictedPathRef.current;
-      if (!path) return;
-      const last = drawing?.points[drawing.points.length - 1];
-      if (!last || predicted.length === 0) {
-        path.setAttribute("d", "");
-        return;
-      }
-      let prev = last;
-      let d = "";
-      for (const p of predicted) {
-        d += subpathsToPathData(segmentOutline(prev, p, { baseWidth: ink.width }));
-        prev = p;
-      }
-      path.setAttribute("d", d);
-    };
-
     const paint = (): void => {
       frame = null;
       const path = livePathRef.current;
       if (!drawing || !path) return;
 
-      if (queued.length > 0) {
-        let previous = drawing.points[drawing.points.length - 1];
-        let appended = "";
-
-        for (const point of queued) {
-          if (previous) {
-            appended += subpathsToPathData(segmentOutline(previous, point, { baseWidth: ink.width }));
-            drawing.length += distance(previous.x, previous.y, point.x, point.y);
-          }
-          drawing.points.push(point);
-          previous = point;
-        }
-        queued = [];
-
-        liveData += appended;
-        path.setAttribute("d", liveData);
+      let previous = drawing.points[drawing.points.length - 1];
+      for (const point of queued) {
+        if (previous) drawing.length += distance(previous.x, previous.y, point.x, point.y);
+        drawing.points.push(point);
+        previous = point;
       }
-      paintPredicted();
+      queued = [];
+
+      // 예측 점은 그릴 때만 덧붙인다 — 다음 프레임에 실제 점으로 대체된다
+      const shown = predicted.length > 0 ? [...drawing.points, ...predicted] : drawing.points;
+      path.setAttribute("d", smoothStrokePath(shown, { baseWidth: ink.width }));
     };
 
     const schedulePaint = (): void => {
@@ -204,7 +178,6 @@ export function PointerCanvas({ tool, onHoldSnap }: PointerCanvasProps) {
     };
 
     const clearLive = (): void => {
-      liveData = "";
       queued = [];
       predicted = [];
       clearHold();
@@ -214,7 +187,6 @@ export function PointerCanvas({ tool, onHoldSnap }: PointerCanvasProps) {
       }
       livePathRef.current?.setAttribute("d", "");
       livePathRef.current?.setAttribute("fill", theme.color.ink);
-      predictedPathRef.current?.setAttribute("d", "");
     };
 
     const eraseAtEvent = (event: PointerEvent): void => {
@@ -269,8 +241,7 @@ export function PointerCanvas({ tool, onHoldSnap }: PointerCanvasProps) {
       drawing = { pointerId: event.pointerId, points: [first], startedAt, length: 0, anchor: first, held: false };
       armHold();
 
-      liveData = subpathsToPathData(dotOutline(first, { baseWidth: ink.width }));
-      livePathRef.current?.setAttribute("d", liveData);
+      livePathRef.current?.setAttribute("d", smoothStrokePath([first], { baseWidth: ink.width }));
     };
 
     const onPointerMove = (event: PointerEvent): void => {
@@ -412,9 +383,8 @@ export function PointerCanvas({ tool, onHoldSnap }: PointerCanvasProps) {
         ),
       )}
 
-      {/* 진행 중인 획 + 예측 꼬리. React가 아니라 위 effect가 직접 d를 갱신한다. */}
-      <path ref={livePathRef} fill={theme.color.ink} fillRule="nonzero" />
-      <path ref={predictedPathRef} fill={theme.color.ink} fillRule="nonzero" opacity={0.5} />
+      {/* 진행 중인 획 (예측 점 포함). React가 아니라 위 effect가 직접 d를 갱신한다. */}
+      <path ref={livePathRef} fill={theme.color.ink} fillRule="nonzero" shapeRendering="geometricPrecision" />
 
       <circle
         ref={hoverRef}

@@ -1,7 +1,6 @@
 import { memo } from "react";
 import { ink, theme } from "../render/theme";
-import { strokeOutlinePath } from "./outline";
-import { simplifyRDP } from "./simplify";
+import { smoothStrokePath } from "./smoothOutline";
 import type { InkItem, Stroke } from "./types";
 
 /**
@@ -28,12 +27,10 @@ export function InkStrokes({ strokes }: { strokes: readonly Stroke[] }) {
 }
 
 const StrokeView = memo(function StrokeView({ stroke }: { stroke: Stroke }) {
-  // 원본 points는 그대로 두고 그리기용으로만 단순화한다 (§12.4).
-  const d = strokeOutlinePath(simplifyRDP(stroke.points, ink.simplifyEpsilon), {
-    baseWidth: ink.width,
-  });
+  // 외곽선 하나짜리 매끈한 획 (smoothOutline.ts — v1의 조각 겹치기는 고해상도에서 흐려 보였다)
+  const d = smoothStrokePath(stroke.points, { baseWidth: ink.width });
 
-  return <path d={d} fill={theme.color.ink} fillRule="nonzero" />;
+  return <path d={d} fill={theme.color.ink} fillRule="nonzero" shapeRendering="geometricPrecision" />;
 });
 
 /**
