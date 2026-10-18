@@ -296,6 +296,30 @@ export function PointerCanvas({ tool, onHoldSnap }: PointerCanvasProps) {
       const captured = drawing;
       drawing = null;
 
+      // 짧게 톡 친 것 = 탭. 객체 위 탭은 선택, 무언가 선택된 상태의 탭은 선택 해제 (점을 남기지 않는다)
+      const state = sessionStore.getState();
+      const first = captured.points[0];
+      const last = captured.points[captured.points.length - 1];
+      const isTap = !!first && !!last && captured.length < ink.tapMaxMove && last.t - first.t < ink.tapMaxMs;
+      if (isTap && first) {
+        const hit = [...state.items]
+          .reverse()
+          .find(
+            (i) =>
+              i.kind === "object" &&
+              first.x >= i.bbox.minX - ink.tapSlop &&
+              first.x <= i.bbox.maxX + ink.tapSlop &&
+              first.y >= i.bbox.minY - ink.tapSlop &&
+              first.y <= i.bbox.maxY + ink.tapSlop,
+          );
+        if (hit || state.selection.length > 0) {
+          state.setSelection(hit ? [hit.id] : []);
+          clearLive();
+          return;
+        }
+      }
+      if (state.selection.length > 0) state.setSelection([]);
+
       const simplified = simplifyRDP(captured.points, ink.simplifyEpsilon);
       if (simplified.length > 0) {
         const groupId = sessionStore

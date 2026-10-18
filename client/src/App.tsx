@@ -5,6 +5,7 @@ import { ErrorBoundary } from "./ErrorBoundary";
 import { PointerCanvas, type Tool } from "./ink/PointerCanvas";
 import { recognizeGroup } from "./recognize/recognize";
 import { ObjectOverlays } from "./render/ObjectOverlays";
+import { runExport, SelectionBar } from "./ui/SelectionBar";
 import { theme } from "./render/theme";
 import { sessionStore, useSession } from "./store/session";
 import { useLayoutMode, type LayoutMode } from "./ui/layoutMode";
@@ -44,7 +45,7 @@ export function App(): ReactElement {
     [showToast],
   );
 
-  useKeyboardShortcuts(() => recognize(sessionStore.getState().activeGroupId));
+  useKeyboardShortcuts(() => recognize(sessionStore.getState().activeGroupId), showToast);
 
   const toolbar = <Toolbar tool={tool} onToolChange={setTool} mode={mode} onFormula={openSheet} />;
 
@@ -79,6 +80,7 @@ export function App(): ReactElement {
 
         <EmptyHint />
         <Toast message={toast} />
+        <SelectionBar onMessage={showToast} />
         <RecognizeFab onRecognize={() => recognize(sessionStore.getState().activeGroupId)} />
         <DebugPanel />
         {sheetArea && (
@@ -95,9 +97,11 @@ export function App(): ReactElement {
 
 // ─────────────────────────────────────────────────────────── 키보드 (PC·DeX, v4 §6.2)
 
-function useKeyboardShortcuts(onRecognize: () => void): void {
+function useKeyboardShortcuts(onRecognize: () => void, onMessage: (m: string) => void): void {
   const ref = useRef(onRecognize);
   ref.current = onRecognize;
+  const msgRef = useRef(onMessage);
+  msgRef.current = onMessage;
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
@@ -116,6 +120,22 @@ function useKeyboardShortcuts(onRecognize: () => void): void {
       } else if (!mod && event.key === "Enter") {
         event.preventDefault();
         ref.current();
+      } else if (!mod && (event.key === "Delete" || event.key === "Backspace")) {
+        const sel = sessionStore.getState().selection;
+        if (sel.length) {
+          event.preventDefault();
+          sessionStore.getState().removeItems(sel);
+        }
+      } else if (mod && key === "c") {
+        // PC: 선택한 그림을 Ctrl+C → 노트 앱에서 Ctrl+V
+        const { selection, items } = sessionStore.getState();
+        const item = items.find((i) => i.id === selection[0]);
+        if (item) {
+          event.preventDefault();
+          void runExport("copy", item).then((m) => m && msgRef.current(m));
+        }
+      } else if (event.key === "Escape") {
+        sessionStore.getState().setSelection([]);
       }
     };
     window.addEventListener("keydown", onKey);

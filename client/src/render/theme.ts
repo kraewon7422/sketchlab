@@ -85,6 +85,11 @@ export const ink = {
   holdMinLength: 30,
   /** S Pen 호버 커서 반지름 px */
   hoverRadius: 4,
+  /** 탭 판정: 이동 px 미만 + 시간 ms 미만이면 그리기가 아니라 탭(객체 선택) */
+  tapMaxMove: 6,
+  tapMaxMs: 350,
+  /** 탭으로 객체를 고를 때 bbox 바깥 여유 px */
+  tapSlop: 8,
 } as const;
 
 /** 그래프 객체 (§11). 단위 월드 px. */
@@ -104,6 +109,16 @@ export const plot = {
   /** 넓이 음영 */
   shade: "rgba(37,99,235,0.14)",
   shadeNegative: "rgba(220,38,38,0.12)",
+} as const;
+
+/** 노트로 내보내기 (§14). */
+export const exportOpts = {
+  /** PNG 배율 — 노트에서 확대해도 선명하게 */
+  scale: 3,
+  /** 여백 = 객체 크기의 이 비율 (최소 8px) */
+  padding: 0.06,
+  /** 흰 배경이 기본 — 투명이면 다크 모드 노트에서 검은 선이 안 보인다 */
+  background: "white" as "white" | "transparent",
 } as const;
 
 /** 입체도형 객체 (§12). */

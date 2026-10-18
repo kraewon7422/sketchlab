@@ -1,0 +1,176 @@
+import katexCss from "katex/dist/katex.min.css?inline";
+import type { CanvasItem } from "../ink/types";
+import { exportOpts } from "../render/theme";
+
+/**
+ * 객체 → 노트에 붙일 이미지 (마스터스펙 v4 §14, P6). 이 모듈은 lazy — 내보낼 때만 실린다.
+ *
+ *   화면에 그려진 DOM을 복제 → 독립 SVG 한 장(수식 HTML은 foreignObject, KaTeX CSS·폰트는 data URI로 동봉)
+ *   → 캔버스에 3배로 그림 → PNG
+ *
+ * 왜 화면 DOM을 복제하나: 렌더러를 두 벌(화면용·내보내기용) 두면 언젠가 어긋난다. 보이는 그대로가 나간다.
+ * 배경 기본값은 흰색 — 투명 PNG는 노트 앱 다크 모드에서 검은 선이 안 보인다 (v4 G4).
+ */
+
+const XHTML = "http://www.w3.org/1999/xhtml";
+const SVGNS = "http://www.w3.org/2000/svg";
+
+let fontCss: Promise<string> | null = null;
+
+/** KaTeX CSS의 woff2 폰트를 data URI로 바꿔 넣는다 (이미지 안에서는 외부 파일을 못 불러온다). 1회만. */
+function embeddedKatexCss(): Promise<string> {
+  fontCss ??= (async () => {
+    // woff·ttf 대체 소스는 버린다 — woff2만으로 충분하고 용량이 3배 줄어든다
+    let css = katexCss.replace(/,\s*url\([^)]*\.woff\)\s*format\("woff"\)/g, "").replace(/,\s*url\([^)]*\.ttf\)\s*format\("truetype"\)/g, "");
+    const urls = [...new Set([...css.matchAll(/url\(([^)]+\.woff2)\)/g)].map((m) => (m[1] as string).replace(/["']/g, "")))];
+    const data = await Promise.all(
+      urls.map(async (u) => {
+        try {
+          const blob = await (await fetch(new URL(u, document.baseURI))).blob();
+          return [u, await blobToDataUrl(blob)] as const;
+        } catch {
+          return [u, u] as const; // 폰트 하나 실패해도 내보내기는 계속 (대체 글꼴로)
+        }
+      }),
+    );
+    for (const [u, d] of data) css = css.split(u).join(d);
+    return css;
+  })();
+  return fontCss;
+}
+
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result));
+    r.onerror = () => reject(r.error);
+    r.readAsDataURL(blob);
+  });
+}
+
+export interface Rendered {
+  svg: string;
+  width: number;
+  height: number;
+}
+
+/** 화면에서 이 객체를 그리고 있는 요소를 찾아 독립 SVG 문자열로 */
+export async function objectToSvg(item: CanvasItem): Promise<Rendered> {
+  const pad = Math.max(8, Math.round(Math.max(item.bbox.maxX - item.bbox.minX, item.bbox.maxY - item.bbox.minY) * exportOpts.padding));
+
+  // 1) 평면도형·잉크: 캔버스 SVG 안의 <g>
+  const g = document.querySelector<SVGGElement>(`g[data-object-id="${item.id}"]`) ?? document.querySelector<SVGGElement>(`g[data-ink-id="${item.id}"]`);
+  if (g) {
+    const clone = g.cloneNode(true) as SVGGElement;
+    clone.querySelectorAll(".sl-fade-out").forEach((n) => n.remove()); // 교체 애니메이션의 옛 잉크
+    clone.querySelectorAll("[class]").forEach((n) => n.removeAttribute("class"));
+    const { minX, minY, maxX, maxY } = item.bbox;
+    const w = Math.ceil(maxX - minX + pad * 2);
+    const h = Math.ceil(maxY - minY + pad * 2);
+    const svg = `<svg xmlns="${SVGNS}" width="${w}" height="${h}" viewBox="${minX - pad} ${minY - pad} ${w} ${h}">${new XMLSerializer().serializeToString(clone)}</svg>`;
+    return { svg, width: w, height: h };
+  }
+
+  // 2) 그래프·입체·수식: HTML 층의 상자 — foreignObject로 통째로
+  const box = document.querySelector<HTMLElement>(`[data-overlay-id="${item.id}"]`);
+  if (!box) throw new Error("화면에서 이 객체를 찾지 못했어요");
+  const rect = box.getBoundingClientRect();
+  const clone = box.cloneNode(true) as HTMLElement;
+  clone.querySelectorAll("input, [data-export-skip]").forEach((n) => (n.closest("label") ?? n).remove()); // 슬라이더·안내 문구
+  clone.style.position = "static";
+  clone.style.left = clone.style.top = "";
+  clone.style.margin = `${pad}px`;
+  clone.removeAttribute("class");
+  clone.querySelectorAll("[class*='sl-']").forEach((n) => n.setAttribute("class", (n.getAttribute("class") ?? "").replace(/\bsl-[\w-]+\b/g, "")));
+  clone.setAttribute("xmlns", XHTML);
+  const w = Math.ceil(rect.width + pad * 2);
+  const h = Math.ceil(rect.height + pad * 2);
+  const css = await embeddedKatexCss();
+  const font = getComputedStyle(document.body).fontFamily;
+  const html = new XMLSerializer().serializeToString(clone);
+  const svg =
+    `<svg xmlns="${SVGNS}" width="${w}" height="${h}">` +
+    `<foreignObject x="0" y="0" width="${w}" height="${h}">` +
+    `<div xmlns="${XHTML}" style="font-family:${font.replace(/"/g, "'")};color:#1A1A1A">` +
+    `<style>${css}</style>${html}</div></foreignObject></svg>`;
+  return { svg, width: w, height: h };
+}
+
+/** SVG → PNG (3배, 기본 흰 배경) */
+export async function toPng(r: Rendered, background: "white" | "transparent" = exportOpts.background): Promise<Blob> {
+  // ⚠️ blob: URL로 불러오면 Chrome이 foreignObject(수식 HTML)가 든 SVG를 "오염(tainted)"으로 보고
+  //    toBlob을 막는다. data: URL은 막지 않는다 (실측). 그래서 data: URL로 그린다.
+  const url = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(r.svg)}`;
+  {
+    const img = new Image();
+    img.decoding = "sync";
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => resolve();
+      img.onerror = () => reject(new Error("그림을 만들지 못했어요"));
+      img.src = url;
+    });
+    const s = exportOpts.scale;
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(r.width * s);
+    canvas.height = Math.round(r.height * s);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("캔버스를 쓸 수 없어요");
+    if (background === "white") {
+      ctx.fillStyle = "#FFFFFF";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+    ctx.scale(s, s);
+    ctx.drawImage(img, 0, 0, r.width, r.height);
+    return await new Promise<Blob>((resolve, reject) =>
+      canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("PNG를 만들지 못했어요"))), "image/png"),
+    );
+  }
+}
+
+export type ExportResult = { ok: true; message: string } | { ok: false; message: string };
+
+/**
+ * 클립보드로 복사. ClipboardItem에 **Promise를 그대로** 넘긴다 — 이미지 만드는 동안 기다렸다가
+ * write를 부르면 사용자 동작(탭)과 멀어져 Safari·일부 Android에서 거부된다 (함정 #6).
+ */
+export async function copyImage(item: CanvasItem): Promise<ExportResult> {
+  if (!window.isSecureContext || !navigator.clipboard?.write || typeof ClipboardItem === "undefined") {
+    return { ok: false, message: "이 브라우저는 이미지 복사를 지원하지 않아요 · 저장을 눌러 주세요" };
+  }
+  try {
+    const png = objectToSvg(item).then((r) => toPng(r));
+    await navigator.clipboard.write([new ClipboardItem({ "image/png": png })]);
+    return { ok: true, message: "복사했어요 · 노트에서 길게 눌러 붙여넣기" };
+  } catch {
+    return { ok: false, message: "복사가 막혔어요 · 저장이나 공유를 써 주세요" };
+  }
+}
+
+export async function downloadImage(item: CanvasItem): Promise<ExportResult> {
+  try {
+    const png = await toPng(await objectToSvg(item));
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(png);
+    a.download = `sketchlab-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.png`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
+    return { ok: true, message: "이미지로 저장했어요" };
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : "저장하지 못했어요" };
+  }
+}
+
+export async function shareImage(item: CanvasItem): Promise<ExportResult> {
+  try {
+    const png = await toPng(await objectToSvg(item));
+    const file = new File([png], "sketchlab.png", { type: "image/png" });
+    if (!navigator.canShare?.({ files: [file] })) return { ok: false, message: "이 기기는 공유 시트를 지원하지 않아요 · 저장을 써 주세요" };
+    await navigator.share({ files: [file] });
+    return { ok: true, message: "공유했어요" };
+  } catch (e) {
+    if (e instanceof DOMException && e.name === "AbortError") return { ok: true, message: "" }; // 사용자가 닫음
+    return { ok: false, message: "공유하지 못했어요 · 저장을 써 주세요" };
+  }
+}

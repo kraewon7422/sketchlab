@@ -60,6 +60,8 @@ export interface SessionState extends Doc {
    * 끝나면 commitObjectIR로 한 번에 기록한다 (Undo가 슬라이더 틱마다 쌓이지 않게).
    */
   previewObjectIR(id: string, ir: SceneIR): void;
+  /** 항목 삭제 (선택 메뉴의 "삭제"). Undo 1단위 */
+  removeItems(ids: readonly string[]): void;
   commitObjectIR(id: string, before: SceneIR, after: SceneIR, label: string): void;
   /** 지정한 지점 근처의 획을 지운다. 지운 개수를 돌려준다. */
   eraseAt(x: number, y: number, radius: number): number;
@@ -192,6 +194,14 @@ export const sessionStore: StoreApi<SessionState> = createStore<SessionState>((s
         draft.activeGroupId = null;
       });
       return object.id;
+    },
+
+    removeItems(ids) {
+      commit("삭제", (draft) => {
+        draft.items = draft.items.filter((i) => !ids.includes(i.id));
+        draft.selection = draft.selection.filter((id) => !ids.includes(id));
+        if (draft.activeGroupId && ids.includes(draft.activeGroupId)) draft.activeGroupId = null;
+      });
     },
 
     previewObjectIR(id, ir) {

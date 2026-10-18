@@ -45,7 +45,18 @@ function SolidBox({ item, ir, interactive }: { item: ObjectItem; ir: SolidIR; in
 
   const drawing = useMemo(() => drawSolid(mesh, view, scale, S / 2, S / 2), [mesh, view, scale, S]);
   const anim = useRef<number | null>(null);
-  const drag = useRef<{ x: number; y: number; t: number; wy: number; wp: number; start: View3 } | null>(null);
+  const drag = useRef<{
+    x: number;
+    y: number;
+    t: number;
+    wy: number;
+    wp: number;
+    start: View3;
+    /** 탭 판정용 시작점·시각 */
+    sx: number;
+    sy: number;
+    t0: number;
+  } | null>(null);
 
   const stopAnim = () => {
     if (anim.current !== null) cancelAnimationFrame(anim.current);
@@ -114,6 +125,7 @@ function SolidBox({ item, ir, interactive }: { item: ObjectItem; ir: SolidIR; in
 
   return (
     <div
+      data-overlay-id={item.id}
       className={fresh ? "sl-fade-in" : undefined}
       style={{ position: "absolute", left: item.transform.x, top: item.transform.y, width: S, pointerEvents: "none" }}
     >
@@ -135,7 +147,17 @@ function SolidBox({ item, ir, interactive }: { item: ObjectItem; ir: SolidIR; in
           } catch {
             /* 상자 밖으로 나가면 회전이 끊기는 정도 — 치명적이지 않다 */
           }
-          drag.current = { x: e.clientX, y: e.clientY, t: performance.now(), wy: 0, wp: 0, start: { ...viewRef.current } };
+          drag.current = {
+            x: e.clientX,
+            y: e.clientY,
+            t: performance.now(),
+            wy: 0,
+            wp: 0,
+            start: { ...viewRef.current },
+            sx: e.clientX,
+            sy: e.clientY,
+            t0: performance.now(),
+          };
         }}
         onPointerMove={(e) => {
           const d = drag.current;
@@ -160,6 +182,11 @@ function SolidBox({ item, ir, interactive }: { item: ObjectItem; ir: SolidIR; in
           const d = drag.current;
           drag.current = null;
           if (!d) return;
+          // 거의 안 움직인 짧은 터치 = 탭 → 선택 (복사·저장 메뉴)
+          if (Math.hypot(d.x - d.sx, d.y - d.sy) < 6 && performance.now() - d.t0 < 350) {
+            sessionStore.getState().setSelection([item.id]);
+            return;
+          }
           // 놓기 직전에 멈춰 있었으면 관성 없음
           if (performance.now() - d.t > 80) {
             commit(d.start);
@@ -191,7 +218,11 @@ function SolidBox({ item, ir, interactive }: { item: ObjectItem; ir: SolidIR; in
       </svg>
       <div style={{ textAlign: "center", marginTop: theme.space[1], color: theme.color.ink, fontSize: 15 }}>
         {SOLID_NAMES[ir.data.solid]}
-        {interactive && <div style={{ fontSize: 12, color: theme.color.asymptote }}>드래그해서 돌리기 · 두 번 탭하면 처음 각도</div>}
+        {interactive && (
+          <div data-export-skip style={{ fontSize: 12, color: theme.color.asymptote }}>
+            드래그해서 돌리기 · 두 번 탭하면 처음 각도
+          </div>
+        )}
       </div>
     </div>
   );

@@ -63,6 +63,7 @@ function FormulaBox({ item, latex }: { item: ObjectItem; latex: string }) {
   const fresh = isFresh(item.id);
   return (
     <div
+      data-overlay-id={item.id}
       className={fresh ? "sl-fade-in" : undefined}
       style={{
         position: "absolute",
@@ -122,6 +123,7 @@ function PlotBox({ item, ir }: { item: ObjectItem; ir: PlotIR }) {
 
   return (
     <div
+      data-overlay-id={item.id}
       style={{ position: "absolute", left: item.transform.x, top: item.transform.y, width: W, pointerEvents: "none" }}
       className={fresh ? "sl-fade-in" : undefined}
     >
