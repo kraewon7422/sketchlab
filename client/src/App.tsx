@@ -1,4 +1,4 @@
-import { Eraser, Lasso, Pen, Redo2, Sparkles, SquareFunction, Undo2 } from "lucide-react";
+import { Bot, Eraser, Lasso, Pen, Redo2, Sparkles, SquareFunction, Undo2 } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactElement } from "react";
 import { DebugPanel } from "./DebugPanel";
 import { ErrorBoundary } from "./ErrorBoundary";
@@ -25,6 +25,7 @@ import { PenPalette } from "./ui/PenPalette";
 
 /** 수식 입력 시트 — Compute Engine·KaTeX를 쓰므로 처음 열 때 내려받는다 */
 const FormulaSheet = lazy(() => import("./ui/FormulaSheet"));
+const AiSettings = lazy(() => import("./ui/AiSettings"));
 
 const NO_MATCH_MESSAGE = "도형으로 알아보지 못했어요 · 수식·그래프 인식은 다음 단계에서 붙어요";
 
@@ -53,7 +54,8 @@ export function App(): ReactElement {
 
   useKeyboardShortcuts(() => recognize(sessionStore.getState().activeGroupId), showToast);
 
-  const toolbar = <Toolbar tool={tool} onToolChange={setTool} mode={mode} onFormula={openSheet} />;
+  const [aiOpen, setAiOpen] = useState(false);
+  const toolbar = <Toolbar tool={tool} onToolChange={setTool} mode={mode} onFormula={openSheet} onAi={() => setAiOpen(true)} />;
 
   return (
     <div
@@ -93,6 +95,11 @@ export function App(): ReactElement {
         {sheetArea && (
           <Suspense fallback={null}>
             <FormulaSheet area={sheetArea} onClose={() => setSheetArea(null)} />
+          </Suspense>
+        )}
+        {aiOpen && (
+          <Suspense fallback={null}>
+            <AiSettings onClose={() => setAiOpen(false)} />
           </Suspense>
         )}
       </main>
@@ -157,9 +164,10 @@ interface ToolbarProps {
   onToolChange: (tool: Tool) => void;
   mode: LayoutMode;
   onFormula: () => void;
+  onAi: () => void;
 }
 
-function Toolbar({ tool, onToolChange, mode, onFormula }: ToolbarProps): ReactElement {
+function Toolbar({ tool, onToolChange, mode, onFormula, onAi }: ToolbarProps): ReactElement {
   const canUndo = useSession((s) => s.history.undo.length > 0);
   const canRedo = useSession((s) => s.history.redo.length > 0);
   const bottom = mode === "compact";
@@ -198,6 +206,7 @@ function Toolbar({ tool, onToolChange, mode, onFormula }: ToolbarProps): ReactEl
       <PenPalette onPick={() => onToolChange("pen")} openUp={bottom} />
       <ToolButton label="올가미" Icon={Lasso} disabled hint="P7에서 활성화" />
       <ToolButton label="수식·그래프 입력" Icon={SquareFunction} onClick={onFormula} hint="y=x^2, sin(x), x^2+y^2=4 …" />
+      <ToolButton label="AI 설정" Icon={Bot} onClick={onAi} hint="손글씨 인식·AI 그리기에 쓸 모델" />
 
       {!bottom && <span style={{ width: theme.space[2] }} />}
 
