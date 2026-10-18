@@ -70,6 +70,9 @@ describe("교육 규범 기본값", () => {
     if (r.kind !== "plot2d") return;
     expect(r.data.view.aspect).toBe("equal");
     expect(r.data.grid).toBe(false);
+    // 예전에 저장된 그래프도 축·식이 그대로 보여야 한다
+    expect(r.data.showAxes).toBe(true);
+    expect(r.data.showCaption).toBe(true);
   });
 
   it("solid3d는 모서리·숨은선을 기본으로 켠다", () => {

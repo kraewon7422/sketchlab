@@ -1,4 +1,4 @@
-import { Copy, Download, Share2, Trash2 } from "lucide-react";
+import { ChartSpline, Copy, Download, Share2, Sigma, Trash2 } from "lucide-react";
 import { useEffect, useLayoutEffect, useState, type CSSProperties, type ReactElement } from "react";
 import type { CanvasItem } from "../ink/types";
 import { theme } from "../render/theme";
@@ -10,6 +10,7 @@ import { sessionStore, useSession } from "../store/session";
  *   [저장] PNG 파일 → 갤러리/내 파일 → 노트에 이미지 삽입 (항상 되는 길)
  *   [공유] 안드로이드·iPad 공유 시트 → 노트 앱 선택
  *   [삭제]
+ * 그래프는 [축] [이름] 켜고 끄기가 앞에 붙는다.
  * 내보내기 코드는 누를 때 불러온다 (lazy).
  */
 
@@ -85,10 +86,19 @@ export function SelectionBar({ onMessage }: { onMessage: (message: string) => vo
     }
   };
 
-  const button = (label: string, Icon: typeof Copy, onClick: () => void, danger = false) => (
+  /** 그래프 표시 설정 켜고 끄기 (Undo 1단위) */
+  const toggle = (key: "showAxes" | "showCaption", label: string) => {
+    if (item.kind !== "object" || item.ir.kind !== "plot2d") return;
+    const before = item.ir;
+    sessionStore.getState().commitObjectIR(item.id, before, { ...before, data: { ...before.data, [key]: !before.data[key] } }, label);
+  };
+  const plotData = item.kind === "object" && item.ir.kind === "plot2d" ? item.ir.data : null;
+
+  const button = (label: string, Icon: typeof Copy, onClick: () => void, danger = false, pressed?: boolean) => (
     <button
       type="button"
       aria-label={label}
+      aria-pressed={pressed}
       title={label}
       onClick={onClick}
       disabled={busy !== null}
@@ -101,8 +111,8 @@ export function SelectionBar({ onMessage }: { onMessage: (message: string) => vo
         gap: theme.space[1],
         border: "none",
         borderRadius: theme.radius.s,
-        background: "transparent",
-        color: danger ? theme.color.danger : theme.color.ink,
+        background: pressed ? theme.color.groupHint : "transparent",
+        color: pressed ? theme.color.accent : pressed === false ? theme.color.asymptote : danger ? theme.color.danger : theme.color.ink,
         fontSize: 14,
         cursor: "pointer",
         opacity: busy !== null ? 0.5 : 1,
@@ -144,6 +154,8 @@ export function SelectionBar({ onMessage }: { onMessage: (message: string) => vo
           boxShadow: "0 4px 20px rgba(26,26,26,0.14)",
           border: `1px solid ${theme.color.sub}`,
           zIndex: 15,
+          flexWrap: "wrap",
+          maxWidth: "calc(100vw - 16px)",
         }}
       >
         {thumb && (
@@ -165,6 +177,8 @@ export function SelectionBar({ onMessage }: { onMessage: (message: string) => vo
             } as CSSProperties}
           />
         )}
+        {plotData && button("축", ChartSpline, () => toggle("showAxes", "축 표시"), false, plotData.showAxes)}
+        {plotData && button("이름", Sigma, () => toggle("showCaption", "식 표시"), false, plotData.showCaption)}
         {button("복사", Copy, () => void act("copy"))}
         {button("저장", Download, () => void act("save"))}
         {canShare && button("공유", Share2, () => void act("share"))}

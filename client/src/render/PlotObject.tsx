@@ -147,6 +147,7 @@ function PlotBox({ item, ir }: { item: ObjectItem; ir: PlotIR }) {
         </g>
 
         {/* 축 — 끝 화살표, 원점 O, 축 이름은 바깥쪽 */}
+        {data.showAxes && (
         <g stroke={theme.color.ink} strokeWidth={1.2} fill={theme.color.ink}>
           <line x1={0} y1={ay} x2={W} y2={ay} />
           <path d={`M${W + 2},${ay} l${-a},${-a / 2.4} l0,${(a / 2.4) * 2}z`} stroke="none" />
@@ -159,6 +160,7 @@ function PlotBox({ item, ir }: { item: ObjectItem; ir: PlotIR }) {
             <line key={`yt${tk.value}`} x1={ax - t / 2} x2={ax + t / 2} y1={box.y(tk.value)} y2={box.y(tk.value)} />
           ))}
         </g>
+        )}
         {/* 점근선 — 곡선보다 확실히 연한 점선 */}
         <g clipPath={`url(#${clipId})`} stroke={theme.color.asymptote} strokeWidth={stroke.asymptote} strokeDasharray={stroke.asymptoteDash.join(" ")}>
           {drawn.vertical.map((x) => (
@@ -176,6 +178,7 @@ function PlotBox({ item, ir }: { item: ObjectItem; ir: PlotIR }) {
           ))}
         </g>
         {/* 라벨은 곡선 위에, 흰 테두리(halo)로 — 곡선이 지나가도 글자가 읽힌다 (교과서 그림 관행) */}
+        {data.showAxes && (
         <g
           fill={theme.color.ink}
           fontSize={plot.labelSize}
@@ -211,10 +214,11 @@ function PlotBox({ item, ir }: { item: ObjectItem; ir: PlotIR }) {
             y
           </text>
         </g>
+        )}
       </svg>
 
       <div style={{ marginTop: theme.space[2], color: theme.color.ink, textAlign: "center" }}>
-        <KaTeX latex={captionLatex + (drawn.valueLatex ? `=${drawn.valueLatex}` : "")} size={17} />
+        {data.showCaption && <KaTeX latex={captionLatex + (drawn.valueLatex ? `=${drawn.valueLatex}` : "")} size={17} />}
         {drawn.error && <div style={{ color: theme.color.danger, fontSize: 13, marginTop: theme.space[1] }}>{drawn.error}</div>}
       </div>
 

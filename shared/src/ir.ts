@@ -181,6 +181,10 @@ const Plot2D = z.object({
     xTicks: z.enum(["auto", "pi"]).default("auto"),
   }),
   grid: z.boolean().default(false),
+  /** 축·눈금·축 이름을 그릴지 (끄면 곡선만) */
+  showAxes: z.boolean().default(true),
+  /** 그래프 아래 식(이름)을 보여 줄지 */
+  showCaption: z.boolean().default(true),
   points: z.array(z.object({ at: Vec2, label: z.string().optional() })).optional(),
   params: z.array(Param).max(4).optional(),
   /** 넓이 음영 (v4 M3) */
