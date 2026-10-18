@@ -157,7 +157,32 @@ function PlotBox({ item, ir }: { item: ObjectItem; ir: PlotIR }) {
             <line key={`yt${tk.value}`} x1={ax - t / 2} x2={ax + t / 2} y1={box.y(tk.value)} y2={box.y(tk.value)} />
           ))}
         </g>
-        <g fill={theme.color.ink} fontSize={plot.labelSize} fontFamily={labelFont}>
+        {/* 점근선 — 곡선보다 확실히 연한 점선 */}
+        <g clipPath={`url(#${clipId})`} stroke={theme.color.asymptote} strokeWidth={stroke.asymptote} strokeDasharray={stroke.asymptoteDash.join(" ")}>
+          {drawn.vertical.map((x) => (
+            <line key={`va${x}`} x1={box.x(x)} x2={box.x(x)} y1={0} y2={H} />
+          ))}
+          {drawn.horizontal.map((y) => (
+            <line key={`ha${y}`} x1={0} x2={W} y1={box.y(y)} y2={box.y(y)} />
+          ))}
+        </g>
+
+        {/* 곡선 */}
+        <g clipPath={`url(#${clipId})`} fill="none" strokeWidth={stroke.main} strokeLinecap="round" strokeLinejoin="round">
+          {drawn.curves.map((c, i) => (
+            <path key={`c${i}`} d={c.d} stroke={c.color} pathLength={fresh ? 1 : undefined} className={fresh ? "sl-draw" : undefined} />
+          ))}
+        </g>
+        {/* 라벨은 곡선 위에, 흰 테두리(halo)로 — 곡선이 지나가도 글자가 읽힌다 (교과서 그림 관행) */}
+        <g
+          fill={theme.color.ink}
+          fontSize={plot.labelSize}
+          fontFamily={labelFont}
+          stroke={theme.color.bg}
+          strokeWidth={3}
+          strokeLinejoin="round"
+          paintOrder="stroke"
+        >
           {xTicks
             .filter((tk) => box.x(tk.value) > 10 && box.x(tk.value) < W - 18)
             .map((tk) => (
@@ -183,23 +208,6 @@ function PlotBox({ item, ir }: { item: ObjectItem; ir: PlotIR }) {
           <text x={ax + 7} y={10} fontFamily={varFont} fontStyle="italic" fontSize={plot.labelSize + 3}>
             y
           </text>
-        </g>
-
-        {/* 점근선 — 곡선보다 확실히 연한 점선 */}
-        <g clipPath={`url(#${clipId})`} stroke={theme.color.asymptote} strokeWidth={stroke.asymptote} strokeDasharray={stroke.asymptoteDash.join(" ")}>
-          {drawn.vertical.map((x) => (
-            <line key={`va${x}`} x1={box.x(x)} x2={box.x(x)} y1={0} y2={H} />
-          ))}
-          {drawn.horizontal.map((y) => (
-            <line key={`ha${y}`} x1={0} x2={W} y1={box.y(y)} y2={box.y(y)} />
-          ))}
-        </g>
-
-        {/* 곡선 */}
-        <g clipPath={`url(#${clipId})`} fill="none" strokeWidth={stroke.main} strokeLinecap="round" strokeLinejoin="round">
-          {drawn.curves.map((c, i) => (
-            <path key={`c${i}`} d={c.d} stroke={c.color} pathLength={fresh ? 1 : undefined} className={fresh ? "sl-draw" : undefined} />
-          ))}
         </g>
       </svg>
 
