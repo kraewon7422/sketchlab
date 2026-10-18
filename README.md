@@ -13,7 +13,7 @@
 **▶ Try it: [kraewon7422.github.io/sketchlab](https://kraewon7422.github.io/sketchlab/)**. Draw a shape, then tap ✨ (or press <kbd>Enter</kbd>).
 On a tablet, finish a stroke and hold the pen still for half a second: that stroke snaps on its own.
 Tap the **ƒ** button to type an equation (`y=x^2-3`, `y=a sin(bx)`, `x^2+y^2=4`, `\int_0^2 x^2 dx`) and get a textbook graph,
-or pick a 3D solid and turn it with your finger.
+or pick a 3D solid and turn it with your finger. **Tap anything to copy it into your notes.**
 
 > 🇰🇷 [한국어 설명은 아래에 있습니다](#한국어)
 
@@ -45,7 +45,7 @@ that must pass before the next one starts. The full design is in the
 | P3b | Handwriting → LaTeX / graphs via a vision model | planned |
 | **P4** | **3D solids with smooth, inertial rotation and exact hidden lines** (3D coordinate space next) | ✅ / 🔜 |
 | P5 | Chemistry: structure recognition, validation and drawing (RDKit) | planned |
-| P6 | Export into Samsung Notes / GoodNotes (drag & drop, clipboard, share sheet) | planned |
+| **P6** | **Into your notes: tap → Copy / Save / Share as a crisp 3× PNG** (drag & drop and re-edit links next) | ✅ / 🔜 |
 | P7 | Correction UI, offline PWA, share-to-SketchLab from notes apps | planned |
 
 ## Textbook graphs
@@ -90,6 +90,22 @@ Textbook solids are line drawings, so SketchLab draws them that way — as vecto
 - No WebGL and no 3D library: a few hundred edges per frame in plain SVG, sharp at any zoom, and ready to
   export as vectors. 14 solids: cube, box, the five Platonic solids, prism, pyramid, frustum, cylinder, cone,
   conical frustum, sphere, hemisphere.
+
+## Into your notes
+
+Tap any shape, graph, solid or formula to select it, then:
+
+| Action | What happens | Best for |
+|---|---|---|
+| **Copy** | a 3× PNG on the clipboard | long-press → Paste in Samsung Notes / GoodNotes; <kbd>Ctrl</kbd>+<kbd>V</kbd> on a PC |
+| **Save** | downloads the PNG | always works: insert it from the gallery |
+| **Share** | the system share sheet | Android / iPad, picking the notes app |
+
+The image is made from exactly what is on screen: the object is cloned into a standalone SVG — formula
+captions included, with KaTeX's CSS and fonts embedded — and drawn at 3× on a **white background**
+(a transparent PNG would make black lines vanish in a dark-mode note). One detail that took a measurement
+to find: Chrome treats an SVG containing HTML (`foreignObject`) as tainted when it is loaded from a
+`blob:` URL and refuses to export the canvas; loaded from a `data:` URL it is fine.
 
 ## How shape recognition works
 
@@ -227,6 +243,7 @@ docs/              master spec (design source of truth, Korean)
 
 **▶ 체험: [kraewon7422.github.io/sketchlab](https://kraewon7422.github.io/sketchlab/)**:
 도형을 그리고 ✨를 누르세요. 태블릿에서는 획 끝에서 펜을 0.5초 멈추면 그 획이 바로 반듯해집니다.
+**그림을 톡 치면 [복사 · 저장 · 공유] 메뉴**가 나옵니다 — 복사한 뒤 삼성노트·GoodNotes에서 길게 눌러 붙여넣기.
 
 ### 현재 단계
 
