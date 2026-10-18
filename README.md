@@ -12,6 +12,7 @@
 
 **▶ Try it: [kraewon7422.github.io/sketchlab](https://kraewon7422.github.io/sketchlab/)**. Draw a shape, then tap ✨ (or press <kbd>Enter</kbd>).
 On a tablet, finish a stroke and hold the pen still for half a second: that stroke snaps on its own.
+Tap the **ƒ** button to type an equation (`y=x^2-3`, `y=a sin(bx)`, `x^2+y^2=4`, `\int_0^2 x^2 dx`) and get a textbook graph.
 
 > 🇰🇷 [한국어 설명은 아래에 있습니다](#한국어)
 
@@ -39,12 +40,36 @@ that must pass before the next one starts. The full design is in the
 | P1 | Pen input: pressure, palm rejection, undo/redo, auto-grouping, local persistence | ✅ |
 | P1.5 | S Pen polish: hover cursor, predicted points, side-button eraser, responsive layouts | ✅ |
 | **P2** | **Local shape recognition (Tier 0): lines, arrows, polygons, circles, arcs, parabolas, ellipses, smooth curves** | ✅ **← the live demo** |
-| P3a | Graph engine: textbook axes (1:1 scale, π ticks, dashed asymptotes), coefficient sliders, integrals | next |
+| **P3a** | **Graph engine + typed input: textbook axes (1:1 scale, π ticks, dashed asymptotes), coefficient sliders, integrals** | ✅ |
 | P3b | Handwriting → LaTeX / graphs via a vision model | planned |
 | P4 | 3D solids and 3D coordinate space with smooth, inertial rotation and exact hidden lines | planned |
 | P5 | Chemistry: structure recognition, validation and drawing (RDKit) | planned |
 | P6 | Export into Samsung Notes / GoodNotes (drag & drop, clipboard, share sheet) | planned |
 | P7 | Correction UI, offline PWA, share-to-SketchLab from notes apps | planned |
+
+## Textbook graphs
+
+![Six graphs drawn by SketchLab: a parabola, sin x with pi ticks, 1/x, a circle, the integral of x squared from 0 to 2 with its shaded area and exact value 8/3, and a sin(bx) with coefficient sliders](docs/images/graphs.png)
+
+Typed equations become graphs that follow textbook conventions rather than plotting-library defaults:
+
+- **1:1 axis scale** by default, so a circle is a circle and *y = x* is at 45°; the view is chosen so
+  the interesting part of the curve and the x-axis are both visible.
+- **π/2 ticks** with textbook labels (−π, −π/2, π/2, π, 3π/2…) when the function is purely trigonometric;
+  nice 1·2·5 steps otherwise; origin labelled *O*; arrowheads on the axes; no grid.
+- **No vertical lines through discontinuities.** Adaptive sampling refines only where the curve bends on
+  screen; a jump that survives the deepest refinement is a real discontinuity, so `tan x` and `1/x` break
+  cleanly instead of drawing a line from +∞ to −∞.
+- **Dashed asymptotes** found automatically (vertical where the curve diverges at a break, horizontal where
+  it converges far away), snapped to exact values like π/2 — and not drawn on top of the axes.
+- **Coefficient sliders** for extra letters (`y = a sin(bx)`), redrawing live; one undo step per drag.
+- **Definite integrals** show the shaded area and the exact value from symbolic integration
+  (∫₀² x² dx = 8/3 ≈ 2.667).
+- Implicit curves (marching squares) and polar curves; anything that is not a graph is typeset as a formula.
+
+Parsing and evaluation use [Compute Engine](https://cortexjs.io/compute-engine/) (compiled to JS,
+strict real mode so √(−1) is a gap, not a complex number) and formulas are typeset with
+[KaTeX](https://katex.org). Both load only when the first graph is created.
 
 ## How shape recognition works
 
@@ -122,7 +147,8 @@ Also: 198 / 200 hand-drawn arcs stay arcs (not parabolas), sharp V's stay V's (1
 ## Tech stack
 
 TypeScript (strict) · React 19 · Vite · zustand + immer · zod · SVG (no chart libraries) ·
-IndexedDB · Vitest · Playwright · GitHub Actions · npm workspaces (`shared/`, `client/`, `server/`)
+Compute Engine · KaTeX · IndexedDB · Vitest · Playwright · GitHub Actions · npm workspaces
+(`shared/`, `client/`, `server/`)
 
 The server package is a stub for now. In P3b it will keep the vision-model API key server-side;
 the browser never sees a key.
@@ -152,6 +178,7 @@ shared/src/        Scene IR schema + migration (the contract)
 client/src/
   ink/             pen input, palm rejection, stroke outlines, grouping
   recognize/tier0/ local shape recognition (fit.ts, classify.ts + tests)
+  math/            graph engine: sampling, asymptotes, ticks, view, LaTeX analysis
   render/          SVG renderers, design tokens
   store/           session store (undo/redo), IndexedDB persistence
   ui/              responsive layout modes
@@ -182,11 +209,11 @@ docs/              master spec (design source of truth, Korean)
 
 ### 현재 단계
 
-P2까지 완료: 펜 입력(필압·팜 리젝션·되돌리기, **획 하나를 매끈한 외곽선 하나로 그려 고해상도 화면에서도 선명**) +
+P3a까지 완료. **ƒ 버튼으로 식을 입력하면 교과서식 그래프**(1:1 축 비율, π 눈금, 점선 점근선, 계수 슬라이더,
+정적분 넓이와 정확한 값)가 그려집니다. 그리고 펜 입력(필압·팜 리젝션·되돌리기, **획 하나를 매끈한 외곽선 하나로 그려 고해상도 화면에서도 선명**) +
 **로컬 도형 인식**(선분·화살표·원·호·다각형·**포물선·타원·매끈한 자유 곡선**, 정삼각형·직사각형·정사각형 스냅,
 기울기 보존, 직각 표시). 인식은 전부 브라우저 안에서 돌아가며
-서버·네트워크가 필요 없습니다. 다음은 그래프 엔진(1:1 축 비율·π 눈금·점선 점근선·계수 슬라이더·적분),
-그 뒤로 손글씨 수식 인식, 3D, 화학, 삼성노트·GoodNotes 내보내기 순서입니다.
+서버·네트워크가 필요 없습니다. 다음은 손글씨 수식 인식, 그 뒤로 3D, 화학, 삼성노트·GoodNotes 내보내기 순서입니다.
 전체 설계: [마스터 스펙 v4](docs/MASTERSPEC_v4.md).
 
 ### 로컬 실행
