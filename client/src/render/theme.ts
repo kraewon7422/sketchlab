@@ -139,6 +139,24 @@ export const solid = {
   resetMs: 600,
 } as const;
 
+/** 화학 구조식 (§13). 교과서 골격식 관행: 결합선 같은 굵기, 원소 기호는 고딕. */
+export const chem = {
+  /** 결합 하나의 길이 px */
+  bond: 36,
+  lineWidth: 1.6,
+  /** 이중·삼중 결합 선 간격 (결합 길이 비율) */
+  multiGap: 0.2,
+  /** 고리 안쪽 이중선을 양 끝에서 줄이는 비율 */
+  innerTrim: 0.16,
+  /** 원소 기호 글자 크기 (결합 길이 비율) */
+  fontScale: 0.48,
+  /** 기호가 있는 원자에서 결합선을 끊는 반지름 (결합 길이 비율) */
+  labelGap: 0.3,
+  /** 방향족 고리 안 원 = 고리 안쪽 거리 × 이 값 */
+  circleRatio: 0.62,
+  font: "Helvetica, Arial, 'Noto Sans KR', sans-serif",
+} as const;
+
 /** 인식된 평면도형 그리기 값 (§11.1 교과서 시각 언어). 단위 월드 px. */
 export const shape = {
   /** 화살촉 길이 */

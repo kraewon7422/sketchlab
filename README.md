@@ -44,8 +44,8 @@ that must pass before the next one starts. The full design is in the
 | **P3a** | **Graph engine + typed input: textbook axes (1:1 scale, π ticks, dashed asymptotes), coefficient sliders, integrals** | ✅ |
 | P3b | Handwriting → LaTeX / graphs via a vision model | planned |
 | **P4** | **3D solids and 3D coordinate space, with smooth inertial rotation and exact hidden lines** | ✅ |
-| P5 | Chemistry: structure recognition, validation and drawing (RDKit) | planned |
-| **P6** | **Into your notes: tap → Copy / Save / Share as a crisp 3× PNG** (drag & drop and re-edit links next) | ✅ / 🔜 |
+| **P5** | **Chemistry: skeletal formulas from a name (benzene, 에탄올) or SMILES, aromatic circles, full structural formulas (RDKit layout, lazy-loaded)**; handwriting recognition next | ✅ / 🔜 |
+| **P6** | **Into your notes: tap → Copy / Save / Share as a crisp 3× PNG, or drag the preview into a split-screen notes app** (re-edit links next) | ✅ / 🔜 |
 | P7 | Correction UI, offline PWA, share-to-SketchLab from notes apps | planned |
 
 ## Textbook graphs
@@ -251,11 +251,11 @@ docs/              master spec (design source of truth, Korean)
 ### 현재 단계
 
 **ƒ 버튼으로 식을 입력하면 교과서식 그래프**(1:1 축 비율, π 눈금, 점선 점근선, 계수 슬라이더,
-정적분 넓이와 정확한 값)가 그려지고, **입체도형 14종**(정육면체·원기둥·원뿔·구·정다면체 등)을 손가락으로 돌려 볼 수 있습니다
+정적분 넓이와 정확한 값, 축·식 표시 켜고 끄기)가 그려지고, **화학 구조식**(벤젠·에탄올 같은 이름이나 SMILES 입력 → 교과서 골격식, 벤젠 고리의 원 표기, 모든 원자를 쓴 구조식)과 **입체도형 14종**(정육면체·원기둥·원뿔·구·정다면체 등)을 손가락으로 돌려 볼 수 있습니다
 (숨은선은 정확한 점선, 관성 회전, 두 번 탭하면 처음 각도). 그리고 펜 입력(필압·팜 리젝션·되돌리기, **획 하나를 매끈한 외곽선 하나로 그려 고해상도 화면에서도 선명**) +
 **로컬 도형 인식**(선분·화살표·원·호·다각형·**포물선·타원·매끈한 자유 곡선**, 정삼각형·직사각형·정사각형 스냅,
 기울기 보존, 직각 표시). 인식은 전부 브라우저 안에서 돌아가며
-서버·네트워크가 필요 없습니다. 다음은 손글씨 수식 인식, 그 뒤로 3D, 화학, 삼성노트·GoodNotes 내보내기 순서입니다.
+서버·네트워크가 필요 없습니다. 그린 것은 눌러서 복사·저장·공유하거나, 분할 화면에서 미리보기를 끌어 삼성노트·GoodNotes에 놓을 수 있습니다. 다음은 손글씨 수식·구조식 인식입니다.
 전체 설계: [마스터 스펙 v4](docs/MASTERSPEC_v4.md).
 
 ### 로컬 실행

@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@cortex-js/compute-engine": "^0.154.0",
+    "@rdkit/rdkit": "2026.3.6",
     "@sketchlab/shared": "*",
     "idb": "^8.0.3",
     "immer": "^11.1.15",

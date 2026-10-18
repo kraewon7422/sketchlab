@@ -6,9 +6,10 @@ import type { BBox } from "../ink/types";
 import { IR_VERSION, SOLID_KINDS, type SceneIR, type SolidKind } from "@sketchlab/shared";
 import { buildFromInput, describe } from "../math/build";
 import { SOLID_NAMES } from "../solid/mesh";
+import { CHEM_EXAMPLES, chemFromInput } from "../chem/names";
 import { analyze, normalizeInput } from "../math/latex";
 import { markFresh } from "../render/Shape2DView";
-import { plot, solid, theme } from "../render/theme";
+import { chem, plot, solid, theme } from "../render/theme";
 import { sessionStore } from "../store/session";
 
 /**
@@ -67,18 +68,57 @@ export interface FormulaSheetProps {
 export default function FormulaSheet({ onClose, area }: FormulaSheetProps): ReactElement {
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => inputRef.current?.focus(), []);
 
   const preview = useMemo(() => {
+    const c = chemFromInput(text);
+    if (c && !c.guessed) return { html: "", note: `화학 구조식${c.name ? ` · ${c.name}` : ""}` };
     const latex = normalizeInput(text);
     if (!latex) return { html: "", note: "식을 입력하거나 아래 예시를 누르세요" };
+    if (c) return { html: "", note: "화학 구조식 (SMILES)" };
     const a = analyze(text);
     return { html: katex.renderToString(latex, { throwOnError: false, displayMode: true }), note: describe(a) };
   }, [text]);
 
   const add = (input: string) => {
+    const c = chemFromInput(input);
+    if (c) void addChem(c, input);
+    else addFormula(input);
+  };
+
+  /** 화학 구조식: RDKit을 불러 크기를 잰 뒤 빈 자리에 놓는다 */
+  const addChem = async (c: { smiles: string; name?: string; guessed?: boolean }, input: string) => {
+    setError(null);
+    setLoading(true);
+    try {
+      const { chemDrawing } = await import("../render/ChemObject");
+      const data = { smiles: c.smiles, style: "skeletal" as const, aromaticCircle: false, ...(c.name ? { commonName: c.name } : {}) };
+      let bond: number = chem.bond;
+      let d = await chemDrawing(data, bond);
+      const maxW = area.width - theme.space[6] * 2;
+      if (d.width > maxW) {
+        bond = Math.max(16, Math.floor((bond * maxW) / d.width));
+        d = await chemDrawing(data, bond);
+      }
+      const h = d.height + (c.name ? 28 : 0);
+      const { x, y } = freeSpot(d.width, h, area);
+      const ir: SceneIR = { version: IR_VERSION, kind: "chem", source: "manual", confidence: 1, data };
+      const id = sessionStore.getState().addObject(ir, { x, y, scale: bond }, { minX: x, minY: y, maxX: x + d.width, maxY: y + h });
+      markFresh(id);
+      onClose();
+    } catch (e) {
+      // SMILES처럼 보였지만 아니었다 → 수식으로
+      if (c.guessed) addFormula(input);
+      else setError(e instanceof Error ? e.message : "구조식을 그리지 못했어요");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const addFormula = (input: string) => {
     const r = buildFromInput(input);
     if (!r.ok) {
       setError(r.message);
@@ -206,7 +246,7 @@ export default function FormulaSheet({ onClose, area }: FormulaSheetProps): Reac
         <div dangerouslySetInnerHTML={{ __html: preview.html }} />
       </div>
       <p style={{ margin: 0, textAlign: "center", fontSize: 13, color: error ? theme.color.danger : theme.color.asymptote }}>
-        {error ?? preview.note}
+        {loading ? "구조식 준비 중… (처음 한 번은 몇 초 걸려요)" : (error ?? preview.note)}
       </p>
 
       <div style={{ display: "flex", flexWrap: "wrap", gap: theme.space[2], marginTop: theme.space[4] }}>
@@ -227,6 +267,32 @@ export default function FormulaSheet({ onClose, area }: FormulaSheetProps): Reac
             }}
           >
             {label}
+          </button>
+        ))}
+      </div>
+
+      <p style={{ margin: `${theme.space[5]}px 0 ${theme.space[2]}px`, fontSize: 13, color: theme.color.asymptote }}>
+        화학 구조식 — 이름(벤젠, ethanol)이나 SMILES(c1ccccc1)를 입력해도 돼요
+      </p>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: theme.space[2] }}>
+        {CHEM_EXAMPLES.map((name) => (
+          <button
+            key={name}
+            type="button"
+            disabled={loading}
+            onClick={() => add(name)}
+            style={{
+              minHeight: 36,
+              padding: `${theme.space[1]}px ${theme.space[3]}px`,
+              border: `1px solid ${theme.color.sub}`,
+              borderRadius: 999,
+              background: theme.color.bg,
+              color: theme.color.ink,
+              fontSize: 13,
+              cursor: "pointer",
+            }}
+          >
+            {name}
           </button>
         ))}
       </div>

@@ -1,4 +1,4 @@
-import { ChartSpline, Copy, Download, Share2, Sigma, Trash2 } from "lucide-react";
+import { Atom, ChartSpline, Circle, Copy, Download, Share2, Sigma, Trash2 } from "lucide-react";
 import { useEffect, useLayoutEffect, useState, type CSSProperties, type ReactElement } from "react";
 import type { CanvasItem } from "../ink/types";
 import { theme } from "../render/theme";
@@ -10,7 +10,7 @@ import { sessionStore, useSession } from "../store/session";
  *   [저장] PNG 파일 → 갤러리/내 파일 → 노트에 이미지 삽입 (항상 되는 길)
  *   [공유] 안드로이드·iPad 공유 시트 → 노트 앱 선택
  *   [삭제]
- * 그래프는 [축] [이름] 켜고 끄기가 앞에 붙는다.
+ * 그래프는 [축] [이름], 화학 구조식은 [원] [모든 원자] 켜고 끄기가 앞에 붙는다.
  * 내보내기 코드는 누를 때 불러온다 (lazy).
  */
 
@@ -49,10 +49,18 @@ export function SelectionBar({ onMessage }: { onMessage: (message: string) => vo
 
   useLayoutEffect(() => {
     setBox(item ? boxOf(item) : null);
+    if (!item) return;
+    // 그림 크기가 나중에 바뀌는 객체(화학 구조식은 RDKit 계산 후 그려진다)도 상자가 따라가게
+    const el = document.querySelector(`[data-overlay-id="${item.id}"]`);
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => setBox(boxOf(item)));
+    ro.observe(el);
+    return () => ro.disconnect();
   }, [item]);
 
-  // 끌어서 노트에 놓을 수 있는 미리보기 이미지 (선택할 때마다 새로 만든다)
+  // 끌어서 노트에 놓을 수 있는 미리보기 이미지 (선택할 때마다, 그림 크기가 바뀔 때마다 새로 만든다)
   const [thumb, setThumb] = useState<string | null>(null);
+  const sizeKey = box ? `${Math.round(box.width)}x${Math.round(box.height)}` : "";
   useEffect(() => {
     let alive = true;
     setThumb(null);
@@ -68,7 +76,7 @@ export function SelectionBar({ onMessage }: { onMessage: (message: string) => vo
     return () => {
       alive = false;
     };
-  }, [item]);
+  }, [item, sizeKey]);
 
   if (!item || !box) return null;
   const pad = theme.space[2];
@@ -93,6 +101,17 @@ export function SelectionBar({ onMessage }: { onMessage: (message: string) => vo
     sessionStore.getState().commitObjectIR(item.id, before, { ...before, data: { ...before.data, [key]: !before.data[key] } }, label);
   };
   const plotData = item.kind === "object" && item.ir.kind === "plot2d" ? item.ir.data : null;
+  const chemData = item.kind === "object" && item.ir.kind === "chem" ? item.ir.data : null;
+  /** 화학 구조식 표시 설정 (Undo 1단위) */
+  const chemToggle = (patch: "circle" | "full") => {
+    if (item.kind !== "object" || item.ir.kind !== "chem") return;
+    const before = item.ir;
+    const data =
+      patch === "circle"
+        ? { ...before.data, aromaticCircle: !before.data.aromaticCircle }
+        : { ...before.data, style: before.data.style === "full" ? ("skeletal" as const) : ("full" as const) };
+    sessionStore.getState().commitObjectIR(item.id, before, { ...before, data }, patch === "circle" ? "방향족 원 표기" : "구조식 종류");
+  };
 
   const button = (label: string, Icon: typeof Copy, onClick: () => void, danger = false, pressed?: boolean) => (
     <button
@@ -179,6 +198,8 @@ export function SelectionBar({ onMessage }: { onMessage: (message: string) => vo
         )}
         {plotData && button("축", ChartSpline, () => toggle("showAxes", "축 표시"), false, plotData.showAxes)}
         {plotData && button("이름", Sigma, () => toggle("showCaption", "식 표시"), false, plotData.showCaption)}
+        {chemData && button("원", Circle, () => chemToggle("circle"), false, chemData.aromaticCircle)}
+        {chemData && button("모든 원자", Atom, () => chemToggle("full"), false, chemData.style === "full")}
         {button("복사", Copy, () => void act("copy"))}
         {button("저장", Download, () => void act("save"))}
         {canShare && button("공유", Share2, () => void act("share"))}
