@@ -3,10 +3,12 @@ import "katex/dist/katex.min.css";
 import { X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import type { BBox } from "../ink/types";
+import { IR_VERSION, SOLID_KINDS, type SceneIR, type SolidKind } from "@sketchlab/shared";
 import { buildFromInput, describe } from "../math/build";
+import { SOLID_NAMES } from "../solid/mesh";
 import { analyze, normalizeInput } from "../math/latex";
 import { markFresh } from "../render/Shape2DView";
-import { plot, theme } from "../render/theme";
+import { plot, solid, theme } from "../render/theme";
 import { sessionStore } from "../store/session";
 
 /**
@@ -88,6 +90,22 @@ export default function FormulaSheet({ onClose, area }: FormulaSheetProps): Reac
     const { x, y } = freeSpot(w, h, area);
     const bbox: BBox = { minX: x, minY: y, maxX: x + w, maxY: y + h };
     const id = sessionStore.getState().addObject(r.ir, { x, y, scale: w }, bbox);
+    markFresh(id);
+    onClose();
+  };
+
+  const addSolid = (kind: SolidKind) => {
+    const S = Math.min(solid.size, area.width - theme.space[6] * 2);
+    const h = S + 48;
+    const { x, y } = freeSpot(S, h, area);
+    const ir: SceneIR = {
+      version: IR_VERSION,
+      kind: "solid3d",
+      source: "manual",
+      confidence: 1,
+      data: { solid: kind, params: {}, style: "line", showEdges: true, showHiddenEdges: true },
+    };
+    const id = sessionStore.getState().addObject(ir, { x, y, scale: S }, { minX: x, minY: y, maxX: x + S, maxY: y + h });
     markFresh(id);
     onClose();
   };
@@ -200,6 +218,31 @@ export default function FormulaSheet({ onClose, area }: FormulaSheetProps): Reac
             }}
           >
             {label}
+          </button>
+        ))}
+      </div>
+
+      <p style={{ margin: `${theme.space[5]}px 0 ${theme.space[2]}px`, fontSize: 13, color: theme.color.asymptote }}>
+        입체도형 — 돌려 볼 수 있어요
+      </p>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: theme.space[2] }}>
+        {SOLID_KINDS.map((kind) => (
+          <button
+            key={kind}
+            type="button"
+            onClick={() => addSolid(kind)}
+            style={{
+              minHeight: 36,
+              padding: `${theme.space[1]}px ${theme.space[3]}px`,
+              border: `1px solid ${theme.color.sub}`,
+              borderRadius: 999,
+              background: theme.color.bg,
+              color: theme.color.ink,
+              fontSize: 13,
+              cursor: "pointer",
+            }}
+          >
+            {SOLID_NAMES[kind]}
           </button>
         ))}
       </div>

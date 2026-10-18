@@ -106,6 +106,24 @@ export const plot = {
   shadeNegative: "rgba(220,38,38,0.12)",
 } as const;
 
+/** 입체도형 객체 (§12). */
+export const solid = {
+  /** 그림 상자 한 변 px */
+  size: 280,
+  /** 기본 시점 (도) — 교과서 겨냥도처럼 약간 왼쪽 위에서 */
+  yawDeg: -35,
+  pitchDeg: 22,
+  /** 숨은선: 실선보다 가늘고 점선 */
+  hiddenWidth: 1.3,
+  hiddenDash: "5 4",
+  /** 드래그 1px당 회전 (라디안) */
+  dragGain: 0.011,
+  /** 관성 감쇠 (1/초) — 시간 기반이라 60Hz·120Hz에서 같은 손맛 */
+  inertiaDecay: 4.5,
+  /** 시점 복귀 애니메이션 ms */
+  resetMs: 600,
+} as const;
+
 /** 인식된 평면도형 그리기 값 (§11.1 교과서 시각 언어). 단위 월드 px. */
 export const shape = {
   /** 화살촉 길이 */

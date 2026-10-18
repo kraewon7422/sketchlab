@@ -11,10 +11,13 @@ import { ErrorBoundary } from "../ErrorBoundary";
  * PlotObject는 lazy — Compute Engine·KaTeX(수백 KB)는 그래프가 처음 생길 때 내려받는다.
  */
 const PlotObject = lazy(() => import("./PlotObject"));
+/** 입체는 따로 — 수학 엔진 없이 가벼운 청크라 그래프 청크를 끌어오지 않는다 */
+const SolidObject = lazy(() => import("./SolidObject"));
 
-const OVERLAY_KINDS = new Set(["plot2d", "formula", "chemEq"]);
+const OVERLAY_KINDS = new Set(["plot2d", "formula", "chemEq", "solid3d"]);
 
-export function ObjectOverlays(): ReactElement {
+/** interactive: 펜 도구일 때만 입체를 돌릴 수 있다 (지우개일 땐 터치가 캔버스로 가야 지워진다) */
+export function ObjectOverlays({ interactive }: { interactive: boolean }): ReactElement {
   const items = useSession((s) => s.items);
   const overlays = items.filter((i): i is ObjectItem => i.kind === "object" && OVERLAY_KINDS.has(i.ir.kind));
 
@@ -22,9 +25,13 @@ export function ObjectOverlays(): ReactElement {
     <div style={{ position: "absolute", inset: 0, pointerEvents: "none", overflow: "hidden" }}>
       <ErrorBoundary area="graphs">
         <Suspense fallback={null}>
-          {overlays.map((item) => (
-            <PlotObject key={item.id} item={item} />
-          ))}
+          {overlays.map((item) =>
+            item.ir.kind === "solid3d" ? (
+              <SolidObject key={item.id} item={item} interactive={interactive} />
+            ) : (
+              <PlotObject key={item.id} item={item} />
+            ),
+          )}
         </Suspense>
       </ErrorBoundary>
     </div>

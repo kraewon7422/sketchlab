@@ -75,7 +75,7 @@ export function App(): ReactElement {
         <ErrorBoundary area="canvas">
           <PointerCanvas tool={tool} onHoldSnap={recognize} />
         </ErrorBoundary>
-        <ObjectOverlays />
+        <ObjectOverlays interactive={tool === "pen"} />
 
         <EmptyHint />
         <Toast message={toast} />

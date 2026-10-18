@@ -115,6 +115,8 @@ const Solid3D = z.object({
   /** 단면 렌더는 P8 백로그 (E6). 필드만 예약해 둔다. */
   crossSection: z.object({ normal: Vec3, offset: z.number() }).optional(),
   labels: z.array(z.object({ text: z.string(), vertex: z.number().int() })).optional(),
+  /** 보는 각도 (라디안). 돌려 놓은 그대로 저장·내보내기 된다 */
+  view: z.object({ yaw: z.number(), pitch: z.number() }).optional(),
 });
 
 // ─────────────────────────────────────────────────────────── 공간좌표 (v4 M1)
