@@ -8,6 +8,8 @@
 
 ![A hand-drawn triangle, tilted rectangle, circle, arrow, right triangle and line, and the same shapes snapped into clean geometry](docs/images/before-after.png)
 
+![Hand-drawn parabolas, an oval, an S-curve, a wave and a heart, and the same strokes as exact parabolas, an exact ellipse and smooth curves](docs/images/curves-before-after.png)
+
 **▶ Try it: [kraewon7422.github.io/sketchlab](https://kraewon7422.github.io/sketchlab/)**. Draw a shape, then tap ✨ (or press <kbd>Enter</kbd>).
 On a tablet, finish a stroke and hold the pen still for half a second: that stroke snaps on its own.
 
@@ -36,7 +38,7 @@ that must pass before the next one starts. The full design is in the
 | P0 | Monorepo, strict TypeScript, CI, HTTPS dev server | ✅ |
 | P1 | Pen input: pressure, palm rejection, undo/redo, auto-grouping, local persistence | ✅ |
 | P1.5 | S Pen polish: hover cursor, predicted points, side-button eraser, responsive layouts | ✅ |
-| **P2** | **Local shape recognition (Tier 0) + versioned scene format** | ✅ **← the live demo** |
+| **P2** | **Local shape recognition (Tier 0): lines, arrows, polygons, circles, arcs, parabolas, ellipses, smooth curves** | ✅ **← the live demo** |
 | P3a | Graph engine: textbook axes (1:1 scale, π ticks, dashed asymptotes), coefficient sliders, integrals | next |
 | P3b | Handwriting → LaTeX / graphs via a vision model | planned |
 | P4 | 3D solids and 3D coordinate space with smooth, inertial rotation and exact hidden lines | planned |
@@ -52,7 +54,8 @@ shape on a desktop CPU.
 ```
 pen strokes ──▶ classify each stroke ──▶ combine strokes ──▶ snap ──▶ Scene IR ──▶ SVG renderer
                 line / arc / circle /      arrows, polygons    exact      (zod-validated,
-                polygon / polyline         drawn as 3 lines    90°, ...    versioned JSON)
+                polygon / parabola /       drawn as 3 lines    90°, ...    versioned JSON)
+                ellipse / smooth curve
 ```
 
 1. **Resample by arc length.** Stored strokes are simplified (RDP), so straight parts have almost
@@ -61,11 +64,17 @@ pen strokes ──▶ classify each stroke ──▶ combine strokes ──▶ s
 2. **Find corners** as peaks of the turning angle, measured over a window on each side.
 3. **Fit**: total-least-squares lines for edges (vertices = intersections of neighbouring edges,
    so corners come out sharp), and an algebraic (Kåsa) circle fit for round shapes.
-4. **Combine and snap.** A triangle drawn as three separate lines becomes one triangle. Near-equal
+4. **Curves.** A parabola is fitted in a rotated frame (any tilt) and stored as one quadratic Bézier —
+   a parabola segment *is* a quadratic Bézier, so it is exact, not approximated; nearly symmetric ones become
+   exactly symmetric. Elongated loops become ellipses (axis ratio and tilt kept). Everything else becomes a
+   smooth Catmull-Rom curve with evenly spaced control points that keeps the drawn shape and only its truly
+   sharp corners (a heart keeps its tips; a sine wave keeps round peaks).
+5. **Combine and snap.** A triangle drawn as three separate lines becomes one triangle. Near-equal
    sides become an equilateral triangle; four near-right angles become a rectangle (or a square), keeping
    the **original tilt**. A near-right triangle gets an exact 90° corner *and* the right-angle mark.
-5. **Give up rather than guess.** If any stroke in a group can't be explained geometrically
-   (handwriting, say), nothing in the group is touched. A half-straightened word is worse than the original.
+6. **Leave handwriting alone.** A group of several small strokes that includes curves looks like writing,
+   so nothing in it is touched: a half-straightened word is worse than the original. (Reading handwriting is
+   a later phase.)
 
 A few problems that only showed up with realistic, wobbly input, each now pinned by a test:
 
@@ -73,15 +82,20 @@ A few problems that only showed up with realistic, wobbly input, each now pinned
 |---|---|
 | Closing a shape, the pen overshoots the start; joining the ends creates two fake corners | Trim the stroke where it passes closest to its own start |
 | A handwritten **S** has two sharp-ish bends and turned into a zigzag | A real corner turns almost as much over a short window as over a long one; a smooth bend doesn't (`sharpRatio`). A real corner also passes close to where its two edges meet; a bend cuts inside (`roundCut`) |
+| Smoothed sine waves came out as "tents": straight sides, pointy peaks | Measured the short/long turn ratio: true corners ≥ 0.83, tight bends ≤ 0.63 → only ≥ 0.75 stays sharp inside curves; and control points are spaced evenly (uneven RDP points pinch Catmull-Rom curves) |
+| Narrow U-shaped parabolas were filed as "curve" | Their tight vertex looks like a corner; when straight edges don't fit, try the parabola fit before falling back |
 | Small, quickly drawn arrowheads are too shaky to read as a clean "V" | An unclassifiable stroke counts as an arrowhead only at the tip of a line and swept back along it; anywhere else it still rejects the group |
 | On tiny strokes the measuring window shrank below hand jitter | Pixel minimums for both windows |
 
 **Measured accuracy**: synthetic hand-drawn shapes with low-frequency wobble, jitter, random
 rotation and size, and an over- or under-shot close; 8 seeds × 40 tries per shape:
 
-| Circle | Line | Arrow | Rectangle | Triangle | Handwriting wrongly snapped |
-|---|---|---|---|---|---|
-| 100% | 100% | 100% | 99.4% | 99.1% | 0 / 200 |
+| Circle | Line | Arrow | Ellipse | Parabola | Rectangle | Triangle |
+|---|---|---|---|---|---|---|
+| 100% | 100% | 100% | 100% | 98.8% | 99.4% | 99.1% |
+
+Also: 198 / 200 hand-drawn arcs stay arcs (not parabolas), sharp V's stay V's (100 / 100), and
+0 / 400 small handwriting groups ("2x=") are changed.
 
 ## Engineering notes
 
@@ -95,8 +109,11 @@ rotation and size, and an over- or under-shot close; 8 seeds × 40 tries per sha
   appending only the new segment to an SVG path each animation frame; the store is touched once
   per stroke. Coalesced events recover fast strokes, and predicted events reduce perceived latency
   without ever entering the saved stroke.
-- **Pressure-sensitive ink as filled outlines**, with all sub-paths forced to the same winding
-  direction so overlapping parts of a stroke don't cancel out under `fill-rule: nonzero`.
+- **Crisp pressure-sensitive ink: one outline per stroke.** The first version drew each stroke as
+  hundreds of overlapping quads and joint polygons; each piece is anti-aliased separately, and on a
+  high-resolution tablet the seams looked blurry and pixelated. Now a stroke is a single closed path — a
+  centripetal Catmull-Rom centerline (no overshoot on uneven point spacing), smoothed pressure,
+  quadratic-Bézier sides and true arc end caps — rebuilt every frame while drawing (3000 points in a few ms).
 - **Undo/redo via immer patches**; recognition is a single undo step that restores the exact original ink.
 - **Design tokens only.** Every colour, size and duration comes from
   [`theme.ts`](client/src/render/theme.ts). Textbook visual language: 2 px `#1A1A1A` lines, no
@@ -165,8 +182,9 @@ docs/              master spec (design source of truth, Korean)
 
 ### 현재 단계
 
-P2까지 완료: 펜 입력(필압·팜 리젝션·되돌리기) + **로컬 도형 인식**(선분·화살표·원·호·다각형,
-정삼각형·직사각형·정사각형 스냅, 기울기 보존, 직각 표시). 인식은 전부 브라우저 안에서 돌아가며
+P2까지 완료: 펜 입력(필압·팜 리젝션·되돌리기, **획 하나를 매끈한 외곽선 하나로 그려 고해상도 화면에서도 선명**) +
+**로컬 도형 인식**(선분·화살표·원·호·다각형·**포물선·타원·매끈한 자유 곡선**, 정삼각형·직사각형·정사각형 스냅,
+기울기 보존, 직각 표시). 인식은 전부 브라우저 안에서 돌아가며
 서버·네트워크가 필요 없습니다. 다음은 그래프 엔진(1:1 축 비율·π 눈금·점선 점근선·계수 슬라이더·적분),
 그 뒤로 손글씨 수식 인식, 3D, 화학, 삼성노트·GoodNotes 내보내기 순서입니다.
 전체 설계: [마스터 스펙 v4](docs/MASTERSPEC_v4.md).
