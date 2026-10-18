@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { RecognizeResultSchema, SceneIRSchema } from "./ir";
 
-const meta = { version: "3.0", confidence: 0.9, source: "vlm" } as const;
+const meta = { version: "4.0", confidence: 0.9, source: "vlm" } as const;
 
 describe("SceneIR 판별 유니온 (D1 회귀)", () => {
   it("올바른 shape2d를 통과시킨다", () => {
@@ -35,10 +35,10 @@ describe("SceneIR 판별 유니온 (D1 회귀)", () => {
     expect(r.success).toBe(false);
   });
 
-  it("version이 3.0이 아니면 차단한다", () => {
+  it("version이 4.0이 아니면 차단한다 — 구버전은 migrate.ts를 거쳐야 한다", () => {
     const r = SceneIRSchema.safeParse({
       ...meta,
-      version: "2.0",
+      version: "3.0",
       kind: "formula",
       data: { latex: "\\int_0^1 x\\,dx" },
     });
@@ -83,14 +83,15 @@ describe("교육 규범 기본값", () => {
     expect(r.data.showHiddenEdges).toBe(true);
   });
 
-  it("chem은 skeletal 표기를 기본으로 한다", () => {
+  it("chem은 skeletal 표기 + 원 표기 꺼짐이 기본이다", () => {
     const r = SceneIRSchema.parse({
       ...meta,
       kind: "chem",
       data: { smiles: "c1ccccc1", commonName: "벤젠 (benzene)" },
     });
     if (r.kind !== "chem") throw new Error("kind 분기 실패");
-    expect(r.data.display).toBe("skeletal");
+    expect(r.data.style).toBe("skeletal");
+    expect(r.data.aromaticCircle).toBe(false);
   });
 });
 
@@ -111,5 +112,76 @@ describe("RecognizeResult", () => {
       alternatives: [best, best, best],
     });
     expect(r.success).toBe(false);
+  });
+});
+
+describe("v4 신규 kind·필드", () => {
+  it("space3d는 범위 기본 5, 수선 표시 꺼짐이 기본이다", () => {
+    const r = SceneIRSchema.parse({
+      ...meta,
+      kind: "space3d",
+      data: { view: {}, points: [{ at: [1, 2, 3], label: "A" }] },
+    });
+    if (r.kind !== "space3d") throw new Error("kind 분기 실패");
+    expect(r.data.view.range).toBe(5);
+    expect(r.data.showProjections).toBe(false);
+  });
+
+  it("chemEq는 빈 반응식을 거부한다", () => {
+    expect(SceneIRSchema.safeParse({ ...meta, kind: "chemEq", data: { ce: "" } }).success).toBe(false);
+    expect(
+      SceneIRSchema.safeParse({ ...meta, kind: "chemEq", data: { ce: "2H2 + O2 -> 2H2O" } }).success,
+    ).toBe(true);
+  });
+
+  it("plot2d 계수 슬라이더는 한 글자 이름만, 최대 4개", () => {
+    const base = {
+      ...meta,
+      kind: "plot2d",
+      data: {
+        functions: [{ latex: "a\\sin(bx)", kind: "explicit" }],
+        view: { xmin: -5, xmax: 5, ymin: -5, ymax: 5 },
+      },
+    };
+    const p = (name: string) => ({ name, value: 1, min: -5, max: 5, step: 0.1 });
+    const ok = { ...base, data: { ...base.data, params: [p("a"), p("b")] } };
+    const longName = { ...base, data: { ...base.data, params: [p("ab")] } };
+    const tooMany = { ...base, data: { ...base.data, params: ["a", "b", "c", "d", "k"].map(p) } };
+    expect(SceneIRSchema.safeParse(ok).success).toBe(true);
+    expect(SceneIRSchema.safeParse(longName).success).toBe(false);
+    expect(SceneIRSchema.safeParse(tooMany).success).toBe(false);
+  });
+
+  it("넓이 음영은 x축 기준 + 값 표시가 기본이다", () => {
+    const r = SceneIRSchema.parse({
+      ...meta,
+      kind: "plot2d",
+      data: {
+        functions: [{ latex: "x^2", kind: "explicit" }],
+        view: { xmin: -1, xmax: 3, ymin: -1, ymax: 5 },
+        shade: [{ fn: 0, from: 0, to: 2 }],
+      },
+    });
+    if (r.kind !== "plot2d") throw new Error("kind 분기 실패");
+    expect(r.data.shade?.[0]?.against).toBe("axis");
+    expect(r.data.shade?.[0]?.showValue).toBe(true);
+    expect(r.data.view.xTicks).toBe("auto");
+  });
+
+  it("shape2d는 도형이 하나도 없으면 거부한다", () => {
+    expect(
+      SceneIRSchema.safeParse({ ...meta, kind: "shape2d", data: { primitives: [] } }).success,
+    ).toBe(false);
+  });
+
+  it("카탈로그 밖 입체는 거부한다 (카탈로그 매칭 원칙)", () => {
+    expect(
+      SceneIRSchema.safeParse({ ...meta, kind: "solid3d", data: { solid: "torus", params: {} } })
+        .success,
+    ).toBe(false);
+    expect(
+      SceneIRSchema.safeParse({ ...meta, kind: "solid3d", data: { solid: "conicalFrustum", params: {} } })
+        .success,
+    ).toBe(true);
   });
 });

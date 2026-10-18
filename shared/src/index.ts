@@ -1,2 +1,3 @@
 /** 클라이언트·서버가 공유하는 계약의 단일 진입점. */
 export * from "./ir";
+export * from "./migrate";
