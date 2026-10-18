@@ -1,111 +1,189 @@
 # SketchLab
 
-손으로 그린 스케치를 수학·과학 표준 표현으로 바꾸고, 인터랙티브 3D/그래프로 보여준 뒤,
-노트 앱(삼성노트·GoodNotes)에 붙여넣을 수 있게 내보내는 크로스플랫폼 웹 도구.
+**Sketch it rough with a pen; get a textbook-quality figure back, right where you drew it.**
 
-전체 설계는 [`docs/MASTERSPEC_v3.md`](docs/MASTERSPEC_v3.md)에 있습니다. **이 저장소의 모든 작업은
-그 문서의 Phase 순서를 따릅니다.**
+[![CI](https://github.com/kraewon7422/sketchlab/actions/workflows/ci.yml/badge.svg)](https://github.com/kraewon7422/sketchlab/actions/workflows/ci.yml)
+[![Live demo](https://img.shields.io/badge/demo-live-2563EB)](https://kraewon7422.github.io/sketchlab/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-1A1A1A)](LICENSE)
 
-현재 상태: **P0 완료** (뼈대 + CI + HTTPS)
+![A hand-drawn triangle, tilted rectangle, circle, arrow, right triangle and line, and the same shapes snapped into clean geometry](docs/images/before-after.png)
+
+**▶ Try it: [kraewon7422.github.io/sketchlab](https://kraewon7422.github.io/sketchlab/)**. Draw a shape, then tap ✨ (or press <kbd>Enter</kbd>).
+On a tablet, finish a stroke and hold the pen still for half a second: that stroke snaps on its own.
+
+> 🇰🇷 [한국어 설명은 아래에 있습니다](#한국어)
 
 ---
 
-## 빠른 시작
+## Why I made it
+
+I take math and science notes by hand on a Galaxy Tab. Drawing a clean graph, a solid you can
+rotate, or a chemical structure inside a notes app is slow, and the usual workaround (plotting in
+Python and pasting the image) looks rough and isn't interactive at all.
+
+SketchLab's goal is a tool that sits **next to the notes app** (split screen or pop-up window).
+You sketch roughly, it turns the sketch into a precise, textbook-style figure, and you drag the
+result into your notes. It runs in the browser, so the same tool works on a tablet, a phone and a PC.
+
+## Status
+
+Built in phases; each phase has acceptance criteria (automated tests plus a real-browser check)
+that must pass before the next one starts. The full design is in the
+[master spec](docs/MASTERSPEC_v4.md) (Korean).
+
+| Phase | What | State |
+|---|---|---|
+| P0 | Monorepo, strict TypeScript, CI, HTTPS dev server | ✅ |
+| P1 | Pen input: pressure, palm rejection, undo/redo, auto-grouping, local persistence | ✅ |
+| P1.5 | S Pen polish: hover cursor, predicted points, side-button eraser, responsive layouts | ✅ |
+| **P2** | **Local shape recognition (Tier 0) + versioned scene format** | ✅ **← the live demo** |
+| P3a | Graph engine: textbook axes (1:1 scale, π ticks, dashed asymptotes), coefficient sliders, integrals | next |
+| P3b | Handwriting → LaTeX / graphs via a vision model | planned |
+| P4 | 3D solids and 3D coordinate space with smooth, inertial rotation and exact hidden lines | planned |
+| P5 | Chemistry: structure recognition, validation and drawing (RDKit) | planned |
+| P6 | Export into Samsung Notes / GoodNotes (drag & drop, clipboard, share sheet) | planned |
+| P7 | Correction UI, offline PWA, share-to-SketchLab from notes apps | planned |
+
+## How shape recognition works
+
+Everything in the demo runs **locally in the browser**: no server, no network, about 0.1 ms per
+shape on a desktop CPU.
+
+```
+pen strokes ──▶ classify each stroke ──▶ combine strokes ──▶ snap ──▶ Scene IR ──▶ SVG renderer
+                line / arc / circle /      arrows, polygons    exact      (zod-validated,
+                polygon / polyline         drawn as 3 lines    90°, ...    versioned JSON)
+```
+
+1. **Resample by arc length.** Stored strokes are simplified (RDP), so straight parts have almost
+   no points. Resampling evenly lets corners be measured over a fixed *fraction of the stroke length*,
+   which makes every threshold scale-invariant: a tiny triangle and a huge one get the same answer.
+2. **Find corners** as peaks of the turning angle, measured over a window on each side.
+3. **Fit**: total-least-squares lines for edges (vertices = intersections of neighbouring edges,
+   so corners come out sharp), and an algebraic (Kåsa) circle fit for round shapes.
+4. **Combine and snap.** A triangle drawn as three separate lines becomes one triangle. Near-equal
+   sides become an equilateral triangle; four near-right angles become a rectangle (or a square), keeping
+   the **original tilt**. A near-right triangle gets an exact 90° corner *and* the right-angle mark.
+5. **Give up rather than guess.** If any stroke in a group can't be explained geometrically
+   (handwriting, say), nothing in the group is touched. A half-straightened word is worse than the original.
+
+A few problems that only showed up with realistic, wobbly input, each now pinned by a test:
+
+| Problem | Fix |
+|---|---|
+| Closing a shape, the pen overshoots the start; joining the ends creates two fake corners | Trim the stroke where it passes closest to its own start |
+| A handwritten **S** has two sharp-ish bends and turned into a zigzag | A real corner turns almost as much over a short window as over a long one; a smooth bend doesn't (`sharpRatio`). A real corner also passes close to where its two edges meet; a bend cuts inside (`roundCut`) |
+| Small, quickly drawn arrowheads are too shaky to read as a clean "V" | An unclassifiable stroke counts as an arrowhead only at the tip of a line and swept back along it; anywhere else it still rejects the group |
+| On tiny strokes the measuring window shrank below hand jitter | Pixel minimums for both windows |
+
+**Measured accuracy**: synthetic hand-drawn shapes with low-frequency wobble, jitter, random
+rotation and size, and an over- or under-shot close; 8 seeds × 40 tries per shape:
+
+| Circle | Line | Arrow | Rectangle | Triangle | Handwriting wrongly snapped |
+|---|---|---|---|---|---|
+| 100% | 100% | 100% | 99.4% | 99.1% | 0 / 200 |
+
+## Engineering notes
+
+- **One contract between recognition and rendering.** Every recognized object is a *Scene IR*
+  value, a [zod](https://zod.dev) discriminated union ([`shared/src/ir.ts`](shared/src/ir.ts)), so
+  a mismatched `kind`/`data` pair can't get through. Coordinates are object-local and normalized,
+  never canvas pixels. IR is versioned, and stored data from older versions is migrated
+  ([`migrate.ts`](shared/src/migrate.ts)) and re-validated on load. Anything invalid falls back to
+  the original ink rather than being lost.
+- **Input at 120 Hz without jank.** Pointer events bypass React. The live stroke is updated by
+  appending only the new segment to an SVG path each animation frame; the store is touched once
+  per stroke. Coalesced events recover fast strokes, and predicted events reduce perceived latency
+  without ever entering the saved stroke.
+- **Pressure-sensitive ink as filled outlines**, with all sub-paths forced to the same winding
+  direction so overlapping parts of a stroke don't cancel out under `fill-rule: nonzero`.
+- **Undo/redo via immer patches**; recognition is a single undo step that restores the exact original ink.
+- **Design tokens only.** Every colour, size and duration comes from
+  [`theme.ts`](client/src/render/theme.ts). Textbook visual language: 2 px `#1A1A1A` lines, no
+  gradients or glow.
+
+## Tech stack
+
+TypeScript (strict) · React 19 · Vite · zustand + immer · zod · SVG (no chart libraries) ·
+IndexedDB · Vitest · Playwright · GitHub Actions · npm workspaces (`shared/`, `client/`, `server/`)
+
+The server package is a stub for now. In P3b it will keep the vision-model API key server-side;
+the browser never sees a key.
+
+## Run it locally
 
 ```bash
-npm install          # 최초 1회
-npm run dev          # 클라이언트만 (개발 중 대부분 이걸로 충분)
-npm run dev:all      # 클라이언트 + API 서버 함께
+npm install
+npm run dev          # https://localhost:5173, also exposed on your LAN for a tablet
 ```
 
-`npm run dev` 를 실행하면 이런 주소가 나옵니다.
+| Command | What it does |
+|---|---|
+| `npm run dev` | Client dev server (HTTPS, reachable from a tablet on the same Wi-Fi) |
+| `npm run ci` | Lint + typecheck + all tests |
+| `npm test` | Unit tests only (Vitest) |
+| `npm run build` | Production build → `client/dist` |
+
+Opening the dev server from a tablet: use the `Network` address it prints, and accept the
+self-signed-certificate warning once. HTTPS is needed because clipboard, share sheet and
+`crypto.subtle` only work in a secure context.
+
+## Project layout
 
 ```
-➜  Local:   https://localhost:5173/
-➜  Network: https://192.168.x.x:5173/   ← 태블릿·폰은 이 주소로 접속
+shared/src/        Scene IR schema + migration (the contract)
+client/src/
+  ink/             pen input, palm rejection, stroke outlines, grouping
+  recognize/tier0/ local shape recognition (fit.ts, classify.ts + tests)
+  render/          SVG renderers, design tokens
+  store/           session store (undo/redo), IndexedDB persistence
+  ui/              responsive layout modes
+server/src/        API proxy (P3b)
+docs/              master spec (design source of truth, Korean)
 ```
 
-### 태블릿·폰에서 열기 (중요)
+## License
 
-1. PC와 **같은 Wi-Fi**에 연결합니다.
-2. 위의 `Network` 주소를 기기 브라우저에 입력합니다.
-3. **"연결이 비공개로 설정되어 있지 않습니다"** 경고가 뜹니다 → `고급` → `계속`(또는 `안전하지 않음으로 이동`)
-   을 누릅니다. 기기당 최초 1회만 하면 됩니다.
-4. `https://<주소>/env-check.html` 을 열어 전부 초록인지 확인합니다.
-
-> **왜 경고를 넘겨야 하나요?**
-> 클립보드 복사·공유 시트·SHA-256 해시는 브라우저가 **secure context**(HTTPS 또는 localhost)에서만
-> 허용합니다. 개발 서버는 자체 서명 인증서로 HTTPS를 켜므로 브라우저가 경고를 띄우지만,
-> 한 번 넘기면 그 주소는 정상적인 secure context가 됩니다 — 내보내기가 전부 동작합니다.
-> `http://<LAN IP>` 로 접속하면 내보내기가 **전부 조용히 실패**합니다 (마스터스펙 D4 / 함정 #21).
-
-HTTPS를 꺼야 할 일이 있으면 `SKETCHLAB_NO_HTTPS=1 npm run dev` 로 실행합니다.
-(데스크톱은 `http://localhost` 도 secure context라 개발에 지장이 없습니다.)
+[MIT](LICENSE)
 
 ---
 
-## 명령어
+<a id="한국어"></a>
+
+## 한국어
+
+**펜으로 대충 그리면, 그린 자리에서 교과서 품질의 그림으로 바뀌는 도구.**
+
+갤럭시 탭으로 수학·과학 필기를 하면서, 노트 안에서 깔끔한 그래프·돌려볼 수 있는 입체·화학 구조식을
+그리기가 너무 번거로워서 만들기 시작했습니다. 파이썬으로 그려 붙이는 방법은 결과가 투박하고
+인터랙티브하지도 않습니다. SketchLab은 노트 앱 **옆에** (분할 화면·팝업 창) 띄워 두고 대충 그리면
+정확한 그림으로 바꿔 주고, 결과를 노트로 끌어다 넣는 것을 목표로 합니다. 브라우저에서 돌아가므로
+태블릿·폰·PC 어디서나 같은 도구를 씁니다.
+
+**▶ 체험: [kraewon7422.github.io/sketchlab](https://kraewon7422.github.io/sketchlab/)**:
+도형을 그리고 ✨를 누르세요. 태블릿에서는 획 끝에서 펜을 0.5초 멈추면 그 획이 바로 반듯해집니다.
+
+### 현재 단계
+
+P2까지 완료: 펜 입력(필압·팜 리젝션·되돌리기) + **로컬 도형 인식**(선분·화살표·원·호·다각형,
+정삼각형·직사각형·정사각형 스냅, 기울기 보존, 직각 표시). 인식은 전부 브라우저 안에서 돌아가며
+서버·네트워크가 필요 없습니다. 다음은 그래프 엔진(1:1 축 비율·π 눈금·점선 점근선·계수 슬라이더·적분),
+그 뒤로 손글씨 수식 인식, 3D, 화학, 삼성노트·GoodNotes 내보내기 순서입니다.
+전체 설계: [마스터 스펙 v4](docs/MASTERSPEC_v4.md).
+
+### 로컬 실행
+
+```bash
+npm install
+npm run dev
+```
+
+태블릿에서 열기: PC와 같은 Wi-Fi에 연결 → 터미널에 나온 `Network` 주소(`https://192.168.x.x:5173`)를
+태블릿 Chrome에 입력 → "연결이 비공개로 설정되어 있지 않습니다" 경고에서 **고급 → 계속** (기기당 1회).
+클립보드·공유 기능은 HTTPS에서만 동작하기 때문에 경고를 넘겨야 합니다.
 
 | 명령 | 하는 일 |
 |---|---|
-| `npm run dev` | 클라이언트 개발 서버 (HTTPS, LAN 노출) |
-| `npm run dev:server` | API 서버만 (`http://localhost:8787`) |
-| `npm run dev:all` | 둘 다 함께 |
-| `npm run build` | 클라이언트 프로덕션 빌드 → `client/dist` |
-| `npm run lint` | ESLint |
-| `npm run typecheck` | 워크스페이스 전체 타입 검사 |
-| `npm test` | Vitest 단위 테스트 |
-| `npm run ci` | lint + typecheck + test 한 번에 |
-
----
-
-## 구조
-
-```
-sketchlab/
-├── docs/MASTERSPEC_v3.md   설계 원본 — 판단이 갈릴 때 여기가 기준
-├── shared/                 클라이언트·서버 공용 계약
-│   └── src/ir.ts           Scene IR (zod 판별 유니온) — 인식기와 렌더러의 유일한 접점
-├── client/                 웹 앱
-│   ├── public/env-check.html   기기별 secure context 점검 페이지
-│   └── src/
-│       ├── main.tsx        부팅 순서 (전역 에러 핸들러 → 테마 주입 → React)
-│       ├── App.tsx         화면 셸 (툴바 / 캔버스 / FAB)
-│       ├── debug.ts        에러·진단 수집소 — 에러를 삼키지 않기 위한 창구
-│       ├── ErrorBoundary.tsx
-│       ├── DebugPanel.tsx  개발 전용 진단 패널
-│       └── render/theme.ts 디자인 토큰 단일 진실
-├── server/src/index.ts     API 프록시 (P3에서 VLM 인식 담당)
-└── scripts/dev-all.mjs
-```
-
-### 어디를 고쳐야 하는지
-
-| 바꾸고 싶은 것 | 파일 |
-|---|---|
-| 색·간격·모션·터치 크기 | `client/src/render/theme.ts` (**여기만**. 컴포넌트 하드코딩 금지) |
-| 인식 결과의 데이터 형태 | `shared/src/ir.ts` |
-| 화면 배치 | `client/src/App.tsx` |
-| 에러가 어디에 남는지 | `client/src/debug.ts` |
-| 서버 API | `server/src/index.ts` |
-
----
-
-## 환경 변수
-
-`.env.example` 을 `.env` 로 복사해 채웁니다. **서버만 읽습니다** — API 키가 클라이언트 번들에
-들어가면 안 됩니다.
-
-`ANTHROPIC_API_KEY` 는 P3(VLM 인식)부터 필요합니다. P0~P2는 없어도 동작합니다.
-
----
-
-## 개발 규칙 (요약)
-
-마스터스펙 §2 전문을 따르되, 특히:
-
-1. **Phase 순서 엄수.** Acceptance 미통과 시 다음 Phase로 넘어가지 않습니다.
-2. **컴파일 성공 ≠ 완료.** Phase 종료마다 실기 브라우저에서 확인합니다.
-3. **에러를 삼키지 않습니다.** 잡은 에러는 UI 에러 카드나 `debug.ts` 로그에 반드시 남깁니다.
-4. **색·굵기·간격·모션은 `theme.ts` 토큰만.** 컴포넌트에 hex나 임의 px를 적지 않습니다.
-5. **외부 입력은 경계에서 zod 검증.** 내부는 검증된 데이터만 다닙니다.
+| `npm run dev` | 개발 서버 (HTTPS, 같은 Wi-Fi의 태블릿에서 접속 가능) |
+| `npm run ci` | 린트 + 타입 검사 + 전체 테스트 |
+| `npm run build` | 프로덕션 빌드 |
