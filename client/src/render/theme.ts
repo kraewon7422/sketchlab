@@ -40,6 +40,11 @@ export const theme = {
   },
   /** 터치 타깃 최소 크기 (px) */
   touch: { minTarget: 44 },
+  /**
+   * 반응형 3단계 기준 폭 (px, v4 §15.2).
+   * 갤럭시 탭 분할 화면 ≈ 600~900, 팝업 창·폰 < 480.
+   */
+  layout: { wide: 900, compact: 480 },
 } as const;
 
 /** 선 굵기 — 교과서 시각 언어 (§8.1). 단위 px. */
@@ -69,6 +74,29 @@ export const ink = {
   simplifyEpsilon: 0.6,
   /** 활성 그룹 하이라이트가 획에서 떨어지는 여백 px */
   groupHintPad: 8,
+  /**
+   * 그리고 멈추기 스냅 (v4 §9.1): 획 끝에서 펜을 이 시간(ms) 동안 거의 움직이지 않으면
+   * 그 획 하나만 바로 도형으로 바꾼다. 삼성노트·아이패드의 "그리고 멈추기"와 같은 손동작.
+   */
+  holdMs: 550,
+  /** 멈춤 판정 허용 흔들림 px */
+  holdTolerance: 5,
+  /** 멈춤 스냅을 허용하는 최소 획 길이 px — 점·짧은 획 오작동 방지 */
+  holdMinLength: 30,
+  /** S Pen 호버 커서 반지름 px */
+  hoverRadius: 4,
+} as const;
+
+/** 인식된 평면도형 그리기 값 (§11.1 교과서 시각 언어). 단위 월드 px. */
+export const shape = {
+  /** 화살촉 길이 */
+  arrowHead: 12,
+  /** 화살촉 반각 (도) */
+  arrowSpreadDeg: 24,
+  /** 직각 표시 한 변 */
+  rightAngle: 10,
+  /** 객체 히트 판정 여유 (지우개) */
+  hitPad: 6,
 } as const;
 
 export type Theme = typeof theme;

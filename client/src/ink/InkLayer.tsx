@@ -13,14 +13,19 @@ import type { InkItem, Stroke } from "./types";
  */
 
 export const InkItemView = memo(function InkItemView({ item }: { item: InkItem }) {
+  return <InkStrokes strokes={item.strokes} />;
+});
+
+/** 획 묶음 그리기 — 잉크 그룹과, 인식된 객체의 원본(교체 애니메이션·미지원 kind)이 같이 쓴다. */
+export function InkStrokes({ strokes }: { strokes: readonly Stroke[] }) {
   return (
     <g>
-      {item.strokes.map((stroke) => (
+      {strokes.map((stroke) => (
         <StrokeView key={stroke.id} stroke={stroke} />
       ))}
     </g>
   );
-});
+}
 
 const StrokeView = memo(function StrokeView({ stroke }: { stroke: Stroke }) {
   // 원본 points는 그대로 두고 그리기용으로만 단순화한다 (§12.4).

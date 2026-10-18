@@ -1,3 +1,4 @@
+import { parseStoredIR } from "@sketchlab/shared";
 import { openDB, type IDBPDatabase } from "idb";
 import { debugLog } from "../debug";
 import type { CanvasItem } from "../ink/types";
@@ -47,11 +48,26 @@ export async function loadItems(): Promise<CanvasItem[] | null> {
   try {
     const stored: unknown = await (await db).get(STORE_NAME, ITEMS_KEY);
     if (!Array.isArray(stored)) return null;
-    return stored as CanvasItem[];
+    return reviveItems(stored as CanvasItem[]);
   } catch (error) {
     debugLog.error("persistence", "저장된 내용을 불러오지 못했습니다", error);
     return null;
   }
+}
+
+/**
+ * 인식된 객체의 IR은 외부 입력과 같은 취급을 한다 (규약 §6): 예전 버전으로 저장됐을 수 있고
+ * (v3 → v4), 저장소가 깨졌을 수도 있다. 마이그레이션 + 스키마 검증을 통과한 것만 살린다.
+ * 실패한 객체는 버리지 않고 원본 잉크로 되돌린다 — 사용자가 그린 것은 잃지 않는다.
+ */
+export function reviveItems(items: readonly CanvasItem[]): CanvasItem[] {
+  return items.map((item) => {
+    if (item.kind !== "object") return item;
+    const ir = parseStoredIR(item.ir);
+    if (ir) return { ...item, ir };
+    debugLog.error("persistence", "저장된 객체의 IR이 유효하지 않아 원본 잉크로 되돌립니다", item.id);
+    return { id: item.id, kind: "ink", strokes: item.sourceStrokes, bbox: item.bbox };
+  });
 }
 
 /**

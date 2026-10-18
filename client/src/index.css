@@ -41,6 +41,35 @@ body {
 #root {
   -webkit-user-select: none;
   user-select: none;
+  /* 길게 누르면 뜨는 시스템 메뉴(이미지 저장 등)를 막는다 — S Pen 길게 누르기 스냅과 충돌 */
+  -webkit-touch-callout: none;
+}
+
+/*
+ * 인식 결과의 in-place 교체 (§12.2 원칙 1). 원래 잉크는 사라지고 도형이 그 자리에 떠오른다.
+ * 시간·이징은 토큰(CSS 변수)만 쓴다.
+ */
+@keyframes sl-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes sl-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+.sl-fade-in {
+  animation: sl-fade-in var(--sl-motion-base) var(--sl-motion-ease-out) both;
+}
+.sl-fade-out {
+  animation: sl-fade-out var(--sl-motion-base) var(--sl-motion-ease-out) both;
 }
 
 /* 접근성: 모션을 줄이면 전환을 끈다 (§10, 품질 게이트) */

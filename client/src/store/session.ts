@@ -1,9 +1,11 @@
+import type { SceneIR } from "@sketchlab/shared";
 import { applyPatches, enablePatches, produceWithPatches, type Patch } from "immer";
 import { useStore } from "zustand";
 import { createStore, type StoreApi } from "zustand/vanilla";
 import { bboxOfPoints, distanceToPolyline, unionBBoxes } from "../ink/geometry";
 import { shouldJoinGroup } from "../ink/grouping";
-import type { CanvasItem, InkItem, Stroke } from "../ink/types";
+import type { CanvasItem, InkItem, ObjectItem, Stroke } from "../ink/types";
+import { distanceToShape2D, type ObjectTransform } from "../render/shape2dGeometry";
 
 /**
  * ⚠️ D6 — 이 호출이 없으면 produceWithPatches가 런타임에 던진다.
@@ -41,7 +43,16 @@ interface HistoryEntry {
 export interface SessionState extends Doc {
   history: { undo: HistoryEntry[]; redo: HistoryEntry[] };
 
-  addStroke(stroke: Stroke): void;
+  /**
+   * 획을 추가하고, 그 획이 들어간 그룹 id를 돌려준다.
+   * newGroup: 자동 그룹핑을 건너뛰고 새 그룹으로 — "그리고 멈추기" 스냅은 그 획 하나만 바꿔야 한다.
+   */
+  addStroke(stroke: Stroke, options?: { newGroup?: boolean }): string;
+  /**
+   * 잉크 그룹을 인식 결과 객체로 그 자리에서 교체한다 (§12.2 in-place). Undo 1단위 "인식 적용".
+   * 대상이 없거나 잉크가 아니면 null.
+   */
+  replaceWithObject(inkId: string, ir: SceneIR, transform: ObjectTransform): string | null;
   /** 지정한 지점 근처의 획을 지운다. 지운 개수를 돌려준다. */
   eraseAt(x: number, y: number, radius: number): number;
   setSelection(ids: string[]): void;
@@ -117,14 +128,16 @@ export const sessionStore: StoreApi<SessionState> = createStore<SessionState>((s
     activeGroupId: null,
     history: { undo: [], redo: [] },
 
-    addStroke(stroke) {
+    addStroke(stroke, options = {}) {
+      let groupId = "";
       commit("스트로크 추가", (draft) => {
-        const active = findInkItem(draft.items, draft.activeGroupId);
+        const active = options.newGroup ? undefined : findInkItem(draft.items, draft.activeGroupId);
         const lastStroke = active?.strokes[active.strokes.length - 1];
 
         if (active && lastStroke && shouldJoinGroup(lastStroke, stroke)) {
           active.strokes.push(stroke);
           active.bbox = unionBBoxes(active.strokes.map((s) => s.bbox));
+          groupId = active.id;
           return;
         }
 
@@ -136,7 +149,32 @@ export const sessionStore: StoreApi<SessionState> = createStore<SessionState>((s
         };
         draft.items.push(item);
         draft.activeGroupId = item.id;
+        groupId = item.id;
       });
+      return groupId;
+    },
+
+    replaceWithObject(inkId, ir, transform) {
+      const target = get().items.find((i) => i.id === inkId);
+      if (!target || target.kind !== "ink") return null;
+
+      const object: ObjectItem = {
+        id: newId("obj"),
+        kind: "object",
+        ir,
+        bbox: target.bbox,
+        sourceStrokes: target.strokes,
+        transform,
+      };
+      commit("인식 적용", (draft) => {
+        const index = draft.items.findIndex((i) => i.id === inkId);
+        if (index === -1) return;
+        // 같은 자리(같은 순서)에 넣는다 — 위에 겹친 다른 그림과의 앞뒤 관계가 바뀌지 않게.
+        draft.items[index] = object;
+        if (draft.activeGroupId === inkId) draft.activeGroupId = null;
+        draft.selection = draft.selection.filter((id) => id !== inkId);
+      });
+      return object.id;
     },
 
     eraseAt(x, y, radius) {
@@ -146,7 +184,12 @@ export const sessionStore: StoreApi<SessionState> = createStore<SessionState>((s
         const survivors: CanvasItem[] = [];
 
         for (const item of draft.items) {
-          if (item.kind !== "ink") {
+          if (item.kind === "object") {
+            // 인식된 객체는 선에 닿으면 통째로 지운다 (획 단위 지우개와 같은 감각). Undo로 복구.
+            if (item.ir.kind === "shape2d" && distanceToShape2D(item.ir.data, item.transform, x, y) <= radius) {
+              removed += 1;
+              continue;
+            }
             survivors.push(item);
             continue;
           }
