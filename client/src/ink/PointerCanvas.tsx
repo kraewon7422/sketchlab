@@ -1,15 +1,31 @@
 import { useEffect, useRef } from "react";
 import { debugLog } from "../debug";
+import { ObjectItemView } from "../render/Shape2DView";
 import { ink, theme } from "../render/theme";
 import { createStroke, sessionStore, useSession } from "../store/session";
 import { GroupHint, InkItemView } from "./InkLayer";
-import { toWorld } from "./geometry";
+import { distance, toWorld } from "./geometry";
 import { dotOutline, segmentOutline, subpathsToPathData } from "./outline";
 import { simplifyRDP } from "./simplify";
 import { createPalmRejector } from "./palmRejection";
 import type { InkItem, Point } from "./types";
 
 export type Tool = "pen" | "eraser";
+
+/**
+ * S Pen 측면 버튼(2) 또는 지우개 버튼(32)이 눌린 상태인가 (v4 §6.1).
+ * ⚠️ 펜이 공중에 있을 때 버튼을 누르면 삼성 "에어 커맨드"가 열린다 — 그래서 접촉(pointerdown)
+ *    순간에 눌려 있을 때만 의미를 준다: 그 획 동안 임시 지우개.
+ */
+function isBarrelPressed(event: PointerEvent): boolean {
+  return event.pointerType === "pen" && (event.buttons & (2 | 32)) !== 0;
+}
+
+interface PointerCanvasProps {
+  tool: Tool;
+  /** "그리고 멈추기"로 획 하나가 새 그룹으로 확정됐다 — 호출측이 바로 인식한다. */
+  onHoldSnap?: (groupId: string) => void;
+}
 
 /**
  * 잉크 입력 표면.
@@ -22,17 +38,28 @@ export type Tool = "pen" | "eraser";
  *
  * 진행 중 획을 매 프레임 통째로 다시 만들지 않고 새 구간만 이어 붙인다
  * (segmentOutline). 획이 길어져도 프레임당 비용이 일정하다.
+ *
+ * P1.5 추가 (v4 §6.1)
+ *  - 호버 커서: S Pen이 화면 위 공중에 있으면 펜촉 위치에 작은 원
+ *  - 예측 점: getPredictedEvents()로 1~2점 앞을 임시로 그려 체감 지연을 줄인다.
+ *    예측 꼬리는 별도 path에만 그리고 확정 획에는 절대 넣지 않는다.
+ *  - 측면 버튼: 누른 채 닿으면 그 획은 지우개
+ *  - 그리고 멈추기: 획 끝에서 ink.holdMs 동안 멈추면 그 획만 바로 도형으로
  */
-export function PointerCanvas({ tool }: { tool: Tool }) {
+export function PointerCanvas({ tool, onHoldSnap }: PointerCanvasProps) {
   const svgRef = useRef<SVGSVGElement>(null);
   const livePathRef = useRef<SVGPathElement>(null);
+  const predictedPathRef = useRef<SVGPathElement>(null);
+  const hoverRef = useRef<SVGCircleElement>(null);
 
   const items = useSession((s) => s.items);
   const activeGroupId = useSession((s) => s.activeGroupId);
 
-  // 리스너를 다시 붙이지 않기 위해 도구는 ref로 읽는다.
+  // 리스너를 다시 붙이지 않기 위해 도구·콜백은 ref로 읽는다.
   const toolRef = useRef<Tool>(tool);
   toolRef.current = tool;
+  const holdSnapRef = useRef(onHoldSnap);
+  holdSnapRef.current = onHoldSnap;
 
   useEffect(() => {
     const svg = svgRef.current;
@@ -41,15 +68,26 @@ export function PointerCanvas({ tool }: { tool: Tool }) {
     const rejector = createPalmRejector();
 
     /** 진행 중인 획. null이면 그리는 중이 아니다. */
-    let drawing: { pointerId: number; points: Point[]; startedAt: number } | null = null;
+    let drawing: {
+      pointerId: number;
+      points: Point[];
+      startedAt: number;
+      length: number;
+      /** 멈춤 판정 기준점 — 이보다 ink.holdTolerance 이상 움직이면 타이머를 다시 건다 */
+      anchor: Point;
+      held: boolean;
+    } | null = null;
     /** 지우개 드래그 중인 포인터 */
     let erasingPointerId: number | null = null;
-    /** getBoundingClientRect는 비싸다. 획 시작 시 한 번만 읽는다. */
+    /** getBoundingClientRect는 비싸다. 획 시작 시·리사이즈 시에만 읽는다. */
     let rect: DOMRect | null = null;
     /** 아직 화면에 반영되지 않은 좌표 */
     let queued: Point[] = [];
+    /** 가장 최근의 예측 좌표 (확정 획 아님) */
+    let predicted: Point[] = [];
     let liveData = "";
     let frame: number | null = null;
+    let holdTimer: ReturnType<typeof setTimeout> | null = null;
 
     /**
      * 포인터 캡처는 던질 수 있다 — 포인터가 이미 해제됐거나 다른 요소가 잡고 있으면
@@ -85,25 +123,80 @@ export function PointerCanvas({ tool }: { tool: Tool }) {
       };
     };
 
+    // ── 호버 커서 ──────────────────────────────────────────
+    const showHover = (event: PointerEvent): void => {
+      const dot = hoverRef.current;
+      if (!dot) return;
+      rect ??= svg.getBoundingClientRect();
+      const { x, y } = toWorld(event.clientX, event.clientY, rect);
+      dot.setAttribute("cx", String(x));
+      dot.setAttribute("cy", String(y));
+      dot.setAttribute("visibility", "visible");
+    };
+    const hideHover = (): void => {
+      hoverRef.current?.setAttribute("visibility", "hidden");
+    };
+
+    // ── 그리고 멈추기 ──────────────────────────────────────
+    const clearHold = (): void => {
+      if (holdTimer !== null) {
+        clearTimeout(holdTimer);
+        holdTimer = null;
+      }
+    };
+    const armHold = (): void => {
+      clearHold();
+      holdTimer = setTimeout(() => {
+        holdTimer = null;
+        if (!drawing || drawing.length < ink.holdMinLength) return;
+        drawing.held = true;
+        // 확정됐다는 신호: 진행 중 획 색을 강조색으로. 놓으면 도형으로 바뀐다.
+        livePathRef.current?.setAttribute("fill", theme.color.accent);
+        navigator.vibrate?.(8);
+      }, ink.holdMs);
+    };
+
+    // ── 진행 중 획 그리기 ───────────────────────────────────
+    const paintPredicted = (): void => {
+      const path = predictedPathRef.current;
+      if (!path) return;
+      const last = drawing?.points[drawing.points.length - 1];
+      if (!last || predicted.length === 0) {
+        path.setAttribute("d", "");
+        return;
+      }
+      let prev = last;
+      let d = "";
+      for (const p of predicted) {
+        d += subpathsToPathData(segmentOutline(prev, p, { baseWidth: ink.width }));
+        prev = p;
+      }
+      path.setAttribute("d", d);
+    };
+
     const paint = (): void => {
       frame = null;
       const path = livePathRef.current;
-      if (!drawing || !path || queued.length === 0) return;
+      if (!drawing || !path) return;
 
-      let previous = drawing.points[drawing.points.length - 1];
-      let appended = "";
+      if (queued.length > 0) {
+        let previous = drawing.points[drawing.points.length - 1];
+        let appended = "";
 
-      for (const point of queued) {
-        if (previous) {
-          appended += subpathsToPathData(segmentOutline(previous, point, { baseWidth: ink.width }));
+        for (const point of queued) {
+          if (previous) {
+            appended += subpathsToPathData(segmentOutline(previous, point, { baseWidth: ink.width }));
+            drawing.length += distance(previous.x, previous.y, point.x, point.y);
+          }
+          drawing.points.push(point);
+          previous = point;
         }
-        drawing.points.push(point);
-        previous = point;
-      }
-      queued = [];
+        queued = [];
 
-      liveData += appended;
-      path.setAttribute("d", liveData);
+        liveData += appended;
+        path.setAttribute("d", liveData);
+      }
+      paintPredicted();
     };
 
     const schedulePaint = (): void => {
@@ -113,11 +206,15 @@ export function PointerCanvas({ tool }: { tool: Tool }) {
     const clearLive = (): void => {
       liveData = "";
       queued = [];
+      predicted = [];
+      clearHold();
       if (frame !== null) {
         cancelAnimationFrame(frame);
         frame = null;
       }
       livePathRef.current?.setAttribute("d", "");
+      livePathRef.current?.setAttribute("fill", theme.color.ink);
+      predictedPathRef.current?.setAttribute("d", "");
     };
 
     const eraseAtEvent = (event: PointerEvent): void => {
@@ -127,6 +224,8 @@ export function PointerCanvas({ tool }: { tool: Tool }) {
     };
 
     const onPointerDown = (event: PointerEvent): void => {
+      hideHover();
+
       // 이미 그리는 중에 두 번째 포인터가 들어왔다 — 팬·줌 의도로 본다 (§12.2).
       // 진행 중인 획을 버리지 않으면 화면에 지렁이 같은 획이 남는다.
       if (drawing || erasingPointerId !== null) {
@@ -155,7 +254,7 @@ export function PointerCanvas({ tool }: { tool: Tool }) {
       event.preventDefault();
       rect = svg.getBoundingClientRect();
 
-      if (toolRef.current === "eraser") {
+      if (toolRef.current === "eraser" || isBarrelPressed(event)) {
         erasingPointerId = event.pointerId;
         capture(event.pointerId);
         eraseAtEvent(event);
@@ -167,7 +266,8 @@ export function PointerCanvas({ tool }: { tool: Tool }) {
       if (!first) return;
 
       capture(event.pointerId);
-      drawing = { pointerId: event.pointerId, points: [first], startedAt };
+      drawing = { pointerId: event.pointerId, points: [first], startedAt, length: 0, anchor: first, held: false };
+      armHold();
 
       liveData = subpathsToPathData(dotOutline(first, { baseWidth: ink.width }));
       livePathRef.current?.setAttribute("d", liveData);
@@ -179,7 +279,12 @@ export function PointerCanvas({ tool }: { tool: Tool }) {
         return;
       }
 
-      if (!drawing || drawing.pointerId !== event.pointerId) return;
+      if (!drawing) {
+        // 펜 호버: 버튼이 하나도 안 눌린 펜 이동 = 공중에 떠 있음
+        if (event.pointerType === "pen" && event.buttons === 0) showHover(event);
+        return;
+      }
+      if (drawing.pointerId !== event.pointerId) return;
 
       // 빠른 획에서 브라우저가 합쳐 보낸 중간 좌표까지 복원한다 (함정 #2).
       // 이게 없으면 빠르게 그은 곡선이 각져 보인다.
@@ -189,7 +294,25 @@ export function PointerCanvas({ tool }: { tool: Tool }) {
 
       for (const raw of samples) {
         const point = sample(raw, drawing.startedAt);
-        if (point) queued.push(point);
+        if (!point) continue;
+        queued.push(point);
+        // 멈춘 뒤 다시 움직이면 확정을 풀고 타이머를 다시 건다.
+        if (distance(point.x, point.y, drawing.anchor.x, drawing.anchor.y) > ink.holdTolerance) {
+          drawing.anchor = point;
+          if (drawing.held) {
+            drawing.held = false;
+            livePathRef.current?.setAttribute("fill", theme.color.ink);
+          }
+          armHold();
+        }
+      }
+
+      const next =
+        typeof event.getPredictedEvents === "function" ? event.getPredictedEvents() : [];
+      predicted = [];
+      for (const raw of next) {
+        const point = sample(raw, drawing.startedAt);
+        if (point) predicted.push(point);
       }
       schedulePaint();
     };
@@ -197,13 +320,17 @@ export function PointerCanvas({ tool }: { tool: Tool }) {
     const finishStroke = (): void => {
       if (!drawing) return;
 
+      predicted = [];
       paint(); // 아직 반영 안 된 좌표를 마저 흡수
       const captured = drawing;
       drawing = null;
 
       const simplified = simplifyRDP(captured.points, ink.simplifyEpsilon);
       if (simplified.length > 0) {
-        sessionStore.getState().addStroke(createStroke(simplified, Date.now()));
+        const groupId = sessionStore
+          .getState()
+          .addStroke(createStroke(simplified, Date.now()), { newGroup: captured.held });
+        if (captured.held) holdSnapRef.current?.(groupId);
       }
       clearLive();
     };
@@ -235,6 +362,7 @@ export function PointerCanvas({ tool }: { tool: Tool }) {
     svg.addEventListener("pointermove", onPointerMove);
     svg.addEventListener("pointerup", onPointerUp);
     svg.addEventListener("pointercancel", onPointerCancel);
+    svg.addEventListener("pointerleave", hideHover);
     svg.addEventListener("contextmenu", onContextMenu);
 
     const resizeObserver = new ResizeObserver(() => {
@@ -248,9 +376,11 @@ export function PointerCanvas({ tool }: { tool: Tool }) {
       svg.removeEventListener("pointermove", onPointerMove);
       svg.removeEventListener("pointerup", onPointerUp);
       svg.removeEventListener("pointercancel", onPointerCancel);
+      svg.removeEventListener("pointerleave", hideHover);
       svg.removeEventListener("contextmenu", onContextMenu);
       resizeObserver.disconnect();
       if (frame !== null) cancelAnimationFrame(frame);
+      clearHold();
     };
   }, []);
 
@@ -275,11 +405,26 @@ export function PointerCanvas({ tool }: { tool: Tool }) {
       {activeGroup && <GroupHint item={activeGroup} />}
 
       {items.map((item) =>
-        item.kind === "ink" ? <InkItemView key={item.id} item={item} /> : null,
+        item.kind === "ink" ? (
+          <InkItemView key={item.id} item={item} />
+        ) : (
+          <ObjectItemView key={item.id} item={item} />
+        ),
       )}
 
-      {/* 진행 중인 획. React가 아니라 위 effect가 직접 d를 갱신한다. */}
+      {/* 진행 중인 획 + 예측 꼬리. React가 아니라 위 effect가 직접 d를 갱신한다. */}
       <path ref={livePathRef} fill={theme.color.ink} fillRule="nonzero" />
+      <path ref={predictedPathRef} fill={theme.color.ink} fillRule="nonzero" opacity={0.5} />
+
+      <circle
+        ref={hoverRef}
+        r={ink.hoverRadius}
+        fill="none"
+        stroke={theme.color.accent}
+        strokeWidth={1}
+        visibility="hidden"
+        pointerEvents="none"
+      />
     </svg>
   );
 }

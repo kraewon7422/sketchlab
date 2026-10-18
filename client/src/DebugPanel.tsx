@@ -26,7 +26,8 @@ export function DebugPanel(): ReactElement | null {
   return (
     <div
       style={{
-        position: "fixed",
+        // 캔버스 영역(main) 기준 — compact 모드에서 하단 툴바와 겹치지 않는다.
+        position: "absolute",
         left: theme.space[3],
         bottom: `calc(${theme.space[3]}px + env(safe-area-inset-bottom))`,
         zIndex: 50,
