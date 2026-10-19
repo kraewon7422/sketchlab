@@ -233,9 +233,14 @@ const Chem = z.object({
 /** 화학 반응식 — mhchem `\ce{...}` 의 안쪽 문자열 */
 const ChemEquation = z.object({ ce: z.string().min(1), fontSize: z.number().positive().optional() });
 
-/** 손글씨를 알아본 글자 (P3b) — 깔끔한 활자로 */
+/** 글 상자 — 손글씨를 알아본 글자(P3b) 또는 직접 친 글 (서식 있는 글은 html) */
 const Text = z.object({
+  /** 글자만 (검색·AI·내보내기 대체용). html이 있으면 html이 보이는 모습의 기준 */
   text: z.string().min(1),
+  /** 서식 있는 글 — 앱이 정제한 HTML (굵게·색·형광·크기·목록·정렬) */
+  html: z.string().optional(),
+  /** 글 상자 폭 px (줄바꿈 기준) */
+  width: z.number().positive().optional(),
   fontSize: z.number().positive().optional(),
   /** 쓴 펜의 색 */
   color: z.string().optional(),

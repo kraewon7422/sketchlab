@@ -14,7 +14,7 @@ import { smoothStrokePath } from "./smoothOutline";
 import { createPalmRejector } from "./palmRejection";
 import type { InkItem, Point } from "./types";
 
-export type Tool = "pen" | "eraser" | "lasso";
+export type Tool = "pen" | "eraser" | "lasso" | "text";
 
 /**
  * S Pen 측면 버튼(2) 또는 지우개 버튼(32)이 눌린 상태인가 (v4 §6.1).
@@ -29,6 +29,8 @@ interface PointerCanvasProps {
   tool: Tool;
   /** "그리고 멈추기"로 획 하나가 새 그룹으로 확정됐다 — 호출측이 바로 인식한다. */
   onHoldSnap?: (groupId: string) => void;
+  /** 글 상자 도구로 페이지를 톡: (월드 x, y, 누른 글 상자 id 또는 null) */
+  onTextTap?: (x: number, y: number, hitId: string | null) => void;
 }
 
 /**
@@ -54,7 +56,7 @@ interface PointerCanvasProps {
  * 펜으로 그리는 중에는 손(손바닥) 터치를 무시한다 — 획이 끊기지 않게.
  * 그림은 <g transform> 하나 안에 월드 좌표 그대로 있고, 포인터 → 월드 변환은 toWorld 한 곳.
  */
-export function PointerCanvas({ tool, onHoldSnap }: PointerCanvasProps) {
+export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProps) {
   const svgRef = useRef<SVGSVGElement>(null);
   const livePathRef = useRef<SVGPathElement>(null);
   const lassoRef = useRef<SVGPathElement>(null);
@@ -71,6 +73,8 @@ export function PointerCanvas({ tool, onHoldSnap }: PointerCanvasProps) {
   toolRef.current = tool;
   const holdSnapRef = useRef(onHoldSnap);
   holdSnapRef.current = onHoldSnap;
+  const textTapRef = useRef(onTextTap);
+  textTapRef.current = onTextTap;
 
   useEffect(() => {
     const svg = svgRef.current;
@@ -461,6 +465,17 @@ export function PointerCanvas({ tool, onHoldSnap }: PointerCanvasProps) {
       event.preventDefault();
       rect = svg.getBoundingClientRect();
 
+      if (toolRef.current === "text" && !isBarrelPressed(event)) {
+        // 글 상자 도구: 누른 자리에 새 글 상자, 기존 글 상자 위면 그 글 상자 고치기
+        event.preventDefault();
+        const v = view();
+        const w = toWorld(event.clientX, event.clientY, rect, v);
+        const texts = sessionStore.getState().items.filter((i) => i.kind === "object" && i.ir.kind === "text");
+        const hit = hitItem(texts, w.x, w.y, ink.tapSlop / v.k);
+        textTapRef.current?.(w.x, w.y, hit?.id ?? null);
+        return;
+      }
+
       if (toolRef.current === "lasso" && !isBarrelPressed(event)) {
         const w = toWorld(event.clientX, event.clientY, rect, view());
         lasso = { pointerId: event.pointerId, pts: [{ x: w.x, y: w.y, p: 0.5, t: 0 }] };
@@ -726,7 +741,7 @@ export function PointerCanvas({ tool, onHoldSnap }: PointerCanvasProps) {
         display: "block",
         // 브라우저의 스크롤·핀치 기본동작을 끄고 우리가 전부 처리한다 (함정 #1).
         touchAction: "none",
-        cursor: tool === "eraser" ? "cell" : "crosshair",
+        cursor: tool === "eraser" ? "cell" : tool === "text" ? "text" : "crosshair",
       }}
     >
       <g transform={`translate(${tx} ${ty}) scale(${k})`}>

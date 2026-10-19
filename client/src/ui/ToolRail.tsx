@@ -30,9 +30,11 @@ interface ToolRailProps {
   disabled?: readonly RailTool[];
   /** 펜·형광펜 외의 도구 패널 (지우개·텍스트 등) */
   panels?: ToolPanels;
+  /** 이 패널은 누르지 않아도 열어 둔다 (글 상자를 고치는 동안 글자 패널) */
+  forcePanel?: RailTool | null;
 }
 
-export function ToolRail({ tool, onTool, mode, onFormula, onAi, disabled = [], panels = {} }: ToolRailProps): ReactElement {
+export function ToolRail({ tool, onTool, mode, onFormula, onAi, disabled = [], panels = {}, forcePanel = null }: ToolRailProps): ReactElement {
   const vertical = mode !== "compact";
   const [panel, setPanel] = useState<RailTool | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -48,6 +50,7 @@ export function ToolRail({ tool, onTool, mode, onFormula, onAi, disabled = [], p
     if (!panel) return;
     const close = (e: PointerEvent) => {
       if (rootRef.current?.contains(e.target as Node)) return;
+      if ((e.target as Element | null)?.closest?.("[data-text-editor]")) return; // 글 상자 안을 누른 것
       setPanel(null);
       if ((e.target as Element | null)?.closest("main")) {
         e.stopPropagation();
@@ -126,10 +129,13 @@ export function ToolRail({ tool, onTool, mode, onFormula, onAi, disabled = [], p
         </RailButton>
       </nav>
 
-      {panel && allPanels[panel] && (
+      {(() => {
+        const shown = forcePanel ?? panel;
+        return shown && allPanels[shown] ? (
+        <div key="panel-wrap" style={{ display: "contents" }}>
         <div
           role="dialog"
-          aria-label={`${panel} 설정`}
+          aria-label={`${shown} 설정`}
           style={{
             position: "absolute",
             ...(vertical
@@ -146,9 +152,11 @@ export function ToolRail({ tool, onTool, mode, onFormula, onAi, disabled = [], p
             boxSizing: "border-box",
           }}
         >
-          {allPanels[panel]?.()}
+          {allPanels[shown]?.()}
         </div>
-      )}
+        </div>
+        ) : null;
+      })()}
     </div>
   );
 }

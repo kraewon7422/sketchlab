@@ -127,3 +127,50 @@ body {
   border: 3px solid #fff;
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35), 0 2px 6px rgba(0, 0, 0, 0.25);
 }
+
+/* 글 상자 (서식 있는 글) — 목록·체크 목록. 색은 토큰 변수만 쓴다 */
+.sl-rich div,
+.sl-rich p {
+  margin: 0;
+}
+.sl-rich ul,
+.sl-rich ol {
+  margin: 0;
+  padding-left: 1.4em;
+}
+.sl-rich ul[data-check] {
+  list-style: none;
+  padding-left: 1.7em;
+}
+.sl-rich ul[data-check] > li {
+  position: relative;
+}
+.sl-rich ul[data-check] > li::before {
+  content: "";
+  position: absolute;
+  left: -1.5em;
+  top: 0.22em;
+  width: 0.95em;
+  height: 0.95em;
+  border: 1.5px solid var(--sl-color-ink);
+  border-radius: 3px;
+  box-sizing: border-box;
+  cursor: pointer;
+}
+.sl-rich ul[data-check] > li[data-checked="1"]::before {
+  background: var(--sl-color-accent);
+  border-color: var(--sl-color-accent);
+}
+.sl-rich ul[data-check] > li[data-checked="1"]::after {
+  content: "✓";
+  position: absolute;
+  left: -1.38em;
+  top: 0.02em;
+  font-size: 0.85em;
+  color: var(--sl-color-bg);
+  pointer-events: none;
+}
+.sl-rich ul[data-check] > li[data-checked="1"] {
+  text-decoration: line-through;
+  opacity: 0.6;
+}

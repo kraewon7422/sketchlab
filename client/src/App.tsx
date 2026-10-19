@@ -14,6 +14,10 @@ import { useLayoutMode } from "./ui/layoutMode";
 import { aiConfigured, modelName } from "./ai/settings";
 import { ToolRail, type RailTool } from "./ui/ToolRail";
 import { EraserOptions } from "./ui/EraserOptions";
+import { TextPanel } from "./ui/TextPanel";
+import { commitTextEdit } from "./ui/TextEditor";
+import { textEditStore, useTextEdit } from "./store/textEdit";
+import { textToHtml } from "./ui/richText";
 
 /**
  * 앱 셸 — 마스터스펙 v4 §15.2의 화면 구조.
@@ -36,7 +40,23 @@ const NO_MATCH_MESSAGE = "도형이 아니에요 · 손글씨(글자·수식·�
 export function App(): ReactElement {
   const [tool, setTool] = useState<RailTool>(() => (penStoreKind() === "highlighter" ? "highlighter" : "pen"));
   // 캔버스가 아는 입력 방식 — 펜·형광펜은 그리기(색·굵기는 penStore), 지우개는 지우기
-  const canvasTool = tool === "eraser" ? "eraser" : tool === "lasso" ? "lasso" : "pen";
+  const canvasTool = tool === "eraser" ? "eraser" : tool === "lasso" ? "lasso" : tool === "text" ? "text" : "pen";
+  const editingText = useTextEdit((s) => s.session !== null);
+  // 다른 도구로 바꾸면 쓰던 글 상자를 저장한다
+  useEffect(() => {
+    if (tool !== "text") commitTextEdit();
+  }, [tool]);
+  /** 글 상자 열기: 새로(빈 자리) 또는 기존 것 고치기 */
+  const openText = useCallback((x: number, y: number, hitId: string | null) => {
+    commitTextEdit();
+    const item = hitId ? sessionStore.getState().items.find((i) => i.id === hitId) : undefined;
+    if (item?.kind === "object" && item.ir.kind === "text") {
+      sessionStore.getState().setSelection([]);
+      textEditStore.getState().open({ id: item.id, x: item.transform.x, y: item.transform.y, html: item.ir.data.html ?? textToHtml(item.ir.data.text) });
+    } else {
+      textEditStore.getState().open({ id: null, x, y: y - 16, html: "" });
+    }
+  }, []);
   const drawing = tool === "pen" || tool === "highlighter";
   const mode = useLayoutMode();
   const { toast, showToast } = useToast();
@@ -72,7 +92,7 @@ export function App(): ReactElement {
   useKeyboardShortcuts(() => recognize(sessionStore.getState().activeGroupId), showToast);
 
   const [aiOpen, setAiOpen] = useState(false);
-  const toolbar = <ToolRail tool={tool} onTool={setTool} mode={mode} onFormula={openSheet} onAi={() => setAiOpen(true)} disabled={["text"]} panels={{ eraser: () => <EraserOptions /> }} />;
+  const toolbar = <ToolRail tool={tool} onTool={setTool} mode={mode} onFormula={openSheet} onAi={() => setAiOpen(true)} panels={{ eraser: () => <EraserOptions />, text: () => <TextPanel /> }} forcePanel={editingText && tool === "text" ? "text" : null} />;
 
   return (
     <div
@@ -97,13 +117,22 @@ export function App(): ReactElement {
       >
         {/* 캔버스가 죽어도 툴바까지 백지가 되지는 않게 따로 감싼다. */}
         <ErrorBoundary area="canvas">
-          <PointerCanvas tool={canvasTool} onHoldSnap={(id) => recognize(id, false)} />
+          <PointerCanvas tool={canvasTool} onHoldSnap={(id) => recognize(id, false)} onTextTap={openText} />
         </ErrorBoundary>
         <ObjectOverlays interactive={drawing} />
 
         <EmptyHint />
         <Toast message={toast} />
-        <SelectionBar onMessage={showToast} />
+        <SelectionBar
+          onMessage={showToast}
+          onEditText={(id) => {
+            const it = sessionStore.getState().items.find((i) => i.id === id);
+            if (!it) return;
+            setTool("text");
+            // 도구를 바꾼 뒤(저장 효과가 끝난 뒤) 연다
+            setTimeout(() => openText(it.bbox.minX, it.bbox.minY, id), 0);
+          }}
+        />
         <RecognizeFab onRecognize={() => recognize(sessionStore.getState().activeGroupId)} />
         <ZoomReset />
         <DebugPanel />

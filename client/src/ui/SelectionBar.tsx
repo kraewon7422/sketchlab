@@ -1,4 +1,4 @@
-import { Atom, ChartSpline, Circle, Copy, CopyPlus, Download, Share2, Sigma, Trash2 } from "lucide-react";
+import { Atom, ChartSpline, Circle, Copy, CopyPlus, Download, Pencil, Share2, Sigma, Trash2 } from "lucide-react";
 import { useEffect, useLayoutEffect, useState, type CSSProperties, type ReactElement } from "react";
 import type { CanvasItem } from "../ink/types";
 import { theme } from "../render/theme";
@@ -43,7 +43,7 @@ function boxOf(item: CanvasItem): Box {
   return { left: minX * k + tx, top: minY * k + ty, width: (maxX - minX) * k, height: (maxY - minY) * k };
 }
 
-export function SelectionBar({ onMessage }: { onMessage: (message: string) => void }): ReactElement | null {
+export function SelectionBar({ onMessage, onEditText }: { onMessage: (message: string) => void; onEditText?: (id: string) => void }): ReactElement | null {
   const selection = useSession((s) => s.selection);
   const items = useSession((s) => s.items);
   const chosen = items.filter((i) => selection.includes(i.id));
@@ -221,6 +221,7 @@ export function SelectionBar({ onMessage }: { onMessage: (message: string) => vo
         {plotData && button("이름", Sigma, () => toggle("showCaption", "식 표시"), false, plotData.showCaption)}
         {chemData && button("원", Circle, () => chemToggle("circle"), false, chemData.aromaticCircle)}
         {chemData && button("모든 원자", Atom, () => chemToggle("full"), false, chemData.style === "full")}
+        {item?.kind === "object" && item.ir.kind === "text" && onEditText && button("편집", Pencil, () => onEditText(item.id))}
         {item && button("복사", Copy, () => void act("copy"))}
         {item && button("저장", Download, () => void act("save"))}
         {item && canShare && button("공유", Share2, () => void act("share"))}

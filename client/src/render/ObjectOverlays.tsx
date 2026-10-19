@@ -4,6 +4,7 @@ import { useSession } from "../store/session";
 import { useViewport } from "../store/viewport";
 import { ErrorBoundary } from "../ErrorBoundary";
 import { TextObject } from "./TextObject";
+import { TextEditorHost } from "../ui/TextEditor";
 
 /**
  * 그래프·수식 객체 층 — 캔버스(SVG) 위에 겹친 HTML 층.
@@ -52,6 +53,8 @@ export function ObjectOverlays({ interactive }: { interactive: boolean }): React
           )}
         </Suspense>
       </ErrorBoundary>
+      {/* 글 상자 편집기도 같은 층 — 이동·확대를 그대로 따른다 */}
+      <TextEditorHost />
       </div>
     </div>
   );
