@@ -85,8 +85,30 @@ export function primitivePolyline(p: Shape2DPrimitive, tf: ObjectTransform): P2[
       }
       return out;
     }
-    default:
-      return [];
+    case "line":
+    case "arrow":
+      return [W(p.a), W(p.b)];
+    case "polygon": {
+      const pts = p.pts.map(W);
+      const first = pts[0];
+      return p.closed && first ? [...pts, first] : pts;
+    }
+    case "circle": {
+      const c = W(p.c);
+      const r = p.r * tf.scale;
+      return Array.from({ length: 65 }, (_, i) => {
+        const th = (i / 64) * 2 * Math.PI;
+        return { x: c.x + r * Math.cos(th), y: c.y + r * Math.sin(th) };
+      });
+    }
+    case "arc": {
+      const c = W(p.c);
+      const r = p.r * tf.scale;
+      return Array.from({ length: 33 }, (_, i) => {
+        const th = p.from + ((p.to - p.from) * i) / 32;
+        return { x: c.x + r * Math.cos(th), y: c.y + r * Math.sin(th) };
+      });
+    }
   }
 }
 

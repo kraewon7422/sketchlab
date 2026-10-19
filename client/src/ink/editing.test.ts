@@ -1,6 +1,6 @@
 import { IR_VERSION } from "@sketchlab/shared";
 import { describe, expect, it } from "vitest";
-import { canRecolor, cloneItem, hitItem, itemsInLasso, pointInPolygon, recolorItem, scaleItem, selectionBox, translateItem } from "./editing";
+import { canRecolor, canTransformFreely, cloneItem, hitItem, itemsInLasso, pointInPolygon, recolorItem, rotationAbout, scaleAbout, scaleItem, selectionBox, transformItem, translateItem } from "./editing";
 import type { InkItem, ObjectItem, Point, Stroke } from "./types";
 
 const pt = (x: number, y: number): Point => ({ x, y, p: 0.5, t: 0 });
@@ -141,5 +141,60 @@ describe("크기 바꾸기", () => {
     const t = { ...graph("t", 0, 0), ir: { version: "4.0", confidence: 1, source: "manual", kind: "text", data: { text: "a", html: '<span style="font-size:24px">a</span>', width: 200 } } } as ObjectItem;
     const r = scaleItem(t, 2, 0, 0);
     expect(r.ir).toMatchObject({ data: { fontSize: 40, width: 400, html: '<span style="font-size:48px">a</span>' } });
+  });
+});
+
+describe("돌리기·늘이기 (선택 상자 손잡이)", () => {
+  const shape = (data: object): ObjectItem =>
+    ({ ...graph("s", 0, 0), ir: { version: "4.0", confidence: 1, source: "manual", kind: "shape2d", data }, transform: { x: 100, y: 100, scale: 1 } }) as ObjectItem;
+
+  it("손글씨를 90° 돌린다 (중심 기준)", () => {
+    const a = ink("a", [pt(0, 0), pt(10, 0)]);
+    const r = transformItem(a, rotationAbout(Math.PI / 2, 5, 0));
+    const [p0, p1] = r.strokes[0]?.points ?? [];
+    expect(p0?.x).toBeCloseTo(5);
+    expect(p0?.y).toBeCloseTo(-5);
+    expect(p1?.y).toBeCloseTo(5);
+  });
+
+  it("원을 가로로 2배 늘이면 진짜 타원", () => {
+    const c = shape({ primitives: [{ t: "circle", c: [20, 20], r: 20 }] });
+    const r = transformItem(c, scaleAbout(2, 1, 100, 100));
+    const p = r.ir.kind === "shape2d" ? r.ir.data.primitives[0] : undefined;
+    expect(p?.t).toBe("ellipse");
+    if (p?.t !== "ellipse") return;
+    expect(Math.max(p.rx, p.ry)).toBeCloseTo(40);
+    expect(Math.min(p.rx, p.ry)).toBeCloseTo(20);
+    expect(r.bbox.maxX - r.bbox.minX).toBeCloseTo(80, 0);
+  });
+
+  it("직선을 돌리면 정확한 직선 그대로 (새 자리 상자)", () => {
+    const l = shape({ primitives: [{ t: "line", a: [0, 0], b: [100, 0] }] });
+    const r = transformItem(l, rotationAbout(Math.PI / 2, 150, 100));
+    expect(r.ir.kind === "shape2d" && r.ir.data.primitives[0]?.t).toBe("line");
+    expect(r.bbox.maxY - r.bbox.minY).toBeCloseTo(100);
+    expect(r.bbox.maxX - r.bbox.minX).toBeCloseTo(0);
+  });
+
+  it("포물선은 베지어 제어점까지 같이 돈다", () => {
+    const pb = shape({ primitives: [{ t: "parabola", p0: [0, 0], c: [50, 100], p1: [100, 0] }] });
+    const r = transformItem(pb, rotationAbout(Math.PI, 150, 100));
+    const p = r.ir.kind === "shape2d" ? r.ir.data.primitives[0] : undefined;
+    expect(p?.t).toBe("parabola");
+    // 180° 돌리면 꼭짓점 쪽 제어점이 위로 간다
+    if (p?.t === "parabola") expect(p.c[1]).toBeLessThan(p.p0[1]);
+  });
+
+  it("한쪽으로 늘여 직각이 아니게 되면 직각 표시를 뗀다", () => {
+    const s45 = Math.SQRT1_2;
+    const tri = shape({ primitives: [{ t: "polygon", pts: [[0, 0], [50, 50], [100, 0]], closed: true }], marks: [{ t: "rightAngle", at: [50, 50], dirs: [[-s45, -s45], [s45, -s45]] }] });
+    const r = transformItem(tri, scaleAbout(2, 1, 100, 100));
+    expect(r.ir.kind === "shape2d" && r.ir.data.marks).toEqual([]);
+  });
+
+  it("그래프·수식은 돌리지 않는다", () => {
+    const g = graph("g", 0, 0);
+    expect(canTransformFreely(g)).toBe(false);
+    expect(transformItem(g, rotationAbout(1, 0, 0))).toBe(g);
   });
 });

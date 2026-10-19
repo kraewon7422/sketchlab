@@ -1,5 +1,5 @@
 import type { SceneIR } from "@sketchlab/shared";
-import { cloneItem, recolorItem, scaleItem, translateItem } from "../ink/editing";
+import { cloneItem, recolorItem, scaleItem, transformItem, translateItem, type Affine } from "../ink/editing";
 import { cutStroke } from "../ink/erase";
 import { applyPatches, enablePatches, produceWithPatches, type Patch } from "immer";
 import { useStore } from "zustand";
@@ -76,6 +76,9 @@ export interface SessionState extends Doc {
   /** 크기 바꾸는 중 — previewTranslate와 같은 방식 (끝나면 commitScale로 Undo 1단위 "크기") */
   previewScale(ids: readonly string[], k: number, ox: number, oy: number, base: readonly CanvasItem[]): void;
   commitScale(ids: readonly string[], k: number, ox: number, oy: number, base: readonly CanvasItem[]): void;
+  /** 돌리기·늘이기 중 (손글씨·정리한 도형) — 끝나면 commitAffine으로 Undo 1단위 */
+  previewAffine(ids: readonly string[], m: Affine, base: readonly CanvasItem[]): void;
+  commitAffine(ids: readonly string[], m: Affine | null, base: readonly CanvasItem[], label: string): void;
   /** 잠그기·풀기 (Undo 1단위) */
   setLocked(ids: readonly string[], locked: boolean): void;
   /** 맨 앞으로·맨 뒤로 (같은 층 안에서의 순서, Undo 1단위) */
@@ -271,6 +274,18 @@ export const sessionStore: StoreApi<SessionState> = createStore<SessionState>((s
       if (k === 1) return;
       commit("크기", (draft) => {
         draft.items = draft.items.map((i) => (ids.includes(i.id) ? scaleItem(i, k, ox, oy) : i));
+      });
+    },
+
+    previewAffine(ids, m, base) {
+      set({ items: base.map((i) => (ids.includes(i.id) ? transformItem(i, m) : i)) });
+    },
+
+    commitAffine(ids, m, base, label) {
+      set({ items: [...base] });
+      if (!m) return;
+      commit(label, (draft) => {
+        draft.items = draft.items.map((i) => (ids.includes(i.id) ? transformItem(i, m) : i));
       });
     },
 

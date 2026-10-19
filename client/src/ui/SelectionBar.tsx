@@ -1,5 +1,5 @@
 import { Atom, BringToFront, ChartSpline, Circle, Copy, CopyPlus, Download, Lock, LockOpen, Palette, Pencil, SendToBack, Share2, Sigma, Trash2 } from "lucide-react";
-import { canRecolor, selectionBox } from "../ink/editing";
+import { canRecolor, canTransformFreely, rotationAbout, scaleAbout, selectionBox, type Affine } from "../ink/editing";
 import { rainbow } from "../ink/color";
 import { useEffect, useLayoutEffect, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactElement } from "react";
 import type { CanvasItem } from "../ink/types";
@@ -117,7 +117,9 @@ export function SelectionBar({ onMessage, onEditText }: { onMessage: (message: s
     );
   const pad = theme.space[2];
   const barH = theme.touch.minTarget;
-  const above = box.top - pad - barH - theme.space[2] > 0;
+  // 돌리기 손잡이가 위에 있으면 메뉴를 그만큼 더 위로 (손잡이를 가리지 않게)
+  const knob = chosen.every(canTransformFreely) && !chosen.some((i) => i.locked) ? 44 : 0;
+  const above = box.top - pad - barH - theme.space[2] - knob > 0;
   const canShare = typeof navigator.share === "function";
 
   const act = async (action: Action) => {
@@ -179,8 +181,15 @@ export function SelectionBar({ onMessage, onEditText }: { onMessage: (message: s
     </button>
   );
 
-  /** 오른쪽 아래 손잡이를 끌어 크기 바꾸기 — 왼쪽 위를 고정점으로 (Undo 1단위) */
-  const startResize = (e: ReactPointerEvent<HTMLDivElement>) => {
+  /**
+   * 선택 상자 손잡이 (삼성노트처럼)
+   *   모서리 4개: 반대쪽 모서리를 고정점으로 비율 그대로 크기 (모든 항목)
+   *   변 4개:     한쪽으로만 늘이기·누르기 (손글씨·정리한 도형만)
+   *   위 동그라미: 가운데를 중심으로 돌리기, 15°마다 착 붙는다 (손글씨·정리한 도형만)
+   * 끄는 동안은 이력 없이 미리 보이고, 손을 떼면 Undo 1단위.
+   */
+  type Handle = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w" | "rot";
+  const startHandle = (h: Handle) => (e: ReactPointerEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
     const state = sessionStore.getState();
@@ -191,24 +200,53 @@ export function SelectionBar({ onMessage, onEditText }: { onMessage: (message: s
     const view = viewportStore.getState();
     const w0 = Math.max(1, wbox.maxX - wbox.minX);
     const h0 = Math.max(1, wbox.maxY - wbox.minY);
+    const cx = (wbox.minX + wbox.maxX) / 2;
+    const cy = (wbox.minY + wbox.maxY) / 2;
+    const toWorldPt = (ev: { clientX: number; clientY: number }) => ({ x: (ev.clientX - main.left - view.tx) / view.k, y: (ev.clientY - main.top - view.ty) / view.k });
+    const start = toWorldPt(e);
+    const a0 = Math.atan2(start.y - cy, start.x - cx);
     const el = e.currentTarget;
     try {
       el.setPointerCapture(e.pointerId);
     } catch {
       /* 캡처 실패해도 요소 위에서는 계속 받는다 */
     }
+    // 고정점 (반대쪽)
+    const ax = h.includes("w") ? wbox.maxX : wbox.minX;
+    const ay = h.includes("n") ? wbox.maxY : wbox.minY;
+    const corner = h === "nw" || h === "ne" || h === "se" || h === "sw";
     let k = 1;
+    let m: Affine | null = null;
+    const clampS = (v: number) => Math.min(8, Math.max(0.1, v));
     const move = (ev: PointerEvent) => {
-      const wx = (ev.clientX - main.left - view.tx) / view.k;
-      const wy = (ev.clientY - main.top - view.ty) / view.k;
-      k = Math.min(8, Math.max(0.2, ((wx - wbox.minX) / w0 + (wy - wbox.minY) / h0) / 2));
-      sessionStore.getState().previewScale(ids, k, wbox.minX, wbox.minY, base);
+      const p = toWorldPt(ev);
+      const st = sessionStore.getState();
+      if (corner) {
+        const kx = (h.includes("w") ? ax - p.x : p.x - ax) / w0;
+        const ky = (h.includes("n") ? ay - p.y : p.y - ay) / h0;
+        k = Math.min(8, Math.max(0.2, (kx + ky) / 2));
+        st.previewScale(ids, k, ax, ay, base);
+      } else if (h === "rot") {
+        let a = Math.atan2(p.y - cy, p.x - cx) - a0;
+        const step = Math.PI / 12; // 15°
+        const snapped = Math.round(a / step) * step;
+        if (Math.abs(a - snapped) < (4 * Math.PI) / 180) a = snapped;
+        m = rotationAbout(a, cx, cy);
+        st.previewAffine(ids, m, base);
+      } else {
+        const sx = h === "e" ? clampS((p.x - wbox.minX) / w0) : h === "w" ? clampS((wbox.maxX - p.x) / w0) : 1;
+        const sy = h === "s" ? clampS((p.y - wbox.minY) / h0) : h === "n" ? clampS((wbox.maxY - p.y) / h0) : 1;
+        m = scaleAbout(sx, sy, h === "w" ? wbox.maxX : wbox.minX, h === "n" ? wbox.maxY : wbox.minY);
+        st.previewAffine(ids, m, base);
+      }
     };
     const end = (cancel: boolean) => () => {
       el.removeEventListener("pointermove", move);
       el.removeEventListener("pointerup", up);
       el.removeEventListener("pointercancel", cancelFn);
-      sessionStore.getState().commitScale(ids, cancel ? 1 : k, wbox.minX, wbox.minY, base);
+      const st = sessionStore.getState();
+      if (corner) st.commitScale(ids, cancel ? 1 : k, ax, ay, base);
+      else st.commitAffine(ids, cancel ? null : m, base, h === "rot" ? "돌리기" : "늘이기");
     };
     const up = end(false);
     const cancelFn = end(true);
@@ -217,32 +255,57 @@ export function SelectionBar({ onMessage, onEditText }: { onMessage: (message: s
     el.addEventListener("pointercancel", cancelFn);
   };
 
+  const free = chosen.every(canTransformFreely);
+  const L = box.left - pad;
+  const T = box.top - pad;
+  const R = box.left + box.width + pad;
+  const B = box.top + box.height + pad;
+  const handles: Array<[Handle, number, number, string]> = [
+    ["nw", L, T, "nwse-resize"],
+    ["ne", R, T, "nesw-resize"],
+    ["se", R, B, "nwse-resize"],
+    ["sw", L, B, "nesw-resize"],
+    ...(free
+      ? ([
+          ["n", (L + R) / 2, T, "ns-resize"],
+          ["e", R, (T + B) / 2, "ew-resize"],
+          ["s", (L + R) / 2, B, "ns-resize"],
+          ["w", L, (T + B) / 2, "ew-resize"],
+          ["rot", (L + R) / 2, T - 34, "grab"],
+        ] as Array<[Handle, number, number, string]>)
+      : []),
+  ];
+  const HANDLE_NAMES: Record<Handle, string> = { nw: "크기 (왼쪽 위)", ne: "크기 (오른쪽 위)", se: "크기 바꾸기", sw: "크기 (왼쪽 아래)", n: "위로 늘이기", e: "옆으로 늘이기", s: "아래로 늘이기", w: "왼쪽으로 늘이기", rot: "돌리기" };
+
   return (
     <>
-      {!locked && (
-      <div
-        role="slider"
-        aria-label="크기 바꾸기"
-        aria-valuenow={1}
-        title="끌어서 크기 바꾸기"
-        onPointerDown={startResize}
-        style={{
-          position: "absolute",
-          left: box.left + box.width + pad - 13,
-          top: box.top + box.height + pad - 13,
-          width: 26,
-          height: 26,
-          borderRadius: "50%",
-          background: theme.color.bg,
-          border: `2px solid ${theme.color.accent}`,
-          boxShadow: "0 1px 4px rgba(26,26,26,0.2)",
-          cursor: "nwse-resize",
-          touchAction: "none",
-          zIndex: 16,
-          boxSizing: "border-box",
-        }}
-      />
-      )}
+      {!locked && free && <div aria-hidden style={{ position: "absolute", left: (L + R) / 2 - 0.75, top: T - 22, width: 1.5, height: 22, background: theme.color.accent, pointerEvents: "none", zIndex: 16 }} />}
+      {!locked &&
+        handles.map(([h, x, y, cursor]) => (
+          <div
+            key={h}
+            role="slider"
+            aria-label={HANDLE_NAMES[h]}
+            aria-valuenow={1}
+            title={HANDLE_NAMES[h]}
+            onPointerDown={startHandle(h)}
+            style={{
+              position: "absolute",
+              left: x - (h === "rot" ? 13 : 11),
+              top: y - (h === "rot" ? 13 : 11),
+              width: h === "rot" ? 26 : 22,
+              height: h === "rot" ? 26 : 22,
+              borderRadius: "50%",
+              background: h === "rot" ? theme.color.accent : theme.color.bg,
+              border: `2px solid ${theme.color.accent}`,
+              boxShadow: "0 1px 4px rgba(26,26,26,0.2)",
+              cursor,
+              touchAction: "none",
+              zIndex: 16,
+              boxSizing: "border-box",
+            }}
+          />
+        ))}
       <div
         aria-hidden
         style={{
@@ -263,7 +326,7 @@ export function SelectionBar({ onMessage, onEditText }: { onMessage: (message: s
         style={{
           position: "absolute",
           left: Math.max(theme.space[2], box.left - pad),
-          top: above ? box.top - pad - barH - theme.space[2] : box.top + box.height + pad + theme.space[2],
+          top: above ? box.top - pad - barH - theme.space[2] - knob : box.top + box.height + pad + theme.space[2] + 12,
           display: "flex",
           gap: theme.space[1],
           padding: theme.space[1],

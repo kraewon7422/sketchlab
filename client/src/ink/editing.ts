@@ -1,4 +1,6 @@
-import { distanceToPolyline } from "./geometry";
+import type { Shape2DData, Shape2DPrimitive } from "@sketchlab/shared";
+import { primitivePolyline } from "../render/shape2dGeometry";
+import { bboxOfPoints, distanceToPolyline } from "./geometry";
 import type { BBox, CanvasItem, Point, Stroke } from "./types";
 
 /**
@@ -78,6 +80,155 @@ export function scaleItem<T extends CanvasItem>(item: T, k: number, ox: number, 
     bbox: box(item.bbox),
     sourceStrokes: item.sourceStrokes.map(scaleStroke),
   };
+}
+
+/**
+ * 2D 아핀 변환 [a, b, c, d, e, f]: (x, y) → (a·x + c·y + e, b·x + d·y + f).
+ * 돌리기·한쪽으로 늘이기(삼성노트의 선택 상자)에 쓴다.
+ */
+export type Affine = readonly [number, number, number, number, number, number];
+
+export const affineApply = (m: Affine, x: number, y: number): [number, number] => [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]];
+
+/** (cx, cy)를 중심으로 θ만큼 돌리기 */
+export function rotationAbout(theta: number, cx: number, cy: number): Affine {
+  const c = Math.cos(theta);
+  const s = Math.sin(theta);
+  return [c, s, -s, c, cx - c * cx + s * cy, cy - s * cx - c * cy];
+}
+
+/** (ax, ay)를 고정점으로 가로 sx·세로 sy배 */
+export function scaleAbout(sx: number, sy: number, ax: number, ay: number): Affine {
+  return [sx, 0, 0, sy, ax - sx * ax, ay - sy * ay];
+}
+
+/** 돌리고 늘일 수 있는 항목 — 손글씨와 정리한 도형(직선·포물선·원…). 그래프·수식·글은 모양이 일그러지므로 제외 */
+export function canTransformFreely(item: CanvasItem): boolean {
+  return item.kind === "ink" || (item.kind === "object" && item.ir.kind === "shape2d");
+}
+
+/**
+ * 행렬 A(2×2)로 원 하나를 옮긴 모양 = 타원. A·Aᵀ의 고윳값·고유벡터가 반지름·방향이다.
+ * (원을 한쪽으로 누르면 진짜 타원, 돌린 타원을 다시 누르면 새 축의 타원)
+ */
+function ellipseOf(a: number, b: number, c: number, d: number): { rx: number; ry: number; rot: number } {
+  // A = [[a, c], [b, d]] (열벡터 기준), B = A·Aᵀ
+  const p = a * a + c * c;
+  const q = a * b + c * d;
+  const r = b * b + d * d;
+  const mid = (p + r) / 2;
+  const rad = Math.sqrt(((p - r) / 2) ** 2 + q * q);
+  return { rx: Math.sqrt(Math.max(0, mid + rad)), ry: Math.sqrt(Math.max(0, mid - rad)), rot: 0.5 * Math.atan2(2 * q, p - r) };
+}
+
+/** 정리한 도형을 아핀 변환 — 모든 도형이 정확한 도형으로 남는다 (그림으로 뭉개지지 않는다) */
+function transformShape(data: Shape2DData, tf: { x: number; y: number; scale: number }, m: Affine): { data: Shape2DData; box: BBox } {
+  const W = (v: readonly [number, number]): [number, number] => affineApply(m, tf.x + v[0] * tf.scale, tf.y + v[1] * tf.scale);
+  const s = tf.scale;
+  const prims: Shape2DPrimitive[] = data.primitives.map((p): Shape2DPrimitive => {
+    switch (p.t) {
+      case "line":
+      case "arrow":
+        return { ...p, a: W(p.a), b: W(p.b) };
+      case "polygon":
+      case "curve":
+        return { ...p, pts: p.pts.map(W) };
+      case "parabola":
+        return { ...p, p0: W(p.p0), c: W(p.c), p1: W(p.p1) };
+      case "circle": {
+        const e = ellipseOf(m[0] * p.r * s, m[1] * p.r * s, m[2] * p.r * s, m[3] * p.r * s);
+        return Math.abs(e.rx - e.ry) < 0.5 ? { t: "circle", c: W(p.c), r: e.rx } : { t: "ellipse", c: W(p.c), rx: e.rx, ry: e.ry, rot: e.rot };
+      }
+      case "ellipse": {
+        // A = M₂ · R(rot) · diag(rx, ry)
+        const cr = Math.cos(p.rot);
+        const sr = Math.sin(p.rot);
+        const u = [cr * p.rx * s, sr * p.rx * s];
+        const w = [-sr * p.ry * s, cr * p.ry * s];
+        const e = ellipseOf(m[0] * (u[0] as number) + m[2] * (u[1] as number), m[1] * (u[0] as number) + m[3] * (u[1] as number), m[0] * (w[0] as number) + m[2] * (w[1] as number), m[1] * (w[0] as number) + m[3] * (w[1] as number));
+        return { t: "ellipse", c: W(p.c), rx: Math.max(0.5, e.rx), ry: Math.max(0.5, e.ry), rot: e.rot };
+      }
+      case "arc": {
+        // 호는 점 24개로 바꿔 매끈한 곡선으로 (한쪽으로 누르면 원호가 아니게 되므로)
+        const pts: [number, number][] = Array.from({ length: 25 }, (_, i) => {
+          const a = p.from + ((p.to - p.from) * i) / 24;
+          return W([p.c[0] + p.r * Math.cos(a), p.c[1] + p.r * Math.sin(a)]);
+        });
+        return { t: "curve", pts, closed: false };
+      }
+    }
+  });
+  const marks = data.marks
+    ?.map((mk) => {
+      if (!mk.dirs) return { ...mk, at: W(mk.at) };
+      const dir = (v: readonly [number, number]): [number, number] => {
+        const x = m[0] * v[0] + m[2] * v[1];
+        const y = m[1] * v[0] + m[3] * v[1];
+        const L = Math.hypot(x, y) || 1;
+        return [x / L, y / L];
+      };
+      const d1 = dir(mk.dirs[0]);
+      const d2 = dir(mk.dirs[1]);
+      // 한쪽으로 눌러 더는 직각이 아니면 직각 표시를 뗀다
+      if (Math.abs(d1[0] * d2[0] + d1[1] * d2[1]) > 0.05) return null;
+      return { ...mk, at: W(mk.at), dirs: [d1, d2] as [[number, number], [number, number]] };
+    })
+    .filter((mk): mk is NonNullable<typeof mk> => mk !== null);
+  const labels = data.labels?.map((l) => ({ ...l, at: W(l.at) }));
+  // 새 원점(왼쪽 위)과 로컬 좌표
+  const unit = { x: 0, y: 0, scale: 1 };
+  const all = prims.flatMap((p) => primitivePolyline(p, unit));
+  const xs = [...all.map((q) => q.x), ...(labels ?? []).map((l) => l.at[0])];
+  const ys = [...all.map((q) => q.y), ...(labels ?? []).map((l) => l.at[1])];
+  const box: BBox = { minX: Math.min(...xs), minY: Math.min(...ys), maxX: Math.max(...xs), maxY: Math.max(...ys) };
+  const L = (v: readonly [number, number]): [number, number] => [v[0] - box.minX, v[1] - box.minY];
+  const local = prims.map((p): Shape2DPrimitive => {
+    switch (p.t) {
+      case "line":
+      case "arrow":
+        return { ...p, a: L(p.a), b: L(p.b) };
+      case "polygon":
+      case "curve":
+        return { ...p, pts: p.pts.map(L) };
+      case "parabola":
+        return { ...p, p0: L(p.p0), c: L(p.c), p1: L(p.p1) };
+      case "circle":
+      case "ellipse":
+      case "arc":
+        return { ...p, c: L(p.c) };
+    }
+  });
+  return {
+    data: {
+      ...data,
+      primitives: local,
+      ...(marks ? { marks: marks.map((mk) => ({ ...mk, at: L(mk.at) })) } : {}),
+      ...(labels ? { labels: labels.map((l) => ({ ...l, at: L(l.at) })) } : {}),
+    },
+    box,
+  };
+}
+
+/** 돌리기·늘이기 — 손글씨(점·굵기)와 정리한 도형만. 다른 항목은 그대로 */
+export function transformItem<T extends CanvasItem>(item: T, m: Affine): T {
+  const widthK = Math.sqrt(Math.abs(m[0] * m[3] - m[1] * m[2]));
+  const strokeT = (st: Stroke): Stroke => {
+    const points = st.points.map((p) => {
+      const [x, y] = affineApply(m, p.x, p.y);
+      return { ...p, x, y };
+    });
+    return { ...st, points, bbox: bboxOfPoints(points), ...(st.width !== undefined || st.tool === "pen" ? { width: (st.width ?? 2.6) * widthK } : {}) };
+  };
+  if (item.kind === "ink") {
+    const strokes = item.strokes.map(strokeT);
+    const boxes = strokes.map((st) => st.bbox);
+    return { ...item, strokes, bbox: { minX: Math.min(...boxes.map((b) => b.minX)), minY: Math.min(...boxes.map((b) => b.minY)), maxX: Math.max(...boxes.map((b) => b.maxX)), maxY: Math.max(...boxes.map((b) => b.maxY)) } };
+  }
+  if (item.kind === "object" && item.ir.kind === "shape2d") {
+    const { data, box } = transformShape(item.ir.data, item.transform, m);
+    return { ...item, ir: { ...item.ir, data }, transform: { x: box.minX, y: box.minY, scale: 1 }, bbox: box, sourceStrokes: item.sourceStrokes.map(strokeT) };
+  }
+  return item;
 }
 
 /** 다시 칠하기에 쓸 수 있는 항목인가 (손글씨·정리한 도형·글 상자) */
