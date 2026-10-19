@@ -129,7 +129,7 @@ function ChemBox({ item, ir }: { item: ObjectItem; ir: ChemIR }) {
         </div>
       )}
       {d && ir.data.commonName && (
-        <div style={{ textAlign: "center", marginTop: theme.space[1], fontSize: 15 }}>{ir.data.commonName}</div>
+        <div style={{ textAlign: "center", marginTop: theme.space[1], fontSize: 15, whiteSpace: "nowrap" }}>{ir.data.commonName}</div>
       )}
     </div>
   );

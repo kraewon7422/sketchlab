@@ -11,6 +11,8 @@ import { analyze, normalizeInput } from "../math/latex";
 import { markFresh } from "../render/Shape2DView";
 import { chem, plot, solid, theme } from "../render/theme";
 import { sessionStore } from "../store/session";
+import { freeSpot, type Area } from "./placement";
+import { AiCreatePanel } from "./AiCreatePanel";
 
 /**
  * 수식·그래프 직접 입력 (마스터스펙 v4 §9.3 — API 키 없이 동작하는 1급 경로).
@@ -32,52 +34,16 @@ const EXAMPLES: Array<[label: string, latex: string]> = [
   ["수식", "\\sum_{k=1}^{n} k=\\frac{n(n+1)}{2}"],
 ];
 
-/**
- * 새 객체 자리: 위에서부터 훑으며 기존 잉크·객체와 겹치지 않는 첫 자리.
- * 빈 자리가 없으면 가운데 (겹치더라도 보이게).
- */
-function freeSpot(w: number, h: number, area: Area): { x: number; y: number } {
-  const gap = theme.space[5];
-  const items = sessionStore.getState().items;
-  const taken = items.map((i) => i.bbox);
-  const hits = (x: number, y: number) =>
-    taken.some((b) => x < b.maxX + gap && x + w > b.minX - gap && y < b.maxY + gap && y + h > b.minY - gap);
-  // 후보 자리 = 왼쪽·위 여백, 그리고 기존 것들의 바로 오른쪽·바로 아래 (격자로 훑으면 몇 px 차이로 놓친다)
-  const left = area.x + gap;
-  const top = area.y + gap;
-  const right = area.x + area.width - gap;
-  const bottom = area.y + area.height - gap;
-  const xs = [left, ...taken.map((b) => b.maxX + gap)].filter((x) => x >= left).sort((a, b) => a - b);
-  const ys = [top, ...taken.map((b) => b.maxY + gap)].filter((y) => y >= top).sort((a, b) => a - b);
-  for (const y of ys) {
-    if (y + h > bottom) continue;
-    for (const x of xs) {
-      if (x + w <= right && !hits(x, y)) return { x, y };
-    }
-  }
-  // 보이는 곳에 빈 자리가 없다: 한가운데에 겹쳐 쌓지 말고 비스듬히 엇갈려 놓는다
-  const k = items.filter((i) => i.kind === "object").length % 6;
-  return {
-    x: Math.max(left, Math.min(right - w, left + k * theme.space[6])),
-    y: Math.max(top, Math.min(bottom - h, top + k * theme.space[6])),
-  };
-}
-
-/** 지금 화면에 보이는 캔버스 영역 (월드 좌표) */
-export interface Area {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
 export interface FormulaSheetProps {
   onClose: () => void;
+  /** AI 탭에서 "AI 설정 열기" */
+  onOpenAiSettings?: () => void;
   /** 새 객체를 놓을 캔버스 영역 (월드 좌표) */
   area: Area;
 }
 
-export default function FormulaSheet({ onClose, area }: FormulaSheetProps): ReactElement {
+export default function FormulaSheet({ onClose, area, onOpenAiSettings }: FormulaSheetProps): ReactElement {
+  const [mode, setMode] = useState<"formula" | "ai">("formula");
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -192,7 +158,27 @@ export default function FormulaSheet({ onClose, area }: FormulaSheetProps): Reac
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: theme.space[2], marginBottom: theme.space[3] }}>
-        <strong style={{ fontSize: 15 }}>수식·그래프 입력</strong>
+        {(["formula", "ai"] as const).map((m) => (
+          <button
+            key={m}
+            type="button"
+            aria-pressed={mode === m}
+            onClick={() => setMode(m)}
+            style={{
+              height: 36,
+              padding: `0 ${theme.space[3]}px`,
+              border: "none",
+              borderRadius: 999,
+              background: mode === m ? theme.color.selection : "transparent",
+              color: mode === m ? theme.color.accent : theme.color.ink,
+              fontSize: 15,
+              fontWeight: mode === m ? 600 : 400,
+              cursor: "pointer",
+            }}
+          >
+            {m === "formula" ? "수식·그래프·화학 입력" : "AI에게 부탁"}
+          </button>
+        ))}
         <span style={{ flex: 1 }} />
         <button
           type="button"
@@ -204,6 +190,10 @@ export default function FormulaSheet({ onClose, area }: FormulaSheetProps): Reac
         </button>
       </div>
 
+      {mode === "ai" ? (
+        <AiCreatePanel area={area} onClose={onClose} {...(onOpenAiSettings ? { onOpenSettings: onOpenAiSettings } : {})} />
+      ) : (
+      <>
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -333,6 +323,8 @@ export default function FormulaSheet({ onClose, area }: FormulaSheetProps): Reac
           </button>
         ))}
       </div>
+      </>
+      )}
     </div>
   );
 }

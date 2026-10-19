@@ -47,6 +47,9 @@ const SYMBOLS = (
   "Rb Sr Y Zr Nb Mo Tc Ru Rh Pd Ag Cd In Sn Sb Te I Xe Cs Ba"
 ).split(" ");
 
+/** 수소화물을 H가 앞에 오게 쓰는 원소 */
+const HYDRIDE_H_FIRST = new Set(["O", "S", "Se", "Te", "F", "Cl", "Br", "I"]);
+
 export function elementSymbol(z: number): string {
   return SYMBOLS[z - 1] ?? "?";
 }
@@ -193,11 +196,14 @@ export function layoutMolecule(json: string, opt: LayoutOptions): ChemDrawing {
   atoms.forEach((a, i) => {
     if (!labeled[i]) return;
     const meanDx = (nbrs[i] ?? []).reduce((s, m) => s + ((pos[m] as P2)[0] - (pos[i] as P2)[0]), 0);
+    const symbol = elementSymbol(a.z);
+    // 혼자인 원자: 16·17족은 수소를 앞에 (H₂O, H₂S, HCl), 나머지는 뒤에 (NH₃, CH₄) — 교과서 관행
+    const alone = (nbrs[i]?.length ?? 0) === 0;
     labels.push({
       at: pos[i] as P2,
-      symbol: elementSymbol(a.z),
+      symbol,
       hydrogens: a.h,
-      hLeft: meanDx > opt.bond * 0.1,
+      hLeft: alone ? HYDRIDE_H_FIRST.has(symbol) : meanDx > opt.bond * 0.1,
       charge: chargeText(a.chg),
     });
   });

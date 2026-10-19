@@ -100,7 +100,10 @@ describe("골격식 그리기 (RDKit 배치 + 교과서 관행)", () => {
 
   it("혼자인 탄소·물 분자는 기호로 (CH₄, H₂O)", () => {
     expect(draw("C").labels[0]).toMatchObject({ symbol: "C", hydrogens: 4 });
-    expect(draw("O").labels[0]).toMatchObject({ symbol: "O", hydrogens: 2 });
+    expect(draw("O").labels[0]).toMatchObject({ symbol: "O", hydrogens: 2, hLeft: true }); // H₂O
+    expect(draw("Cl").labels[0]).toMatchObject({ symbol: "Cl", hydrogens: 1, hLeft: true }); // HCl
+    expect(draw("N").labels[0]).toMatchObject({ symbol: "N", hydrogens: 3, hLeft: false }); // NH₃
+    expect(draw("C").labels[0]).toMatchObject({ hLeft: false }); // CH₄
   });
 
   it("목록의 모든 분자가 그려진다", () => {

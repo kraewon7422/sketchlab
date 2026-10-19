@@ -39,10 +39,10 @@ that must pass before the next one starts. The full design is in the
 |---|---|---|
 | P0 | Monorepo, strict TypeScript, CI, HTTPS dev server | ✅ |
 | P1 | Pen input: pressure, palm rejection, undo/redo, auto-grouping, local persistence | ✅ |
-| P1.5 | S Pen polish: hover cursor, predicted points, side-button eraser, responsive layouts | ✅ |
+| P1.5 | S Pen polish: hover cursor, predicted points, side-button eraser, responsive layouts, **any-color pens and highlighter with size sliders, stroke stabilizer, two-finger pan and pinch zoom** | ✅ |
 | **P2** | **Local shape recognition (Tier 0): lines, arrows, polygons, circles, arcs, parabolas, ellipses, smooth curves** | ✅ **← the live demo** |
 | **P3a** | **Graph engine + typed input: textbook axes (1:1 scale, π ticks, dashed asymptotes), coefficient sliders, integrals** | ✅ |
-| P3b | Handwriting → LaTeX / graphs via a vision model | planned |
+| **P3b** | **AI: handwriting → text, formulas, graphs, molecules and reactions; "ask AI" to draw molecules, reactions and graphs from a sentence. Bring your own model: OpenRouter (cloud, free tiers) or a local Ollama. Molecules are always verified with PubChem + RDKit** | ✅ |
 | **P4** | **3D solids and 3D coordinate space, with smooth inertial rotation and exact hidden lines** | ✅ |
 | **P5** | **Chemistry: skeletal formulas from a name (benzene, 에탄올) or SMILES, aromatic circles, full structural formulas (RDKit layout, lazy-loaded)**; handwriting recognition next | ✅ / 🔜 |
 | **P6** | **Into your notes: tap → Copy / Save / Share as a crisp 3× PNG, or drag the preview into a split-screen notes app** (re-edit links next) | ✅ / 🔜 |
@@ -189,8 +189,9 @@ TypeScript (strict) · React 19 · Vite · zustand + immer · zod · SVG (no cha
 Compute Engine · KaTeX · IndexedDB · Vitest · Playwright · GitHub Actions · npm workspaces
 (`shared/`, `client/`, `server/`)
 
-The server package is a stub for now. In P3b it will keep the vision-model API key server-side;
-the browser never sees a key.
+AI runs straight from the browser to the provider you choose in **AI settings**: an OpenRouter key
+(cloud models, including free ones) or an Ollama server on your own PC. The key or address is stored
+only in that device's local storage. The `server/` package is a stub and is not needed.
 
 ## Run it locally
 
@@ -255,7 +256,7 @@ docs/              master spec (design source of truth, Korean)
 (숨은선은 정확한 점선, 관성 회전, 두 번 탭하면 처음 각도). 그리고 펜 입력(필압·팜 리젝션·되돌리기, **획 하나를 매끈한 외곽선 하나로 그려 고해상도 화면에서도 선명**) +
 **로컬 도형 인식**(선분·화살표·원·호·다각형·**포물선·타원·매끈한 자유 곡선**, 정삼각형·직사각형·정사각형 스냅,
 기울기 보존, 직각 표시). 인식은 전부 브라우저 안에서 돌아가며
-서버·네트워크가 필요 없습니다. 그린 것은 눌러서 복사·저장·공유하거나, 분할 화면에서 미리보기를 끌어 삼성노트·GoodNotes에 놓을 수 있습니다. 다음은 손글씨 수식·구조식 인식입니다.
+서버·네트워크가 필요 없습니다. **AI**(🤖 AI 설정에서 OpenRouter 키 또는 내 PC의 Ollama 연결)를 켜면 ✨가 손글씨 글자·수식·그래프·분자·반응식을 알아보고, ƒ의 "AI에게 부탁" 탭에서 "에탄올을 산화하면?"처럼 말로 부탁해 분자·반응식·그래프를 그릴 수 있습니다 (분자 구조는 항상 PubChem·RDKit으로 확인). 펜은 색(무지개·색상·채도·밝기)·굵기·형광펜·흔들림 보정을 고를 수 있고, 두 손가락으로 화면을 옮기고 확대합니다. 그린 것은 눌러서 복사·저장·공유하거나, 분할 화면에서 미리보기를 끌어 삼성노트·GoodNotes에 놓을 수 있습니다. 다음은 손글씨 수식·구조식 인식입니다.
 전체 설계: [마스터 스펙 v4](docs/MASTERSPEC_v4.md).
 
 ### 로컬 실행

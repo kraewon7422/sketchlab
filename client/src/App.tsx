@@ -105,7 +105,14 @@ export function App(): ReactElement {
         <DebugPanel />
         {sheetArea && (
           <Suspense fallback={null}>
-            <FormulaSheet area={sheetArea} onClose={() => setSheetArea(null)} />
+            <FormulaSheet
+              area={sheetArea}
+              onClose={() => setSheetArea(null)}
+              onOpenAiSettings={() => {
+                setSheetArea(null);
+                setAiOpen(true);
+              }}
+            />
           </Suspense>
         )}
         {aiOpen && (
