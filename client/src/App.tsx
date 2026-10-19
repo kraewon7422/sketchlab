@@ -17,6 +17,8 @@ import { EraserOptions } from "./ui/EraserOptions";
 import { TextPanel } from "./ui/TextPanel";
 import { PagePanel } from "./ui/PagePanel";
 import { ShapeOptions } from "./ui/ShapeOptions";
+import { LassoOptions } from "./ui/LassoOptions";
+import { TapeOptions } from "./ui/TapeOptions";
 import { commitTextEdit } from "./ui/TextEditor";
 import { textEditStore, useTextEdit } from "./store/textEdit";
 import { textToHtml } from "./ui/richText";
@@ -42,7 +44,7 @@ const NO_MATCH_MESSAGE = "도형이 아니에요 · 손글씨(글자·수식·�
 export function App(): ReactElement {
   const [tool, setTool] = useState<RailTool>(() => (penStoreKind() === "highlighter" ? "highlighter" : "pen"));
   // 캔버스가 아는 입력 방식 — 펜·형광펜은 그리기(색·굵기는 penStore), 지우개는 지우기
-  const canvasTool = tool === "eraser" ? "eraser" : tool === "lasso" ? "lasso" : tool === "text" ? "text" : tool === "shape" ? "shape" : "pen";
+  const canvasTool = tool === "pen" || tool === "highlighter" ? "pen" : tool;
   const editingText = useTextEdit((s) => s.session !== null);
   // 즐겨 찾는 펜으로 펜↔형광펜이 바뀌면 레일의 도구도 따라간다
   const penKind = usePen((s) => s.kind);
@@ -84,6 +86,10 @@ export function App(): ReactElement {
     (groupId: string | null, useAi = true) => {
       if (!groupId) return;
       const outcome = recognizeGroup(groupId);
+      if (!outcome.ok && outcome.reason === "highlight-no-match") {
+        if (useAi) showToast("형광펜 자국은 직선·원·사각형 같은 도형만 정리해요");
+        return;
+      }
       if (outcome.ok || outcome.reason !== "no-match") return;
       // 도형이 아니면 손글씨 — AI에게 (멈춤 스냅은 도형 전용이라 AI로 넘기지 않는다)
       if (!useAi) return;
@@ -104,7 +110,7 @@ export function App(): ReactElement {
   const toolbar = <ToolRail tool={tool} onTool={setTool} mode={mode} onFormula={openSheet} onAi={() => {
         setSheetArea(null); // ƒ 시트가 열려 있으면 닫고 AI 설정을 연다
         setAiOpen(true);
-      }} panels={{ eraser: () => <EraserOptions />, text: () => <TextPanel />, shape: () => <ShapeOptions />, page: () => <PagePanel onMessage={showToast} /> }} forcePanel={editingText && tool === "text" ? "text" : null} />;
+      }} panels={{ eraser: () => <EraserOptions />, text: () => <TextPanel />, shape: () => <ShapeOptions />, lasso: () => <LassoOptions />, tape: () => <TapeOptions />, page: () => <PagePanel onMessage={showToast} /> }} forcePanel={editingText && tool === "text" ? "text" : null} />;
 
   return (
     <div

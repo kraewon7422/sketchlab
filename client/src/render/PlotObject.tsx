@@ -2,7 +2,7 @@ import type { SceneDataOf, SceneIR } from "@sketchlab/shared";
 import katex from "katex";
 import "katex/dist/katex.min.css";
 import "katex/contrib/mhchem";
-import { memo, useId, useMemo, useRef, type ReactElement } from "react";
+import { memo, useEffect, useId, useMemo, useRef, useState, type ReactElement } from "react";
 import type { ObjectItem } from "../ink/types";
 import { findAsymptotes } from "../math/asymptotes";
 import { numberTicks, piTicks, type Tick } from "../math/axes";
@@ -331,63 +331,197 @@ function renderCurves(data: PlotData, view: View, W: number, H: number, params: 
   return out;
 }
 
+type Param = NonNullable<PlotIR["data"]["params"]>[number];
+
+/** 길게 누르면 범위가 여기까지 부드럽게 넓어진다 */
+const RANGE_LIMIT = 100;
+const HOLD_MS = 450;
+/** 길게 누르기로 보는 손떨림 한계 (화면 px) — 이보다 움직이면 그냥 끌기 */
+const HOLD_SLOP = 8;
+const round2 = (v: number) => Math.round(v * 100) / 100;
+
 function Sliders({ item, ir }: { item: ObjectItem; ir: PlotIR }) {
   const before = useRef<SceneIR | null>(null);
   const params = ir.data.params ?? [];
 
-  const setValue = (name: string, value: number): SceneIR => ({
-    ...ir,
-    data: { ...ir.data, params: params.map((p) => (p.name === name ? { ...p, value } : p)) },
-  });
+  /** 스토어의 지금 IR (길게 누르는 동안 매 프레임 바뀐다 — props는 한 박자 늦다) */
+  const current = (): PlotIR => {
+    const now = sessionStore.getState().items.find((i) => i.id === item.id);
+    return now && now.kind === "object" && now.ir.kind === "plot2d" ? now.ir : ir;
+  };
+  const readParam = (name: string): Param | undefined => (current().data.params ?? []).find((q) => q.name === name);
+  const begin = () => {
+    before.current ??= current();
+  };
+  const preview = (name: string, change: Partial<Param>) => {
+    begin();
+    const base = current();
+    sessionStore.getState().previewObjectIR(item.id, {
+      ...base,
+      data: { ...base.data, params: (base.data.params ?? []).map((q) => (q.name === name ? { ...q, ...change } : q)) },
+    });
+  };
+  /** 끌기·길게 누르기·숫자 입력이 끝나면 한 번에 기록 (Undo 1단계) */
+  const commit = () => {
+    const start = before.current;
+    before.current = null;
+    const now = current();
+    if (start && now !== start) sessionStore.getState().commitObjectIR(item.id, start, now, "계수 변경");
+  };
 
   return (
     <div style={{ marginTop: theme.space[2], display: "grid", gap: theme.space[1], pointerEvents: "auto" }}>
       {params.map((p) => (
-        <label
-          key={p.name}
-          style={{ display: "grid", gridTemplateColumns: "64px 1fr", alignItems: "center", gap: theme.space[2], minHeight: theme.touch.minTarget }}
-        >
-          <span style={{ color: theme.color.ink, fontVariantNumeric: "tabular-nums" }}>
-            <KaTeX latex={`${p.name}=${p.value.toFixed(1)}`} size={15} />
-          </span>
-          <input
-            type="range"
-            min={p.min}
-            max={p.max}
-            step={p.step}
-            value={p.value}
-            aria-label={`계수 ${p.name}`}
-            style={{ width: "100%", accentColor: theme.color.accent, touchAction: "pan-x" }}
-            onPointerDown={() => {
-              before.current = ir;
-            }}
-            onInput={(e) => {
-              const v = Number((e.target as HTMLInputElement).value);
-              before.current ??= ir;
-              sessionStore.getState().previewObjectIR(item.id, setValue(p.name, v));
-            }}
-            onChange={() => {
-              /* React가 input 이벤트를 onChange로도 보낸다 — 실제 기록은 놓을 때(onPointerUp/onKeyUp) */
-            }}
-            onPointerUp={() => {
-              const start = before.current;
-              before.current = null;
-              const now = sessionStore.getState().items.find((i) => i.id === item.id);
-              if (start && now && now.kind === "object" && now.ir !== start) {
-                sessionStore.getState().commitObjectIR(item.id, start, now.ir, "계수 변경");
-              }
-            }}
-            onKeyUp={() => {
-              const start = before.current;
-              before.current = null;
-              const now = sessionStore.getState().items.find((i) => i.id === item.id);
-              if (start && now && now.kind === "object" && now.ir !== start) {
-                sessionStore.getState().commitObjectIR(item.id, start, now.ir, "계수 변경");
-              }
-            }}
-          />
-        </label>
+        <ParamRow key={p.name} p={p} read={() => readParam(p.name)} onPreview={(c) => preview(p.name, c)} onBegin={begin} onCommit={commit} />
       ))}
+    </div>
+  );
+}
+
+/**
+ * 계수 한 줄: 이름 · 슬라이더 · 숫자 상자.
+ *   슬라이더를 꾹 누르고 있으면 범위가 −100 ~ 100까지 부드럽게 넓어진다.
+ *   숫자 상자에 아무 값이나 치면 그 값이 들어가도록 범위도 늘어난다.
+ */
+function ParamRow({
+  p,
+  read,
+  onPreview,
+  onBegin,
+  onCommit,
+}: {
+  p: Param;
+  read: () => Param | undefined;
+  onPreview: (change: Partial<Param>) => void;
+  onBegin: () => void;
+  onCommit: () => void;
+}) {
+  const hold = useRef<{ timer: ReturnType<typeof setTimeout> | null; raf: number | null; x: number; y: number } | null>(null);
+  const [growing, setGrowing] = useState(false);
+  const [draft, setDraft] = useState<string | null>(null);
+
+  const stopHold = () => {
+    const h = hold.current;
+    if (h?.timer) clearTimeout(h.timer);
+    if (h?.raf) cancelAnimationFrame(h.raf);
+    hold.current = null;
+    setGrowing(false);
+  };
+  useEffect(() => stopHold, []);
+
+  const startHold = (x: number, y: number) => {
+    stopHold();
+    const h: NonNullable<typeof hold.current> = { timer: null, raf: null, x, y };
+    hold.current = h;
+    h.timer = setTimeout(() => {
+      h.timer = null;
+      setGrowing(true);
+      navigator.vibrate?.(8);
+      const tick = () => {
+        const cur = read();
+        if (!cur || hold.current !== h) return;
+        const goalMin = Math.min(cur.min, -RANGE_LIMIT);
+        const goalMax = Math.max(cur.max, RANGE_LIMIT);
+        // 목표까지 남은 거리의 일정 비율씩 — 처음엔 빠르게, 끝에선 천천히 (약 1초)
+        const step = (v: number, goal: number) => (Math.abs(goal - v) < 0.5 ? goal : round2(v + (goal - v) * 0.07));
+        const min = step(cur.min, goalMin);
+        const max = step(cur.max, goalMax);
+        onPreview({ min, max });
+        if (min !== goalMin || max !== goalMax) h.raf = requestAnimationFrame(tick);
+        else setGrowing(false);
+      };
+      h.raf = requestAnimationFrame(tick);
+    }, HOLD_MS);
+  };
+
+  const finish = () => {
+    stopHold();
+    onCommit();
+  };
+
+  const applyTyped = () => {
+    if (draft === null) return;
+    const v = Number(draft.replace(/[−–]/g, "-").replace(",", ".").trim());
+    setDraft(null);
+    if (!Number.isFinite(v) || draft.trim() === "") return;
+    onPreview({ value: v, min: Math.min(p.min, v), max: Math.max(p.max, v) });
+    onCommit();
+  };
+
+  const small = { fontSize: 11, color: theme.color.asymptote, fontVariantNumeric: "tabular-nums" } as const;
+
+  return (
+    <div data-export-skip style={{ display: "grid", gridTemplateColumns: "28px 1fr 64px", alignItems: "center", gap: theme.space[2], minHeight: theme.touch.minTarget }}>
+      <span style={{ color: theme.color.ink }}>
+        <KaTeX latex={`${p.name}=`} size={15} />
+      </span>
+      <div style={{ display: "grid" }}>
+        <input
+          type="range"
+          min={p.min}
+          max={p.max}
+          step={p.step}
+          value={p.value}
+          aria-label={`계수 ${p.name}`}
+          title="꾹 누르고 있으면 범위가 −100 ~ 100까지 넓어져요"
+          style={{ width: "100%", accentColor: theme.color.accent, touchAction: "pan-x" }}
+          onPointerDown={(e) => {
+            onBegin();
+            startHold(e.clientX, e.clientY);
+          }}
+          onPointerMove={(e) => {
+            // 끌기 시작 = 길게 누르기 아님 (이미 넓어지는 중이면 그대로 둔다)
+            const h = hold.current;
+            if (h?.timer && Math.hypot(e.clientX - h.x, e.clientY - h.y) > HOLD_SLOP) stopHold();
+          }}
+          onInput={(e) => onPreview({ value: Number((e.target as HTMLInputElement).value) })}
+          onChange={() => {
+            /* React가 input 이벤트를 onChange로도 보낸다 — 실제 기록은 놓을 때(onPointerUp/onKeyUp) */
+          }}
+          onPointerUp={finish}
+          onPointerCancel={finish}
+          onKeyDown={onBegin}
+          onKeyUp={onCommit}
+        />
+        <span style={{ display: "flex", justifyContent: "space-between", marginTop: -2 }}>
+          <span style={small}>{round2(p.min)}</span>
+          {growing && <span style={{ ...small, color: theme.color.accent }}>범위 넓히는 중…</span>}
+          <span style={small}>{round2(p.max)}</span>
+        </span>
+      </div>
+      <input
+        type="text"
+        inputMode="decimal"
+        aria-label={`계수 ${p.name} 값 입력`}
+        value={draft ?? String(round2(p.value))}
+        onFocus={(e) => {
+          setDraft(String(round2(p.value)));
+          e.currentTarget.select();
+        }}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={applyTyped}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") e.currentTarget.blur();
+          if (e.key === "Escape") {
+            setDraft(null);
+            e.currentTarget.blur();
+          }
+        }}
+        style={{
+          width: "100%",
+          height: 34,
+          boxSizing: "border-box",
+          padding: "0 6px",
+          border: `1px solid ${theme.color.sub}`,
+          borderRadius: theme.radius.s,
+          background: theme.color.bg,
+          color: theme.color.ink,
+          font: "inherit",
+          fontSize: 14,
+          textAlign: "right",
+          fontVariantNumeric: "tabular-nums",
+        }}
+      />
     </div>
   );
 }

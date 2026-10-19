@@ -1,4 +1,4 @@
-import { Bot, Eraser, Highlighter, Keyboard, Lasso, NotebookText, Pen, Redo2, Shapes, SquareFunction, Undo2 } from "lucide-react";
+import { Bandage, Bot, Eraser, Highlighter, Keyboard, Lasso, NotebookText, Pen, Redo2, Shapes, SquareFunction, Undo2 } from "lucide-react";
 import { useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
 import { theme } from "../render/theme";
 import { penStore, usePen } from "../store/pen";
@@ -12,10 +12,10 @@ import { PenOptions } from "./PenPalette";
  *   태블릿·PC(wide·split): 오른쪽 세로 레일. 고른 도구를 한 번 더 누르면 왼쪽에 옵션 패널.
  *   폰(compact):          아래쪽 가로 막대. 패널은 위로 열린다.
  *
- *   [텍스트] [펜] [형광펜] [지우개] [올가미] │ [되돌리기] [다시] │ [ƒ 입력] [AI]
+ *   [텍스트] [펜] [형광펜] [지우개] [올가미] [도형] [테이프] │ [되돌리기] [다시] │ [ƒ 입력] [AI]
  */
 
-export type RailTool = "text" | "pen" | "highlighter" | "eraser" | "lasso" | "shape";
+export type RailTool = "text" | "pen" | "highlighter" | "eraser" | "lasso" | "shape" | "tape";
 
 /** 패널 이름 — 도구마다 하나 + 쪽(속지·쪽 목록·내보내기) */
 export type PanelKey = RailTool | "page";
@@ -116,6 +116,7 @@ export function ToolRail({ tool, onTool, mode, onFormula, onAi, disabled = [], p
         {btn("eraser", "지우개", Eraser)}
         {btn("lasso", "올가미", Lasso)}
         {btn("shape", "도형", Shapes)}
+        {btn("tape", "마스킹 테이프", Bandage)}
         {divider}
         <RailButton label="실행 취소" disabled={!canUndo} onClick={() => sessionStore.getState().undo()}>
           <Undo2 size={21} strokeWidth={1.6} />

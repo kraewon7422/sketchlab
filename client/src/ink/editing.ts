@@ -1,6 +1,7 @@
 import type { Shape2DData, Shape2DPrimitive } from "@sketchlab/shared";
 import { primitivePolyline } from "../render/shape2dGeometry";
 import { bboxOfPoints, distanceToPolyline } from "./geometry";
+import { onTape } from "./tape";
 import type { BBox, CanvasItem, Point, Stroke } from "./types";
 
 /**
@@ -233,7 +234,7 @@ export function transformItem<T extends CanvasItem>(item: T, m: Affine): T {
 
 /** 다시 칠하기에 쓸 수 있는 항목인가 (손글씨·정리한 도형·글 상자) */
 export function canRecolor(item: CanvasItem): boolean {
-  return item.kind === "ink" || (item.kind === "object" && (item.ir.kind === "shape2d" || item.ir.kind === "text"));
+  return item.kind === "ink" || (item.kind === "object" && (item.ir.kind === "shape2d" || item.ir.kind === "text" || item.ir.kind === "tape"));
 }
 
 /**
@@ -251,7 +252,7 @@ export function recolorItem<T extends CanvasItem>(item: T, color: string | undef
       })),
     };
   }
-  if (item.kind === "object" && color && (item.ir.kind === "shape2d" || item.ir.kind === "text")) {
+  if (item.kind === "object" && color && (item.ir.kind === "shape2d" || item.ir.kind === "text" || item.ir.kind === "tape")) {
     return { ...item, ir: { ...item.ir, data: { ...item.ir.data, color } } } as T;
   }
   return item;
@@ -299,6 +300,43 @@ export function itemsInLasso(items: readonly CanvasItem[], poly: readonly Point[
 }
 
 /**
+ * 삼성노트식 올가미 — 끝을 시작점으로 잇지 않는다. 그은 선이 닿은 것 + 선이 감싼 것.
+ *   잉크: 획이 그은 선에서 reach 이내로 지나가거나, 고리 안에 절반 이상
+ *   객체: 그은 선이 상자를 지나가거나, 상자 중심이 고리 안
+ */
+export function itemsTouchedByLasso(items: readonly CanvasItem[], drawn: readonly Point[], reach: number): string[] {
+  if (drawn.length === 0) return [];
+  const enclosed = new Set(drawn.length >= 3 ? itemsInLasso(items, drawn) : []);
+  // 빨리 그으면 점 사이가 벌어진다 — reach 간격으로 메워 사이에 낀 획도 잡히게
+  const step = Math.max(1, reach);
+  const path: Point[] = [drawn[0] as Point];
+  for (let i = 1; i < drawn.length; i++) {
+    const a = drawn[i - 1] as Point;
+    const c = drawn[i] as Point;
+    const n = Math.ceil(Math.hypot(c.x - a.x, c.y - a.y) / step);
+    for (let j = 1; j <= n; j++) path.push({ ...c, x: a.x + ((c.x - a.x) * j) / n, y: a.y + ((c.y - a.y) * j) / n });
+  }
+  const pathBox = bboxOfPoints(path);
+  return items
+    .filter((item) => {
+      if (item.locked) return false;
+      if (enclosed.has(item.id)) return true;
+      const b = item.bbox;
+      if (b.maxX < pathBox.minX - reach || b.minX > pathBox.maxX + reach || b.maxY < pathBox.minY - reach || b.minY > pathBox.maxY + reach) return false;
+      if (item.kind === "object") {
+        if (item.ir.kind === "tape") {
+          const ir = item.ir;
+          return path.some((p) => onTape(ir.data, item.transform, p.x, p.y, reach));
+        }
+        return path.some((p) => p.x >= b.minX - reach && p.x <= b.maxX + reach && p.y >= b.minY - reach && p.y <= b.maxY + reach);
+      }
+      // 그은 선의 점에서 획까지 — 선은 촘촘히 들어오므로 점만 봐도 빠지지 않는다
+      return item.strokes.some((s) => path.some((p) => distanceToPolyline(p.x, p.y, s.points) <= reach + (s.width ?? 2.6) / 2));
+    })
+    .map((i) => i.id);
+}
+
+/**
  * 톡 친 자리의 항목 (위에 있는 것부터).
  *   객체: 상자 안 (+여유)
  *   잉크: 획에서 slop 이내 — 글씨 사이 빈 곳을 눌러도 그 묶음이 잡히면 안 된다
@@ -308,7 +346,11 @@ export function hitItem(items: readonly CanvasItem[], x: number, y: number, slop
     const item = items[i] as CanvasItem;
     const b = item.bbox;
     if (x < b.minX - slop || x > b.maxX + slop || y < b.minY - slop || y > b.maxY + slop) continue;
-    if (item.kind === "object") return item;
+    if (item.kind === "object") {
+      // 비스듬한 테이프는 상자보다 훨씬 좁다 — 테이프 몸통 위만
+      if (item.ir.kind === "tape" && !onTape(item.ir.data, item.transform, x, y, slop)) continue;
+      return item;
+    }
     for (const s of item.strokes) {
       if (distanceToPolyline(x, y, s.points) <= slop + (s.width ?? 2.6)) return item;
     }

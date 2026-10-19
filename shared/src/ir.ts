@@ -67,6 +67,10 @@ const Shape2D = z.object({
     .min(1),
   /** 선 색 — 색 펜으로 그린 도형은 정리한 뒤에도 그 색 (없으면 기본 잉크색) */
   color: z.string().optional(),
+  /** 선 굵기 px (없으면 교과서 기본 굵기) — 형광펜으로 그린 도형을 정리하면 그 굵기 */
+  width: z.number().positive().optional(),
+  /** 형광펜 모양 (반투명·겹치면 곱하기) */
+  highlight: z.boolean().optional(),
   labels: z.array(z.object({ text: z.string(), at: Vec2 })).optional(),
   marks: z
     .array(
@@ -248,6 +252,20 @@ const Text = z.object({
   color: z.string().optional(),
 });
 
+/**
+ * 마스킹 테이프 — 아래 그림을 가린다 (외우기·문제 풀기용). 톡 치면 벗겨졌다 붙었다.
+ * 원점(transform.x,y) = 테이프 한쪽 끝의 가운데, angle 방향으로 len, 폭 width (둘 다 × transform.scale).
+ */
+const Tape = z.object({
+  len: z.number().positive(),
+  width: z.number().positive(),
+  /** 라디안 */
+  angle: z.number(),
+  color: z.string(),
+  /** 벗겨 둔 상태 (속이 비쳐 보인다) */
+  revealed: z.boolean().default(false),
+});
+
 // ─────────────────────────────────────────────────────────── 조립
 
 const meta = {
@@ -266,6 +284,7 @@ export const SceneIRSchema = z.discriminatedUnion("kind", [
   z.object({ ...meta, kind: z.literal("chem"), data: Chem }),
   z.object({ ...meta, kind: z.literal("chemEq"), data: ChemEquation }),
   z.object({ ...meta, kind: z.literal("text"), data: Text }),
+  z.object({ ...meta, kind: z.literal("tape"), data: Tape }),
 ]);
 
 /**

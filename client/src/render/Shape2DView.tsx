@@ -3,7 +3,7 @@ import { memo } from "react";
 import { InkStrokes } from "../ink/InkLayer";
 import type { ObjectItem } from "../ink/types";
 import { catmullRomBeziers, localToWorld, type ObjectTransform } from "./shape2dGeometry";
-import { shape, stroke, theme } from "./theme";
+import { penOpts, shape, stroke, theme } from "./theme";
 
 /**
  * 평면도형 렌더러 — 교과서 시각 언어 (§11.1): 주선 #1A1A1A 2px, 장식 없음.
@@ -13,10 +13,9 @@ import { shape, stroke, theme } from "./theme";
  * 교과서 그림은 크기와 관계없이 선 굵기가 같아야 한다.
  */
 
-// 색은 바깥 <g color>에서 물려받는다 (currentColor) — 색 펜으로 그린 도형도 같은 코드로
+// 색은 바깥 <g color>에서, 굵기는 바깥 <g strokeWidth>에서 물려받는다 — 색 펜·형광펜 도형도 같은 코드로
 const lineProps = {
   stroke: "currentColor",
-  strokeWidth: stroke.main,
   strokeLinecap: "round",
   strokeLinejoin: "miter",
   strokeMiterlimit: 4,
@@ -24,10 +23,17 @@ const lineProps = {
 } as const;
 
 export function Shape2DView({ data, transform }: { data: Shape2DData; transform: ObjectTransform }) {
+  const width = data.width ?? stroke.main;
   return (
-    <g color={data.color ?? theme.color.ink}>
+    <g
+      color={data.color ?? theme.color.ink}
+      strokeWidth={width}
+      // 형광펜으로 그려 정리한 도형: 형광펜 자국처럼 반투명 + 곱하기 (아래 글씨가 비친다)
+      opacity={data.highlight ? penOpts.highlightOpacity : undefined}
+      style={data.highlight ? { mixBlendMode: "multiply" } : undefined}
+    >
       {data.primitives.map((p, i) => (
-        <Primitive key={i} p={p} tf={transform} />
+        <Primitive key={i} p={p} tf={transform} width={width} />
       ))}
       {data.marks?.map((m, i) => (
         <Mark key={`m${i}`} m={m} tf={transform} />
@@ -45,7 +51,7 @@ export function Shape2DView({ data, transform }: { data: Shape2DData; transform:
   );
 }
 
-function Primitive({ p, tf }: { p: Shape2DPrimitive; tf: ObjectTransform }) {
+function Primitive({ p, tf, width }: { p: Shape2DPrimitive; tf: ObjectTransform; width: number }) {
   const W = (v: readonly [number, number]) => localToWorld(v, tf);
 
   switch (p.t) {
@@ -107,7 +113,8 @@ function Primitive({ p, tf }: { p: Shape2DPrimitive; tf: ObjectTransform }) {
       const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
       const ux = (b.x - a.x) / len;
       const uy = (b.y - a.y) / len;
-      const head = Math.min(shape.arrowHead, len * 0.4);
+      // 굵은(형광펜) 화살표는 촉도 굵기에 맞춰 크게
+      const head = Math.min(Math.max(shape.arrowHead, width * 2.4), len * 0.4);
       const spread = (shape.arrowSpreadDeg * Math.PI) / 180;
       const wing = (sign: number) => ({
         x: b.x - head * (ux * Math.cos(spread) - sign * uy * Math.sin(spread)),

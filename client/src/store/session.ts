@@ -183,7 +183,9 @@ export const sessionStore: StoreApi<SessionState> = createStore<SessionState>((s
         const active = options.newGroup ? undefined : findInkItem(draft.items, draft.activeGroupId);
         const lastStroke = active?.strokes[active.strokes.length - 1];
 
-        if (active && lastStroke && shouldJoinGroup(lastStroke, stroke)) {
+        // 펜 획과 형광펜 획은 한 묶음이 되지 않는다 (✨ 정리 결과가 서로 달라서)
+        const sameTool = (lastStroke?.tool ?? "pen") === (stroke.tool ?? "pen");
+        if (active && lastStroke && sameTool && shouldJoinGroup(lastStroke, stroke)) {
           active.strokes.push(stroke);
           active.bbox = unionBBoxes(active.strokes.map((s) => s.bbox));
           groupId = active.id;

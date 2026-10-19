@@ -112,6 +112,11 @@ export const penOpts = {
   eraserSize: { min: 4, max: 60, default: 14 },
   /** 보정 100%일 때 "줄" 길이 (화면 px) — 이보다 작은 떨림은 선에 안 나타난다 */
   stabilizeMaxPx: 9,
+  /** 마스킹 테이프 — 아래가 안 보이게 불투명, 벗기면 이만큼만 남는다 */
+  tapeColors: ["#F2C94C", "#7FB8E0", "#EE9AB0", "#8CCB8A", "#B9B9C2"],
+  tapeNames: ["노랑", "하늘", "분홍", "연두", "회색"],
+  tapeWidth: { min: 14, max: 80, default: 30 },
+  tapeRevealedOpacity: 0.18,
 } as const;
 
 /** 페이지 배경 (노트 속지) — 글씨를 방해하지 않게 아주 옅게. 단위 월드 px */

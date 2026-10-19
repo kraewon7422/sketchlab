@@ -9,7 +9,8 @@ import { PageBackground } from "../render/PageBackground";
 import { currentStrokeStyle, penStore } from "../store/pen";
 import { createStabilizer } from "./stabilize";
 import { GroupHint, InkItemView } from "./InkLayer";
-import { hitItem, itemsInLasso, selectionBox } from "./editing";
+import { hitItem, itemsInLasso, itemsTouchedByLasso, selectionBox } from "./editing";
+import { buildTape, tapeCorners } from "./tape";
 import { buildShape } from "./shapes";
 import { IR_VERSION } from "@sketchlab/shared";
 import { primitivePolyline } from "../render/shape2dGeometry";
@@ -20,7 +21,7 @@ import { smoothStrokePath } from "./smoothOutline";
 import { createPalmRejector } from "./palmRejection";
 import type { InkItem, Point } from "./types";
 
-export type Tool = "pen" | "eraser" | "lasso" | "text" | "shape";
+export type Tool = "pen" | "eraser" | "lasso" | "text" | "shape" | "tape";
 
 /**
  * S Pen 측면 버튼(2) 또는 지우개 버튼(32)이 눌린 상태인가 (v4 §6.1).
@@ -72,6 +73,7 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
   const liveTailRef = useRef<SVGPathElement>(null);
   const lassoRef = useRef<SVGPathElement>(null);
   const shapeRef = useRef<SVGPathElement>(null);
+  const tapeRef = useRef<SVGPathElement>(null);
   const hoverRef = useRef<SVGCircleElement>(null);
 
   const items = useSession((s) => s.items);
@@ -156,6 +158,40 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
     let lasso: { pointerId: number; pts: Point[] } | null = null;
     /** 도형 도구로 끄는 중 (월드 좌표 시작점) */
     let shapeDrag: { pointerId: number; a: { x: number; y: number } } | null = null;
+    /** 테이프를 끌어 붙이는 중 (월드 시작점 + 화면 시작점 — 짧으면 톡) */
+    let tapeDrag: { pointerId: number; a: { x: number; y: number }; sx: number; sy: number } | null = null;
+
+    const tapeAt = (event: PointerEvent) => {
+      if (!tapeDrag || !rect) return null;
+      const { tapeWidth, tapeColor } = penStore.getState();
+      return buildTape(tapeDrag.a, toWorld(event.clientX, event.clientY, rect, view()), tapeWidth, tapeColor);
+    };
+    const previewTape = (event: PointerEvent): void => {
+      const t = tapeAt(event);
+      const path = tapeRef.current;
+      if (!path) return;
+      if (!t) {
+        path.setAttribute("d", "");
+        return;
+      }
+      path.setAttribute("fill", t.data.color);
+      path.setAttribute("d", `M${tapeCorners(t.data, t.transform).map((q) => `${q.x.toFixed(1)},${q.y.toFixed(1)}`).join("L")}Z`);
+    };
+    const finishTape = (event: PointerEvent): void => {
+      const drag = tapeDrag;
+      const t = tapeAt(event);
+      tapeDrag = null;
+      tapeRef.current?.setAttribute("d", "");
+      if (!drag) return;
+      release(drag.pointerId);
+      if (!t) {
+        // 짧게 톡 = 테이프 벗기기·붙이기 (다른 도구에서와 같게)
+        handleTap(drag.sx, drag.sy, event.timeStamp);
+        return;
+      }
+      const id = sessionStore.getState().addObject({ version: IR_VERSION, confidence: 1, source: "manual", kind: "tape", data: t.data }, t.transform, t.bbox);
+      markFresh(id);
+    };
 
     /** 도형 미리보기·확정에 쓰는 모양 */
     const shapeAt = (event: PointerEvent) => {
@@ -216,7 +252,15 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
       const w = toWorld(clientX, clientY, rect, v);
       const state = sessionStore.getState();
       const objects = state.items.filter((i) => i.kind === "object");
-      const hit = hitItem(objects, w.x, w.y, ink.tapSlop / v.k);
+      // 테이프는 늘 맨 위 — 한 번 톡 = 벗기기·붙이기 (기록에 남기지 않는다; 고르려면 올가미)
+      const tape = hitItem(objects.filter((i) => i.ir.kind === "tape"), w.x, w.y, 2 / v.k);
+      if (tape && tape.kind === "object" && tape.ir.kind === "tape" && !state.selection.includes(tape.id)) {
+        lastTap = null;
+        if (state.selection.length > 0) state.setSelection([]);
+        state.previewObjectIR(tape.id, { ...tape.ir, data: { ...tape.ir.data, revealed: !tape.ir.data.revealed } });
+        return true;
+      }
+      const hit = hitItem(objects.filter((i) => i.ir.kind !== "tape"), w.x, w.y, ink.tapSlop / v.k);
       const prev = lastTap;
       const double = !!prev && t - prev.t < DOUBLE_TAP_MS && distance(prev.x, prev.y, clientX, clientY) < DOUBLE_TAP_PX;
       lastTap = double ? null : { x: clientX, y: clientY, t };
@@ -283,7 +327,10 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
         state.setSelection(hit ? [hit.id] : []);
         return;
       }
-      state.setSelection(itemsInLasso(state.items, l.pts));
+      // 애플식: 두른 고리 안 / 삼성식: 그은 선이 닿은 것 + 감싼 것
+      state.setSelection(
+        penStore.getState().lassoStyle === "samsung" ? itemsTouchedByLasso(state.items, l.pts, 8 / view().k) : itemsInLasso(state.items, l.pts),
+      );
     };
     const drawingHighlighter = (): boolean => (drawing ? drawing.style.tool : penStore.getState().kind) === "highlighter";
     /** 진행 중 획의 색·투명도를 그 펜에 맞춘다 */
@@ -356,7 +403,7 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
       clearHold();
       holdTimer = setTimeout(() => {
         holdTimer = null;
-        if (!drawing || drawing.length < ink.holdMinLength || drawing.style.tool === "highlighter") return;
+        if (!drawing || drawing.length < ink.holdMinLength) return;
         drawing.held = true;
         // 확정됐다는 신호: 진행 중 획 색을 강조색으로. 놓으면 도형으로 바뀐다.
         livePathRef.current?.setAttribute("fill", theme.color.accent);
@@ -524,7 +571,7 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
         return;
       }
 
-      if (manip || lasso) return;
+      if (manip || lasso || tapeDrag) return;
       rect = svg.getBoundingClientRect();
       {
         const v = view();
@@ -586,11 +633,19 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
         return;
       }
 
+      if (toolRef.current === "tape" && !isBarrelPressed(event)) {
+        tapeDrag = { pointerId: event.pointerId, a: toWorld(event.clientX, event.clientY, rect, view()), sx: event.clientX, sy: event.clientY };
+        capture(event.pointerId);
+        return;
+      }
+
       if (toolRef.current === "lasso" && !isBarrelPressed(event)) {
         const w = toWorld(event.clientX, event.clientY, rect, view());
         lasso = { pointerId: event.pointerId, pts: [{ x: w.x, y: w.y, p: 0.5, t: 0 }] };
         capture(event.pointerId);
         lassoRef.current?.setAttribute("d", "");
+        // 삼성식은 그은 선만 (안쪽 칠·시작점으로 잇는 선 없음)
+        lassoRef.current?.setAttribute("fill", penStore.getState().lassoStyle === "samsung" ? "none" : theme.color.groupHint);
         return;
       }
 
@@ -652,11 +707,16 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
         previewShape(event);
         return;
       }
+      if (tapeDrag && tapeDrag.pointerId === event.pointerId) {
+        previewTape(event);
+        return;
+      }
       if (lasso && lasso.pointerId === event.pointerId) {
         if (!rect) return;
         const w = toWorld(event.clientX, event.clientY, rect, view());
         lasso.pts.push({ x: w.x, y: w.y, p: 0.5, t: 0 });
-        lassoRef.current?.setAttribute("d", `M${lasso.pts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join("L")}Z`);
+        const close = penStore.getState().lassoStyle === "samsung" ? "" : "Z";
+        lassoRef.current?.setAttribute("d", `M${lasso.pts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join("L")}${close}`);
         return;
       }
       if (erasingPointerId === event.pointerId) {
@@ -754,12 +814,9 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
 
       const simplified = simplifyRDP(captured.points, ink.simplifyEpsilon);
       if (simplified.length > 0) {
-        const highlighter = captured.style.tool === "highlighter";
-        const session = sessionStore.getState();
-        const groupId = session.addStroke(createStroke(simplified, Date.now(), captured.style), { newGroup: captured.held || highlighter });
-        // 형광펜 자국은 ✨ 정리 대상이 아니다 — 활성 그룹에서 빼 두면 다음 펜 획과도 섞이지 않는다
-        if (highlighter) sessionStore.getState().setActiveGroup(null);
-        else if (captured.held) holdSnapRef.current?.(groupId);
+        // 형광펜 획은 형광펜 획끼리만 묶인다 (session.addStroke) — ✨로 형광펜 도형으로 정리된다
+        const groupId = sessionStore.getState().addStroke(createStroke(simplified, Date.now(), captured.style), { newGroup: captured.held });
+        if (captured.held) holdSnapRef.current?.(groupId);
       }
       clearLive();
     };
@@ -794,6 +851,10 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
         finishShape(event);
         return;
       }
+      if (tapeDrag && tapeDrag.pointerId === event.pointerId) {
+        finishTape(event);
+        return;
+      }
       if (erasingPointerId === event.pointerId) {
         erasingPointerId = null;
         release(event.pointerId);
@@ -819,6 +880,10 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
       if (lasso?.pointerId === event.pointerId) {
         lasso = null;
         lassoRef.current?.setAttribute("d", "");
+      }
+      if (tapeDrag?.pointerId === event.pointerId) {
+        tapeDrag = null;
+        tapeRef.current?.setAttribute("d", "");
       }
       // 시스템이 포인터를 회수했다(전화 수신, 제스처 인식 등). 획은 버린다.
       if (erasingPointerId === event.pointerId) erasingPointerId = null;
@@ -898,6 +963,8 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
       </g>
       {/* 도형 도구 미리보기 */}
       <path ref={shapeRef} fill="none" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" pointerEvents="none" data-export-skip />
+      {/* 테이프 붙이는 중 미리보기 */}
+      <path ref={tapeRef} opacity={0.85} pointerEvents="none" data-export-skip />
       {/* 올가미 — 점선 테두리, 옅은 안쪽 (선 굵기는 확대와 무관) */}
       <path ref={lassoRef} fill={theme.color.groupHint} stroke={theme.color.accent} strokeWidth={1.5} strokeDasharray="6 5" vectorEffect="non-scaling-stroke" pointerEvents="none" />
 

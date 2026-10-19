@@ -1,6 +1,6 @@
 import katex from "katex";
 import "katex/dist/katex.min.css";
-import { X } from "lucide-react";
+import { ChevronRight, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import type { BBox } from "../ink/types";
 import { IR_VERSION, SOLID_KINDS, type SceneIR, type SolidKind } from "@sketchlab/shared";
@@ -15,6 +15,7 @@ import { chem, plot, solid, theme } from "../render/theme";
 import { sessionStore } from "../store/session";
 import { freeSpot, type Area } from "./placement";
 import { AiCreatePanel } from "./AiCreatePanel";
+import { LatexGuide } from "./LatexGuide";
 
 /**
  * 수식·그래프 직접 입력 (마스터스펙 v4 §9.3 — API 키 없이 동작하는 1급 경로).
@@ -22,23 +23,57 @@ import { AiCreatePanel } from "./AiCreatePanel";
  * 평문(sin(x), sqrt(x), pi)도 받는다 — normalizeInput이 LaTeX로 고쳐 준다.
  */
 
-const EXAMPLES: Array<[label: string, latex: string]> = [
-  ["포물선", "y=x^2-3"],
-  ["삼각함수", "y=\\sin x"],
-  ["계수 슬라이더", "y=a\\sin(bx)"],
-  ["유리함수", "y=\\frac{1}{x}"],
-  ["로그", "y=\\log_2 x"],
-  ["지수", "y=2^x"],
-  ["원", "x^2+y^2=4"],
-  ["극좌표", "r=1+\\cos\\theta"],
-  ["정적분", "\\int_0^2 x^2\\,dx"],
-  ["공간좌표", "A(2,3,4)"],
-  ["연립방정식", "2x+3y=7, x-y=1"],
-  ["3원 연립", "x+y+z=6, 2x-y+z=3, x+2y-z=2"],
-  ["행렬", "[[2,1],[1,3]]"],
-  ["역행렬", "inv [[2,1],[1,3]]"],
-  ["수식", "\\sum_{k=1}^{n} k=\\frac{n(n+1)}{2}"],
+type Example = [label: string, input: string];
+
+/** 예시 단추 — 분류별로 접었다 펴기 (처음엔 그래프·방정식만 펼쳐 둔다) */
+const GROUPS: Array<{ title: string; examples: Example[]; solids?: true; chem?: true; open?: true }> = [
+  {
+    title: "그래프",
+    open: true,
+    examples: [
+      ["포물선", "y=x^2-3"],
+      ["삼각함수", "y=\\sin x"],
+      ["계수 슬라이더", "y=a\\sin(bx)"],
+      ["유리함수", "y=\\frac{1}{x}"],
+      ["로그", "y=\\log_2 x"],
+      ["지수", "y=2^x"],
+      ["원", "x^2+y^2=4"],
+      ["극좌표", "r=1+\\cos\\theta"],
+      ["정적분", "\\int_0^2 x^2\\,dx"],
+    ],
+  },
+  {
+    title: "방정식·행렬",
+    open: true,
+    examples: [
+      ["연립방정식", "2x+3y=7, x-y=1"],
+      ["3원 연립", "x+y+z=6, 2x-y+z=3, x+2y-z=2"],
+      ["행렬", "[[2,1],[1,3]]"],
+      ["역행렬", "inv [[2,1],[1,3]]"],
+    ],
+  },
+  { title: "공간좌표·입체도형", examples: [["공간좌표", "A(2,3,4)"]], solids: true },
+  { title: "화학 구조식", examples: [], chem: true },
+  {
+    title: "수식",
+    examples: [
+      ["시그마", "\\sum_{k=1}^{n} k=\\frac{n(n+1)}{2}"],
+      ["극한", "\\lim_{x\\to 0}\\frac{\\sin x}{x}=1"],
+      ["근의 공식", "x=\\frac{-b\\pm\\sqrt{b^2-4ac}}{2a}"],
+    ],
+  },
 ];
+
+const chipStyle = {
+  minHeight: 36,
+  padding: `${theme.space[1]}px ${theme.space[3]}px`,
+  border: `1px solid ${theme.color.sub}`,
+  borderRadius: 999,
+  background: theme.color.bg,
+  color: theme.color.ink,
+  fontSize: 13,
+  cursor: "pointer",
+} as const;
 
 export interface FormulaSheetProps {
   onClose: () => void;
@@ -53,6 +88,7 @@ export default function FormulaSheet({ onClose, area, onOpenAiSettings }: Formul
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [openGroups, setOpenGroups] = useState(() => new Set(GROUPS.filter((g) => g.open).map((g) => g.title)));
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => inputRef.current?.focus(), []);
@@ -269,77 +305,71 @@ export default function FormulaSheet({ onClose, area, onOpenAiSettings }: Formul
         {loading ? "구조식 준비 중… (처음 한 번은 몇 초 걸려요)" : (error ?? preview.note)}
       </p>
 
-      <div style={{ display: "flex", flexWrap: "wrap", gap: theme.space[2], marginTop: theme.space[4] }}>
-        {EXAMPLES.map(([label, latex]) => (
-          <button
-            key={label}
-            type="button"
-            onClick={() => add(latex)}
-            style={{
-              minHeight: 36,
-              padding: `${theme.space[1]}px ${theme.space[3]}px`,
-              border: `1px solid ${theme.color.sub}`,
-              borderRadius: 999,
-              background: theme.color.bg,
-              color: theme.color.ink,
-              fontSize: 13,
-              cursor: "pointer",
-            }}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      <LatexGuide
+        onPick={(code) => {
+          setText(code);
+          setError(null);
+          inputRef.current?.focus();
+        }}
+      />
 
-      <p style={{ margin: `${theme.space[5]}px 0 ${theme.space[2]}px`, fontSize: 13, color: theme.color.asymptote }}>
-        화학 구조식 — 이름(벤젠, ethanol)이나 SMILES(c1ccccc1)를 입력해도 돼요
-      </p>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: theme.space[2] }}>
-        {CHEM_EXAMPLES.map((name) => (
-          <button
-            key={name}
-            type="button"
-            disabled={loading}
-            onClick={() => add(name)}
-            style={{
-              minHeight: 36,
-              padding: `${theme.space[1]}px ${theme.space[3]}px`,
-              border: `1px solid ${theme.color.sub}`,
-              borderRadius: 999,
-              background: theme.color.bg,
-              color: theme.color.ink,
-              fontSize: 13,
-              cursor: "pointer",
-            }}
-          >
-            {name}
-          </button>
-        ))}
-      </div>
-
-      <p style={{ margin: `${theme.space[5]}px 0 ${theme.space[2]}px`, fontSize: 13, color: theme.color.asymptote }}>
-        입체도형 — 돌려 볼 수 있어요
-      </p>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: theme.space[2] }}>
-        {SOLID_KINDS.map((kind) => (
-          <button
-            key={kind}
-            type="button"
-            onClick={() => addSolid(kind)}
-            style={{
-              minHeight: 36,
-              padding: `${theme.space[1]}px ${theme.space[3]}px`,
-              border: `1px solid ${theme.color.sub}`,
-              borderRadius: 999,
-              background: theme.color.bg,
-              color: theme.color.ink,
-              fontSize: 13,
-              cursor: "pointer",
-            }}
-          >
-            {SOLID_NAMES[kind]}
-          </button>
-        ))}
+      <div style={{ display: "grid", gap: theme.space[2], marginTop: theme.space[3] }}>
+        {GROUPS.map((g) => {
+          const open = openGroups.has(g.title);
+          const count = g.examples.length + (g.solids ? SOLID_KINDS.length : 0) + (g.chem ? CHEM_EXAMPLES.length : 0);
+          return (
+            <section key={g.title}>
+              <button
+                type="button"
+                aria-expanded={open}
+                onClick={() =>
+                  setOpenGroups((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(g.title)) next.delete(g.title);
+                    else next.add(g.title);
+                    return next;
+                  })
+                }
+                style={{ width: "100%", minHeight: 36, display: "flex", alignItems: "center", gap: theme.space[2], padding: 0, border: "none", background: "transparent", color: theme.color.ink, fontSize: 13, fontWeight: 600, cursor: "pointer", textAlign: "left" }}
+              >
+                <ChevronRight size={16} strokeWidth={1.8} style={{ transform: open ? "rotate(90deg)" : undefined, transition: `transform ${theme.motion.fast}ms` }} />
+                {g.title}
+                <span style={{ fontWeight: 400, color: theme.color.asymptote }}>{count}</span>
+              </button>
+              {open && (
+                <>
+                  {g.chem && (
+                    <p style={{ margin: `0 0 ${theme.space[2]}px`, fontSize: 12, color: theme.color.asymptote }}>
+                      이름(벤젠, ethanol)이나 SMILES(c1ccccc1)를 입력해도 돼요
+                    </p>
+                  )}
+                  {g.solids && (
+                    <p style={{ margin: `0 0 ${theme.space[2]}px`, fontSize: 12, color: theme.color.asymptote }}>입체도형은 돌려 볼 수 있어요</p>
+                  )}
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: theme.space[2] }}>
+                    {g.examples.map(([label, input]) => (
+                      <button key={label} type="button" onClick={() => add(input)} style={chipStyle}>
+                        {label}
+                      </button>
+                    ))}
+                    {g.solids &&
+                      SOLID_KINDS.map((kind) => (
+                        <button key={kind} type="button" onClick={() => addSolid(kind)} style={chipStyle}>
+                          {SOLID_NAMES[kind]}
+                        </button>
+                      ))}
+                    {g.chem &&
+                      CHEM_EXAMPLES.map((name) => (
+                        <button key={name} type="button" disabled={loading} onClick={() => add(name)} style={chipStyle}>
+                          {name}
+                        </button>
+                      ))}
+                  </div>
+                </>
+              )}
+            </section>
+          );
+        })}
       </div>
       </>
       )}

@@ -36,6 +36,11 @@ export interface PenSettings {
   penOnly: boolean;
   /** 어두운 화면 */
   dark: boolean;
+  /** 올가미: apple = 두른 고리 안 / samsung = 그은 선이 닿은 것까지 (끝을 시작점으로 잇지 않는다) */
+  lassoStyle: "apple" | "samsung";
+  /** 마스킹 테이프 색·폭(월드 px) */
+  tapeColor: string;
+  tapeWidth: number;
 }
 
 export interface PenPreset {
@@ -73,6 +78,9 @@ const DEFAULTS: PenSettings = {
   ],
   penOnly: false,
   dark: false,
+  lassoStyle: "apple",
+  tapeColor: penOpts.tapeColors[0],
+  tapeWidth: penOpts.tapeWidth.default,
 };
 
 const SHAPES: readonly ShapeKind[] = ["line", "arrow", "rect", "ellipse", "triangle", "axes"];
@@ -112,6 +120,9 @@ function load(): PenSettings {
         : DEFAULTS.presets,
       penOnly: v.penOnly === true,
       dark: v.dark === true,
+      lassoStyle: v.lassoStyle === "samsung" ? "samsung" : "apple",
+      tapeColor: hex(v.tapeColor, DEFAULTS.tapeColor),
+      tapeWidth: clamp(v.tapeWidth, penOpts.tapeWidth),
     };
   } catch {
     return DEFAULTS;
@@ -120,10 +131,10 @@ function load(): PenSettings {
 
 function persist(s: PenSettings): void {
   try {
-    const { kind, penColor, highlightColor, penWidth, highlightWidth, recentPen, recentHighlight, smoothing, eraserMode, eraserSize, shapeKind, shapeSquare, presets, penOnly, dark } = s;
+    const { kind, penColor, highlightColor, penWidth, highlightWidth, recentPen, recentHighlight, smoothing, eraserMode, eraserSize, shapeKind, shapeSquare, presets, penOnly, dark, lassoStyle, tapeColor, tapeWidth } = s;
     localStorage.setItem(
       KEY,
-      JSON.stringify({ kind, penColor, highlightColor, penWidth, highlightWidth, recentPen, recentHighlight, smoothing, eraserMode, eraserSize, shapeKind, shapeSquare, presets, penOnly, dark }),
+      JSON.stringify({ kind, penColor, highlightColor, penWidth, highlightWidth, recentPen, recentHighlight, smoothing, eraserMode, eraserSize, shapeKind, shapeSquare, presets, penOnly, dark, lassoStyle, tapeColor, tapeWidth }),
     );
   } catch {
     /* 저장이 막혀도 이번 세션 동안은 그대로 쓴다 */

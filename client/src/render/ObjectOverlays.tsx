@@ -3,6 +3,7 @@ import type { ObjectItem } from "../ink/types";
 import { useSession } from "../store/session";
 import { viewportStore } from "../store/viewport";
 import { ErrorBoundary } from "../ErrorBoundary";
+import { TapeObject } from "./TapeObject";
 import { TextObject } from "./TextObject";
 import { TextEditorHost } from "../ui/TextEditor";
 
@@ -26,6 +27,7 @@ const OVERLAY_KINDS = new Set(["plot2d", "formula", "chemEq", "solid3d", "space3
 export function ObjectOverlays({ interactive }: { interactive: boolean }): ReactElement {
   const items = useSession((s) => s.items);
   const overlays = items.filter((i): i is ObjectItem => i.kind === "object" && OVERLAY_KINDS.has(i.ir.kind));
+  const tapes = items.filter((i): i is ObjectItem => i.kind === "object" && i.ir.kind === "tape");
   // 고른 입체는 돌리지 않고 끌어서 옮긴다 (돌리기는 고르지 않았을 때)
   const selection = useSession((s) => s.selection);
   // 이동·확대는 React를 거치지 않고 transform만 바꾼다 (그래프 수십 개가 있어도 핀치가 매끄럽게)
@@ -59,6 +61,10 @@ export function ObjectOverlays({ interactive }: { interactive: boolean }): React
           )}
         </Suspense>
       </ErrorBoundary>
+      {/* 마스킹 테이프는 맨 위 — 아래의 손글씨·그래프·구조식을 모두 가린다 */}
+      {tapes.map((item) => (
+        <TapeObject key={item.id} item={item} />
+      ))}
       {/* 글 상자 편집기도 같은 층 — 이동·확대를 그대로 따른다 */}
       <TextEditorHost />
       </div>

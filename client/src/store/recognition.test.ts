@@ -127,3 +127,32 @@ describe("저장소 복원 시 IR 검증", () => {
     expect(item.strokes).toHaveLength(1);
   });
 });
+
+describe("형광펜 ✨", () => {
+  const hl = (x0: number, y0: number, x1: number, y1: number, endedAt: number) => {
+    const pts: Point[] = Array.from({ length: 21 }, (_, i) => ({ x: x0 + ((x1 - x0) * i) / 20, y: y0 + ((y1 - y0) * i) / 20, p: 0.5, t: i * 8 }));
+    return createStroke(pts, endedAt, { tool: "highlighter", color: "#FACC15", width: 18 });
+  };
+
+  it("형광펜 획은 펜 획과 한 묶음이 되지 않고, 형광펜끼리는 묶인다", () => {
+    const pen = s().addStroke(line(100, 100, 200, 100, 1000));
+    const h1 = s().addStroke(hl(100, 110, 200, 110, 1200));
+    expect(h1).not.toBe(pen);
+    const h2 = s().addStroke(hl(100, 120, 200, 120, 1400));
+    expect(h2).toBe(h1);
+    const pen2 = s().addStroke(line(100, 130, 200, 130, 1600));
+    expect(pen2).not.toBe(h1);
+  });
+
+  it("✨: 형광펜 직선 → 같은 굵기·색의 반투명 직선 도형", async () => {
+    const { recognizeGroup } = await import("../recognize/recognize");
+    const id = s().addStroke(hl(100, 300, 400, 300, 1000));
+    const out = recognizeGroup(id);
+    expect(out.ok).toBe(true);
+    const obj = s().items.find((i) => i.kind === "object");
+    if (obj?.kind !== "object" || obj.ir.kind !== "shape2d") throw new Error("shape2d 아님");
+    expect(obj.ir.data.highlight).toBe(true);
+    expect(obj.ir.data.width).toBe(18);
+    expect(obj.ir.data.color).toBe("#FACC15");
+  });
+});
