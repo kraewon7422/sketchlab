@@ -65,6 +65,7 @@ export function GroupHint({ item }: { item: InkItem }) {
       rx={theme.radius.s}
       fill={theme.color.groupHint}
       pointerEvents="none"
+      data-export-skip
     />
   );
 }

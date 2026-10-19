@@ -4,6 +4,8 @@ import { ObjectItemView } from "../render/Shape2DView";
 import { ink, penOpts, theme, viewport } from "../render/theme";
 import { createStroke, sessionStore, useSession } from "../store/session";
 import { useViewport, viewportStore } from "../store/viewport";
+import { usePages } from "../store/pages";
+import { PageBackground } from "../render/PageBackground";
 import { currentStrokeStyle, penStore } from "../store/pen";
 import { createStabilizer } from "./stabilize";
 import { GroupHint, InkItemView } from "./InkLayer";
@@ -64,6 +66,7 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
 
   const items = useSession((s) => s.items);
   const activeGroupId = useSession((s) => s.activeGroupId);
+  const background = usePages((s) => s.pages.find((p) => p.id === s.currentId)?.background ?? "blank");
   const tx = useViewport((s) => s.tx);
   const ty = useViewport((s) => s.ty);
   const k = useViewport((s) => s.k);
@@ -745,6 +748,7 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
       }}
     >
       <g transform={`translate(${tx} ${ty}) scale(${k})`}>
+      <PageBackground kind={background} />
       {activeGroup && <GroupHint item={activeGroup} />}
 
       {items.map((item) =>

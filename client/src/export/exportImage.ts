@@ -18,7 +18,7 @@ const SVGNS = "http://www.w3.org/2000/svg";
 let fontCss: Promise<string> | null = null;
 
 /** KaTeX CSS의 woff2 폰트를 data URI로 바꿔 넣는다 (이미지 안에서는 외부 파일을 못 불러온다). 1회만. */
-function embeddedKatexCss(): Promise<string> {
+export function embeddedKatexCss(): Promise<string> {
   fontCss ??= (async () => {
     // woff·ttf 대체 소스는 버린다 — woff2만으로 충분하고 용량이 3배 줄어든다
     let css = katexCss.replace(/,\s*url\([^)]*\.woff\)\s*format\("woff"\)/g, "").replace(/,\s*url\([^)]*\.ttf\)\s*format\("truetype"\)/g, "");
@@ -39,7 +39,7 @@ function embeddedKatexCss(): Promise<string> {
   return fontCss;
 }
 
-function blobToDataUrl(blob: Blob): Promise<string> {
+export function blobToDataUrl(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const r = new FileReader();
     r.onload = () => resolve(String(r.result));

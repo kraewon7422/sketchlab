@@ -15,6 +15,7 @@ import { aiConfigured, modelName } from "./ai/settings";
 import { ToolRail, type RailTool } from "./ui/ToolRail";
 import { EraserOptions } from "./ui/EraserOptions";
 import { TextPanel } from "./ui/TextPanel";
+import { PagePanel } from "./ui/PagePanel";
 import { commitTextEdit } from "./ui/TextEditor";
 import { textEditStore, useTextEdit } from "./store/textEdit";
 import { textToHtml } from "./ui/richText";
@@ -92,7 +93,7 @@ export function App(): ReactElement {
   useKeyboardShortcuts(() => recognize(sessionStore.getState().activeGroupId), showToast);
 
   const [aiOpen, setAiOpen] = useState(false);
-  const toolbar = <ToolRail tool={tool} onTool={setTool} mode={mode} onFormula={openSheet} onAi={() => setAiOpen(true)} panels={{ eraser: () => <EraserOptions />, text: () => <TextPanel /> }} forcePanel={editingText && tool === "text" ? "text" : null} />;
+  const toolbar = <ToolRail tool={tool} onTool={setTool} mode={mode} onFormula={openSheet} onAi={() => setAiOpen(true)} panels={{ eraser: () => <EraserOptions />, text: () => <TextPanel />, page: () => <PagePanel onMessage={showToast} /> }} forcePanel={editingText && tool === "text" ? "text" : null} />;
 
   return (
     <div

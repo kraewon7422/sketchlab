@@ -1,4 +1,4 @@
-import { Bot, Eraser, Highlighter, Keyboard, Lasso, Pen, Redo2, SquareFunction, Undo2 } from "lucide-react";
+import { Bot, Eraser, Highlighter, Keyboard, Lasso, NotebookText, Pen, Redo2, SquareFunction, Undo2 } from "lucide-react";
 import { useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
 import { theme } from "../render/theme";
 import { penStore, usePen } from "../store/pen";
@@ -17,8 +17,10 @@ import { PenOptions } from "./PenPalette";
 
 export type RailTool = "text" | "pen" | "highlighter" | "eraser" | "lasso";
 
+/** 패널 이름 — 도구마다 하나 + 쪽(속지·쪽 목록·내보내기) */
+export type PanelKey = RailTool | "page";
 /** 옵션 패널이 있는 도구 → 패널 내용 */
-export type ToolPanels = Partial<Record<RailTool, () => ReactNode>>;
+export type ToolPanels = Partial<Record<PanelKey, () => ReactNode>>;
 
 interface ToolRailProps {
   tool: RailTool;
@@ -31,12 +33,12 @@ interface ToolRailProps {
   /** 펜·형광펜 외의 도구 패널 (지우개·텍스트 등) */
   panels?: ToolPanels;
   /** 이 패널은 누르지 않아도 열어 둔다 (글 상자를 고치는 동안 글자 패널) */
-  forcePanel?: RailTool | null;
+  forcePanel?: PanelKey | null;
 }
 
 export function ToolRail({ tool, onTool, mode, onFormula, onAi, disabled = [], panels = {}, forcePanel = null }: ToolRailProps): ReactElement {
   const vertical = mode !== "compact";
-  const [panel, setPanel] = useState<RailTool | null>(null);
+  const [panel, setPanel] = useState<PanelKey | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const canUndo = useSession((s) => s.history.undo.length > 0);
   const canRedo = useSession((s) => s.history.redo.length > 0);
@@ -121,6 +123,9 @@ export function ToolRail({ tool, onTool, mode, onFormula, onAi, disabled = [], p
           <Redo2 size={21} strokeWidth={1.6} />
         </RailButton>
         {divider}
+        <RailButton label="쪽" hint="속지·쪽 목록·쪽 전체 내보내기" active={panel === "page"} onClick={() => setPanel((p) => (p === "page" ? null : "page"))}>
+          <NotebookText size={21} strokeWidth={1.6} />
+        </RailButton>
         <RailButton label="수식·그래프 입력" hint="식·그래프·화학·AI에게 부탁" onClick={onFormula}>
           <SquareFunction size={21} strokeWidth={1.6} />
         </RailButton>

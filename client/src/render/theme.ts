@@ -114,6 +114,24 @@ export const penOpts = {
   stabilizeMaxPx: 9,
 } as const;
 
+/** 페이지 배경 (노트 속지) — 글씨를 방해하지 않게 아주 옅게. 단위 월드 px */
+export const pageBg = {
+  ruledGap: 34,
+  ruledLine: "#C9D7EA",
+  /** 줄 노트 왼쪽 여백선 */
+  marginX: 72,
+  marginLine: "#F2B8B5",
+  gridGap: 24,
+  gridLine: "#E3E9F1",
+  /** 그래프 용지: 작은 칸 · 큰 칸(5칸마다) */
+  graphMinor: 10,
+  graphMajor: 50,
+  graphMinorLine: "#E8EEF6",
+  graphMajorLine: "#C7D5E8",
+  dotGap: 24,
+  dot: "#C5CFDB",
+} as const;
+
 /** 캔버스 이동·확대 (v4 §12.2) — 두 손가락 핀치, 마우스 휠, Ctrl+휠. */
 export const viewport = {
   minZoom: 0.4,
