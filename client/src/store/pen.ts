@@ -1,5 +1,6 @@
 import { useStore } from "zustand";
 import { createStore } from "zustand/vanilla";
+import type { ShapeKind } from "../ink/shapes";
 import { penOpts } from "../render/theme";
 
 /**
@@ -25,6 +26,10 @@ export interface PenSettings {
   eraserMode: "stroke" | "area";
   /** 지우개 반지름 (화면 px) */
   eraserSize: number;
+  /** 도형 도구로 그릴 도형 */
+  shapeKind: ShapeKind;
+  /** 정사각형·정원·45°로 맞추기 */
+  shapeSquare: boolean;
 }
 
 export interface PenState extends PenSettings {
@@ -47,7 +52,11 @@ const DEFAULTS: PenSettings = {
   smoothing: penOpts.defaultSmoothing,
   eraserMode: "stroke",
   eraserSize: penOpts.eraserSize.default,
+  shapeKind: "line",
+  shapeSquare: false,
 };
+
+const SHAPES: readonly ShapeKind[] = ["line", "arrow", "rect", "ellipse", "triangle", "axes"];
 
 const clamp = (v: unknown, r: { min: number; max: number; default: number }) =>
   typeof v === "number" && Number.isFinite(v) ? Math.min(r.max, Math.max(r.min, v)) : r.default;
@@ -74,6 +83,8 @@ function load(): PenSettings {
       smoothing: typeof v.smoothing === "number" ? Math.min(1, Math.max(0, v.smoothing)) : DEFAULTS.smoothing,
       eraserMode: v.eraserMode === "area" ? "area" : "stroke",
       eraserSize: clamp(v.eraserSize, penOpts.eraserSize),
+      shapeKind: SHAPES.includes(v.shapeKind as ShapeKind) ? (v.shapeKind as ShapeKind) : "line",
+      shapeSquare: v.shapeSquare === true,
     };
   } catch {
     return DEFAULTS;
@@ -82,10 +93,10 @@ function load(): PenSettings {
 
 function persist(s: PenSettings): void {
   try {
-    const { kind, penColor, highlightColor, penWidth, highlightWidth, recentPen, recentHighlight, smoothing, eraserMode, eraserSize } = s;
+    const { kind, penColor, highlightColor, penWidth, highlightWidth, recentPen, recentHighlight, smoothing, eraserMode, eraserSize, shapeKind, shapeSquare } = s;
     localStorage.setItem(
       KEY,
-      JSON.stringify({ kind, penColor, highlightColor, penWidth, highlightWidth, recentPen, recentHighlight, smoothing, eraserMode, eraserSize }),
+      JSON.stringify({ kind, penColor, highlightColor, penWidth, highlightWidth, recentPen, recentHighlight, smoothing, eraserMode, eraserSize, shapeKind, shapeSquare }),
     );
   } catch {
     /* 저장이 막혀도 이번 세션 동안은 그대로 쓴다 */

@@ -1,4 +1,4 @@
-import { Bot, Eraser, Highlighter, Keyboard, Lasso, NotebookText, Pen, Redo2, SquareFunction, Undo2 } from "lucide-react";
+import { Bot, Eraser, Highlighter, Keyboard, Lasso, NotebookText, Pen, Redo2, Shapes, SquareFunction, Undo2 } from "lucide-react";
 import { useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
 import { theme } from "../render/theme";
 import { penStore, usePen } from "../store/pen";
@@ -15,7 +15,7 @@ import { PenOptions } from "./PenPalette";
  *   [텍스트] [펜] [형광펜] [지우개] [올가미] │ [되돌리기] [다시] │ [ƒ 입력] [AI]
  */
 
-export type RailTool = "text" | "pen" | "highlighter" | "eraser" | "lasso";
+export type RailTool = "text" | "pen" | "highlighter" | "eraser" | "lasso" | "shape";
 
 /** 패널 이름 — 도구마다 하나 + 쪽(속지·쪽 목록·내보내기) */
 export type PanelKey = RailTool | "page";
@@ -115,6 +115,7 @@ export function ToolRail({ tool, onTool, mode, onFormula, onAi, disabled = [], p
         {btn("highlighter", "형광펜", Highlighter, highlightColor)}
         {btn("eraser", "지우개", Eraser)}
         {btn("lasso", "올가미", Lasso)}
+        {btn("shape", "도형", Shapes)}
         {divider}
         <RailButton label="실행 취소" disabled={!canUndo} onClick={() => sessionStore.getState().undo()}>
           <Undo2 size={21} strokeWidth={1.6} />

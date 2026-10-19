@@ -10,13 +10,17 @@ import { currentStrokeStyle, penStore } from "../store/pen";
 import { createStabilizer } from "./stabilize";
 import { GroupHint, InkItemView } from "./InkLayer";
 import { hitItem, itemsInLasso, selectionBox } from "./editing";
+import { buildShape } from "./shapes";
+import { IR_VERSION } from "@sketchlab/shared";
+import { primitivePolyline } from "../render/shape2dGeometry";
+import { markFresh } from "../render/Shape2DView";
 import { distance, toWorld, zoomAbout, type View } from "./geometry";
 import { simplifyRDP } from "./simplify";
 import { smoothStrokePath } from "./smoothOutline";
 import { createPalmRejector } from "./palmRejection";
 import type { InkItem, Point } from "./types";
 
-export type Tool = "pen" | "eraser" | "lasso" | "text";
+export type Tool = "pen" | "eraser" | "lasso" | "text" | "shape";
 
 /**
  * S Pen 측면 버튼(2) 또는 지우개 버튼(32)이 눌린 상태인가 (v4 §6.1).
@@ -62,6 +66,7 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
   const svgRef = useRef<SVGSVGElement>(null);
   const livePathRef = useRef<SVGPathElement>(null);
   const lassoRef = useRef<SVGPathElement>(null);
+  const shapeRef = useRef<SVGPathElement>(null);
   const hoverRef = useRef<SVGCircleElement>(null);
 
   const items = useSession((s) => s.items);
@@ -140,6 +145,51 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
     } | null = null;
     /** 올가미로 두르는 중 (월드 좌표) */
     let lasso: { pointerId: number; pts: Point[] } | null = null;
+    /** 도형 도구로 끄는 중 (월드 좌표 시작점) */
+    let shapeDrag: { pointerId: number; a: { x: number; y: number } } | null = null;
+
+    /** 도형 미리보기·확정에 쓰는 모양 */
+    const shapeAt = (event: PointerEvent) => {
+      if (!shapeDrag || !rect) return null;
+      const b = toWorld(event.clientX, event.clientY, rect, view());
+      const { shapeKind, shapeSquare } = penStore.getState();
+      return buildShape(shapeKind, shapeDrag.a, b, shapeSquare || event.shiftKey);
+    };
+    const previewShape = (event: PointerEvent): void => {
+      const s = shapeAt(event);
+      const path = shapeRef.current;
+      if (!path) return;
+      if (!s) {
+        path.setAttribute("d", "");
+        return;
+      }
+      const tf = { x: s.ox, y: s.oy, scale: 1 };
+      path.setAttribute("stroke", penStore.getState().penColor);
+      path.setAttribute(
+        "d",
+        s.data.primitives
+          .map((p) => {
+            const pts = primitivePolyline(p, tf);
+            const closed = (p.t === "polygon" && p.closed) || p.t === "circle" || p.t === "ellipse";
+            return `M${pts.map((q) => `${q.x.toFixed(1)},${q.y.toFixed(1)}`).join("L")}${closed ? "Z" : ""}`;
+          })
+          .join(""),
+      );
+    };
+    const finishShape = (event: PointerEvent): void => {
+      const s = shapeAt(event);
+      if (shapeDrag) release(shapeDrag.pointerId);
+      shapeDrag = null;
+      shapeRef.current?.setAttribute("d", "");
+      if (!s) return;
+      const state = sessionStore.getState();
+      const id = state.addObject(
+        { version: IR_VERSION, confidence: 1, source: "manual", kind: "shape2d", data: { ...s.data, color: penStore.getState().penColor } },
+        { x: s.ox, y: s.oy, scale: 1 },
+        { minX: s.ox, minY: s.oy, maxX: s.ox + s.width, maxY: s.oy + s.height },
+      );
+      markFresh(id);
+    };
 
     /** 톡 친 자리의 것을 고른다. 잉크까지 고를지는 입력에 따라 (펜 탭은 점 찍기라 잉크를 고르지 않는다) */
     const tapSelect = (clientX: number, clientY: number, includeInk: boolean): void => {
@@ -479,6 +529,12 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
         return;
       }
 
+      if (toolRef.current === "shape" && !isBarrelPressed(event)) {
+        shapeDrag = { pointerId: event.pointerId, a: toWorld(event.clientX, event.clientY, rect, view()) };
+        capture(event.pointerId);
+        return;
+      }
+
       if (toolRef.current === "lasso" && !isBarrelPressed(event)) {
         const w = toWorld(event.clientX, event.clientY, rect, view());
         lasso = { pointerId: event.pointerId, pts: [{ x: w.x, y: w.y, p: 0.5, t: 0 }] };
@@ -536,6 +592,10 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
       }
       if (manip && manip.pointerId === event.pointerId) {
         moveManip(event);
+        return;
+      }
+      if (shapeDrag && shapeDrag.pointerId === event.pointerId) {
+        previewShape(event);
         return;
       }
       if (lasso && lasso.pointerId === event.pointerId) {
@@ -653,6 +713,10 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
         finishLasso();
         return;
       }
+      if (shapeDrag && shapeDrag.pointerId === event.pointerId) {
+        finishShape(event);
+        return;
+      }
       if (erasingPointerId === event.pointerId) {
         erasingPointerId = null;
         release(event.pointerId);
@@ -686,6 +750,10 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
     const onPointerCancel = (event: PointerEvent): void => {
       liftTouch(event.pointerId);
       if (manip?.pointerId === event.pointerId) cancelManip();
+      if (shapeDrag?.pointerId === event.pointerId) {
+        shapeDrag = null;
+        shapeRef.current?.setAttribute("d", "");
+      }
       if (lasso?.pointerId === event.pointerId) {
         lasso = null;
         lassoRef.current?.setAttribute("d", "");
@@ -761,6 +829,8 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
 
       {/* 진행 중인 획 (예측 점 포함). React가 아니라 위 effect가 직접 d를 갱신한다. */}
       <path ref={livePathRef} fill={theme.color.ink} fillRule="nonzero" shapeRendering="geometricPrecision" />
+      {/* 도형 도구 미리보기 */}
+      <path ref={shapeRef} fill="none" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" pointerEvents="none" data-export-skip />
       {/* 올가미 — 점선 테두리, 옅은 안쪽 (선 굵기는 확대와 무관) */}
       <path ref={lassoRef} fill={theme.color.groupHint} stroke={theme.color.accent} strokeWidth={1.5} strokeDasharray="6 5" vectorEffect="non-scaling-stroke" pointerEvents="none" />
 

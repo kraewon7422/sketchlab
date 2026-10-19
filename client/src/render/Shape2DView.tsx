@@ -32,6 +32,15 @@ export function Shape2DView({ data, transform }: { data: Shape2DData; transform:
       {data.marks?.map((m, i) => (
         <Mark key={`m${i}`} m={m} tf={transform} />
       ))}
+      {/* 이름표 (좌표축의 x·y·O 등) — 교과서처럼 기울인 세리프, 도형 크기에 비례 */}
+      {data.labels?.map((l, i) => {
+        const p = localToWorld(l.at, transform);
+        return (
+          <text key={`l${i}`} x={p.x} y={p.y} fill="currentColor" fontSize={18 * transform.scale} fontStyle="italic" fontFamily="KaTeX_Math, 'Times New Roman', serif" textAnchor="middle">
+            {l.text}
+          </text>
+        );
+      })}
     </g>
   );
 }

@@ -16,6 +16,7 @@ import { ToolRail, type RailTool } from "./ui/ToolRail";
 import { EraserOptions } from "./ui/EraserOptions";
 import { TextPanel } from "./ui/TextPanel";
 import { PagePanel } from "./ui/PagePanel";
+import { ShapeOptions } from "./ui/ShapeOptions";
 import { commitTextEdit } from "./ui/TextEditor";
 import { textEditStore, useTextEdit } from "./store/textEdit";
 import { textToHtml } from "./ui/richText";
@@ -41,7 +42,7 @@ const NO_MATCH_MESSAGE = "도형이 아니에요 · 손글씨(글자·수식·�
 export function App(): ReactElement {
   const [tool, setTool] = useState<RailTool>(() => (penStoreKind() === "highlighter" ? "highlighter" : "pen"));
   // 캔버스가 아는 입력 방식 — 펜·형광펜은 그리기(색·굵기는 penStore), 지우개는 지우기
-  const canvasTool = tool === "eraser" ? "eraser" : tool === "lasso" ? "lasso" : tool === "text" ? "text" : "pen";
+  const canvasTool = tool === "eraser" ? "eraser" : tool === "lasso" ? "lasso" : tool === "text" ? "text" : tool === "shape" ? "shape" : "pen";
   const editingText = useTextEdit((s) => s.session !== null);
   // 다른 도구로 바꾸면 쓰던 글 상자를 저장한다
   useEffect(() => {
@@ -93,7 +94,7 @@ export function App(): ReactElement {
   useKeyboardShortcuts(() => recognize(sessionStore.getState().activeGroupId), showToast);
 
   const [aiOpen, setAiOpen] = useState(false);
-  const toolbar = <ToolRail tool={tool} onTool={setTool} mode={mode} onFormula={openSheet} onAi={() => setAiOpen(true)} panels={{ eraser: () => <EraserOptions />, text: () => <TextPanel />, page: () => <PagePanel onMessage={showToast} /> }} forcePanel={editingText && tool === "text" ? "text" : null} />;
+  const toolbar = <ToolRail tool={tool} onTool={setTool} mode={mode} onFormula={openSheet} onAi={() => setAiOpen(true)} panels={{ eraser: () => <EraserOptions />, text: () => <TextPanel />, shape: () => <ShapeOptions />, page: () => <PagePanel onMessage={showToast} /> }} forcePanel={editingText && tool === "text" ? "text" : null} />;
 
   return (
     <div
