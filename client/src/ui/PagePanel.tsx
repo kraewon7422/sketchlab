@@ -40,6 +40,45 @@ export function PagePanel({ onMessage }: { onMessage: (m: string) => void }): Re
       setBusy(false);
     }
   };
+  const wide = { height: 40, border: `1px solid ${theme.color.sub}`, borderRadius: theme.radius.s, background: theme.color.bg, fontSize: 14, color: theme.color.ink } as const;
+  const backup = async (how: "save" | "share") => {
+    commitTextEdit();
+    const { buildBackup, backupFileName } = await import("../store/backup");
+    const blob = new Blob([JSON.stringify(await buildBackup())], { type: "application/json" });
+    const name = backupFileName();
+    if (how === "share") {
+      const file = new File([blob], name, { type: "application/json" });
+      if (navigator.canShare?.({ files: [file] })) {
+        try {
+          await navigator.share({ files: [file] });
+          onMessage("백업을 공유했어요");
+        } catch {
+          /* 사용자가 닫음 */
+        }
+        return;
+      }
+      onMessage("이 기기는 공유를 지원하지 않아 파일로 저장해요");
+    }
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
+    onMessage("노트 전체를 백업 파일로 저장했어요");
+  };
+  const restore = async (file: File) => {
+    commitTextEdit();
+    try {
+      const { importBackup } = await import("../store/backup");
+      const n = await importBackup(await file.text());
+      onMessage(`${n}쪽을 불러왔어요 · 쪽 목록 맨 아래에 있어요`);
+    } catch (e) {
+      onMessage(e instanceof Error ? e.message : "불러오지 못했어요");
+    }
+  };
+
   const exportAs = async (kind: "png" | "pdf" | "share") => {
     commitTextEdit();
     const m = await import("../export/pageExport");
@@ -148,6 +187,32 @@ export function PagePanel({ onMessage }: { onMessage: (m: string) => void }): Re
       >
         <FilePlus size={16} /> 새 쪽
       </button>
+
+      {section("노트 백업 (다른 기기로 옮기기)")}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+        <button type="button" onClick={() => void backup("save")} style={wide}>
+          파일로 백업
+        </button>
+        <button type="button" onClick={() => void backup("share")} style={wide}>
+          백업 공유
+        </button>
+      </div>
+      <label style={{ ...wide, display: "grid", placeItems: "center", cursor: "pointer" }}>
+        백업 불러오기 (쪽을 덧붙여요)
+        <input
+          type="file"
+          accept="application/json,.json"
+          style={{ display: "none" }}
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            e.target.value = "";
+            if (f) void restore(f);
+          }}
+        />
+      </label>
+      <span style={{ fontSize: 12, color: theme.color.asymptote, marginTop: -theme.space[1] }}>
+        백업 파일을 구글 드라이브·삼성 클라우드·카카오톡 등으로 옮겨 다른 기기에서 불러오세요
+      </span>
 
       {section("화면")}
       <label style={{ display: "flex", alignItems: "center", gap: theme.space[2], fontSize: 14 }}>
