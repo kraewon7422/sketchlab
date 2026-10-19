@@ -163,8 +163,8 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
 
     const tapeAt = (event: PointerEvent) => {
       if (!tapeDrag || !rect) return null;
-      const { tapeWidth, tapeColor } = penStore.getState();
-      return buildTape(tapeDrag.a, toWorld(event.clientX, event.clientY, rect, view()), tapeWidth, tapeColor);
+      const { tapeWidth, tapeColor, tapePattern } = penStore.getState();
+      return buildTape(tapeDrag.a, toWorld(event.clientX, event.clientY, rect, view()), tapeWidth, tapeColor, tapePattern);
     };
     const previewTape = (event: PointerEvent): void => {
       const t = tapeAt(event);

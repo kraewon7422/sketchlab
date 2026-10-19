@@ -156,3 +156,21 @@ describe("형광펜 ✨", () => {
     expect(obj.ir.data.color).toBe("#FACC15");
   });
 });
+
+describe("지우개와 마스킹 테이프", () => {
+  const tapeIR: SceneIR = { version: IR_VERSION, kind: "tape", source: "manual", confidence: 1, data: { len: 200, width: 30, angle: 0, color: "#F2C94C", revealed: false } };
+  const bbox = { minX: 100, minY: 85, maxX: 300, maxY: 115 };
+
+  it("지우개가 테이프에 닿으면 테이프가 통째로 떨어진다 (획·영역 지우개 모두), 되돌리기로 복구", () => {
+    for (const mode of ["stroke", "area"] as const) {
+      __resetSession();
+      s().addObject(tapeIR, { x: 100, y: 100, scale: 1 }, bbox);
+      expect(s().eraseAt(50, 100, 10, mode)).toBe(0); // 닿지 않으면 그대로
+      expect(s().items).toHaveLength(1);
+      expect(s().eraseAt(200, 112, 10, mode)).toBe(1);
+      expect(s().items).toHaveLength(0);
+      s().undo();
+      expect(s().items[0]?.kind).toBe("object");
+    }
+  });
+});

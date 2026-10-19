@@ -6,6 +6,7 @@ import { useStore } from "zustand";
 import { createStore, type StoreApi } from "zustand/vanilla";
 import { bboxOfPoints, distanceToPolyline, unionBBoxes } from "../ink/geometry";
 import { shouldJoinGroup } from "../ink/grouping";
+import { onTape } from "../ink/tape";
 import type { BBox, CanvasItem, InkItem, ObjectItem, Stroke } from "../ink/types";
 import { distanceToShape2D, type ObjectTransform } from "../render/shape2dGeometry";
 
@@ -355,6 +356,11 @@ export const sessionStore: StoreApi<SessionState> = createStore<SessionState>((s
           if (item.kind === "object") {
             // 인식된 객체는 선에 닿으면 통째로 지운다 (획 단위 지우개와 같은 감각). Undo로 복구.
             if (item.ir.kind === "shape2d" && distanceToShape2D(item.ir.data, item.transform, x, y) <= radius) {
+              removed += 1;
+              continue;
+            }
+            // 마스킹 테이프도 지우개가 닿으면 통째로 뗀다 (두 지우개 방식 모두)
+            if (item.ir.kind === "tape" && onTape(item.ir.data, item.transform, x, y, radius)) {
               removed += 1;
               continue;
             }

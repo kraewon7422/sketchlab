@@ -1,6 +1,7 @@
 import { useStore } from "zustand";
 import { createStore } from "zustand/vanilla";
 import type { ShapeKind } from "../ink/shapes";
+import type { TapePattern } from "../ink/tape";
 import { penOpts } from "../render/theme";
 
 /**
@@ -41,6 +42,7 @@ export interface PenSettings {
   /** 마스킹 테이프 색·폭(월드 px) */
   tapeColor: string;
   tapeWidth: number;
+  tapePattern: TapePattern;
 }
 
 export interface PenPreset {
@@ -81,6 +83,7 @@ const DEFAULTS: PenSettings = {
   lassoStyle: "apple",
   tapeColor: penOpts.tapeColors[0],
   tapeWidth: penOpts.tapeWidth.default,
+  tapePattern: "stripes",
 };
 
 const SHAPES: readonly ShapeKind[] = ["line", "arrow", "rect", "ellipse", "triangle", "axes"];
@@ -123,6 +126,7 @@ function load(): PenSettings {
       lassoStyle: v.lassoStyle === "samsung" ? "samsung" : "apple",
       tapeColor: hex(v.tapeColor, DEFAULTS.tapeColor),
       tapeWidth: clamp(v.tapeWidth, penOpts.tapeWidth),
+      tapePattern: v.tapePattern === "plain" || v.tapePattern === "dots" || v.tapePattern === "grid" ? v.tapePattern : "stripes",
     };
   } catch {
     return DEFAULTS;
@@ -131,10 +135,10 @@ function load(): PenSettings {
 
 function persist(s: PenSettings): void {
   try {
-    const { kind, penColor, highlightColor, penWidth, highlightWidth, recentPen, recentHighlight, smoothing, eraserMode, eraserSize, shapeKind, shapeSquare, presets, penOnly, dark, lassoStyle, tapeColor, tapeWidth } = s;
+    const { kind, penColor, highlightColor, penWidth, highlightWidth, recentPen, recentHighlight, smoothing, eraserMode, eraserSize, shapeKind, shapeSquare, presets, penOnly, dark, lassoStyle, tapeColor, tapeWidth, tapePattern } = s;
     localStorage.setItem(
       KEY,
-      JSON.stringify({ kind, penColor, highlightColor, penWidth, highlightWidth, recentPen, recentHighlight, smoothing, eraserMode, eraserSize, shapeKind, shapeSquare, presets, penOnly, dark, lassoStyle, tapeColor, tapeWidth }),
+      JSON.stringify({ kind, penColor, highlightColor, penWidth, highlightWidth, recentPen, recentHighlight, smoothing, eraserMode, eraserSize, shapeKind, shapeSquare, presets, penOnly, dark, lassoStyle, tapeColor, tapeWidth, tapePattern }),
     );
   } catch {
     /* 저장이 막혀도 이번 세션 동안은 그대로 쓴다 */

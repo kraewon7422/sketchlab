@@ -53,15 +53,24 @@ export function onTape(d: Pick<TapeData, "len" | "width" | "angle">, tf: Tf, x: 
   return along >= -slop && along <= d.len * tf.scale + slop && Math.abs(across) <= (d.width * tf.scale) / 2 + slop;
 }
 
+/** 테이프 무늬 */
+export type TapePattern = NonNullable<TapeData["pattern"]>;
+export const TAPE_PATTERNS: Array<[TapePattern, string]> = [
+  ["plain", "무늬 없음"],
+  ["stripes", "사선"],
+  ["dots", "물방울"],
+  ["grid", "격자"],
+];
+
 /** a에서 b로 끌어 붙인 테이프. 너무 짧으면 null */
-export function buildTape(a: P2, b: P2, width: number, color: string): { data: TapeData; transform: Tf; bbox: BBox } | null {
+export function buildTape(a: P2, b: P2, width: number, color: string, pattern: TapePattern = "stripes"): { data: TapeData; transform: Tf; bbox: BBox } | null {
   const len = Math.hypot(b.x - a.x, b.y - a.y);
   if (len < TAPE_MIN_LEN) return null;
   let angle = Math.atan2(b.y - a.y, b.x - a.x);
   const quarter = Math.PI / 2;
   const nearest = Math.round(angle / quarter) * quarter;
   if (Math.abs(angle - nearest) < SNAP) angle = nearest;
-  const data: TapeData = { len, width, angle, color, revealed: false };
+  const data: TapeData = { len, width, angle, color, pattern, revealed: false };
   const transform = { x: a.x, y: a.y, scale: 1 };
   return { data, transform, bbox: tapeBox(data, transform) };
 }
