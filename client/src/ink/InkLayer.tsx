@@ -12,7 +12,12 @@ import type { InkItem, Stroke } from "./types";
  */
 
 export const InkItemView = memo(function InkItemView({ item }: { item: InkItem }) {
-  return <InkStrokes strokes={item.strokes} />;
+  // data-ink-id: 선택한 손글씨를 이미지로 복사할 때 화면에서 찾는 표식
+  return (
+    <g data-ink-id={item.id}>
+      <InkStrokes strokes={item.strokes} />
+    </g>
+  );
 });
 
 /** 획 묶음 그리기 — 잉크 그룹과, 인식된 객체의 원본(교체 애니메이션·미지원 kind)이 같이 쓴다. */

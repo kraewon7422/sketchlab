@@ -35,7 +35,7 @@ const NO_MATCH_MESSAGE = "도형이 아니에요 · 손글씨(글자·수식·�
 export function App(): ReactElement {
   const [tool, setTool] = useState<RailTool>(() => (penStoreKind() === "highlighter" ? "highlighter" : "pen"));
   // 캔버스가 아는 입력 방식 — 펜·형광펜은 그리기(색·굵기는 penStore), 지우개는 지우기
-  const canvasTool = tool === "eraser" ? "eraser" : "pen";
+  const canvasTool = tool === "eraser" ? "eraser" : tool === "lasso" ? "lasso" : "pen";
   const drawing = tool === "pen" || tool === "highlighter";
   const mode = useLayoutMode();
   const { toast, showToast } = useToast();
@@ -71,7 +71,7 @@ export function App(): ReactElement {
   useKeyboardShortcuts(() => recognize(sessionStore.getState().activeGroupId), showToast);
 
   const [aiOpen, setAiOpen] = useState(false);
-  const toolbar = <ToolRail tool={tool} onTool={setTool} mode={mode} onFormula={openSheet} onAi={() => setAiOpen(true)} disabled={["text", "lasso"]} />;
+  const toolbar = <ToolRail tool={tool} onTool={setTool} mode={mode} onFormula={openSheet} onAi={() => setAiOpen(true)} disabled={["text"]} />;
 
   return (
     <div

@@ -7,13 +7,14 @@ import { useViewport, viewportStore } from "../store/viewport";
 import { currentStrokeStyle, penStore } from "../store/pen";
 import { createStabilizer } from "./stabilize";
 import { GroupHint, InkItemView } from "./InkLayer";
+import { hitItem, itemsInLasso, selectionBox } from "./editing";
 import { distance, toWorld, zoomAbout, type View } from "./geometry";
 import { simplifyRDP } from "./simplify";
 import { smoothStrokePath } from "./smoothOutline";
 import { createPalmRejector } from "./palmRejection";
 import type { InkItem, Point } from "./types";
 
-export type Tool = "pen" | "eraser";
+export type Tool = "pen" | "eraser" | "lasso";
 
 /**
  * S Pen 측면 버튼(2) 또는 지우개 버튼(32)이 눌린 상태인가 (v4 §6.1).
@@ -56,6 +57,7 @@ interface PointerCanvasProps {
 export function PointerCanvas({ tool, onHoldSnap }: PointerCanvasProps) {
   const svgRef = useRef<SVGSVGElement>(null);
   const livePathRef = useRef<SVGPathElement>(null);
+  const lassoRef = useRef<SVGPathElement>(null);
   const hoverRef = useRef<SVGCircleElement>(null);
 
   const items = useSession((s) => s.items);
@@ -111,6 +113,91 @@ export function PointerCanvas({ tool, onHoldSnap }: PointerCanvasProps) {
     /** 제스처 뒤 남은 손가락은 다 뗄 때까지 그리지 않는다 (한 손가락 떼는 순간 점이 찍히지 않게) */
     let gestureLock = false;
     const view = (): View => viewportStore.getState();
+
+    /**
+     * 손으로 다루기 (그리기가 아닌 것):
+     *   move — 고른 것 위를 누르고 끌기 → 옮기기 (펜·손가락·마우스)
+     *   pan  — 펜을 쓰는 기기에서 손가락 하나 → 화면 이동, 톡 치면 고르기 (노트 앱 관례)
+     */
+    let manip: {
+      kind: "move" | "pan";
+      pointerId: number;
+      pointerType: string;
+      sx: number;
+      sy: number;
+      t: number;
+      moved: number;
+      ids: string[];
+      base: ReturnType<typeof sessionStore.getState>["items"];
+      view: View;
+    } | null = null;
+    /** 올가미로 두르는 중 (월드 좌표) */
+    let lasso: { pointerId: number; pts: Point[] } | null = null;
+
+    /** 톡 친 자리의 것을 고른다. 잉크까지 고를지는 입력에 따라 (펜 탭은 점 찍기라 잉크를 고르지 않는다) */
+    const tapSelect = (clientX: number, clientY: number, includeInk: boolean): void => {
+      if (!rect) return;
+      const v = view();
+      const w = toWorld(clientX, clientY, rect, v);
+      const state = sessionStore.getState();
+      const pool = includeInk ? state.items : state.items.filter((i) => i.kind === "object");
+      const hit = hitItem(pool, w.x, w.y, ink.tapSlop / v.k);
+      state.setSelection(hit ? [hit.id] : []);
+    };
+
+    /** 끌던 것을 제자리로 (취소) */
+    const cancelManip = (): void => {
+      if (manip?.kind === "move") sessionStore.getState().commitTranslate(manip.ids, 0, 0, manip.base);
+      if (manip) release(manip.pointerId);
+      manip = null;
+    };
+
+    const moveManip = (event: PointerEvent): void => {
+      const m = manip;
+      if (!m) return;
+      m.moved = Math.max(m.moved, distance(m.sx, m.sy, event.clientX, event.clientY));
+      if (m.moved < ink.tapMaxMove) return; // 손떨림으로 살짝 밀린 것은 탭
+      const dx = event.clientX - m.sx;
+      const dy = event.clientY - m.sy;
+      if (m.kind === "move") sessionStore.getState().previewTranslate(m.ids, dx / m.view.k, dy / m.view.k, m.base);
+      else viewportStore.getState().setView({ ...m.view, tx: m.view.tx + dx, ty: m.view.ty + dy });
+    };
+
+    const finishManip = (event: PointerEvent): void => {
+      const m = manip;
+      if (!m) return;
+      manip = null;
+      release(m.pointerId);
+      const tap = m.moved < ink.tapMaxMove;
+      if (m.kind === "move") {
+        const dx = (event.clientX - m.sx) / m.view.k;
+        const dy = (event.clientY - m.sy) / m.view.k;
+        sessionStore.getState().commitTranslate(m.ids, tap ? 0 : dx, tap ? 0 : dy, m.base);
+        // 고른 것 위를 톡: 그 자리의 것만 다시 고른다 (여럿 중 하나 고르기)
+        if (tap) tapSelect(m.sx, m.sy, true);
+      } else if (tap) {
+        tapSelect(m.sx, m.sy, true);
+      }
+    };
+
+    const finishLasso = (): void => {
+      const l = lasso;
+      lasso = null;
+      lassoRef.current?.setAttribute("d", "");
+      if (!l) return;
+      release(l.pointerId);
+      const first = l.pts[0];
+      const span = l.pts.reduce((m, p) => Math.max(m, first ? distance(first.x, first.y, p.x, p.y) : 0), 0);
+      const state = sessionStore.getState();
+      if (!first || span * view().k < ink.tapMaxMove) {
+        // 올가미 도구로 톡 → 그 자리의 것 하나
+        const v = view();
+        const hit = first ? hitItem(state.items, first.x, first.y, ink.tapSlop / v.k) : undefined;
+        state.setSelection(hit ? [hit.id] : []);
+        return;
+      }
+      state.setSelection(itemsInLasso(state.items, l.pts));
+    };
     const drawingHighlighter = (): boolean => (drawing ? drawing.style.tool : penStore.getState().kind) === "highlighter";
     /** 진행 중 획의 색·투명도를 그 펜에 맞춘다 */
     const styleLive = (style: ReturnType<typeof currentStrokeStyle>): void => {
@@ -277,7 +364,8 @@ export function PointerCanvas({ tool, onHoldSnap }: PointerCanvasProps) {
         if (drawing && drawing.pointerType === "pen") return;
         touches.set(event.pointerId, { x: event.clientX, y: event.clientY });
         if (touches.size >= 2) {
-          // 두 번째 손가락: 그리던 한 손가락 획은 버리고 이동·확대로
+          // 두 번째 손가락: 그리던 한 손가락 획·끌기는 버리고 이동·확대로
+          cancelManip();
           if (drawing) {
             release(drawing.pointerId);
             drawing = null;
@@ -303,6 +391,32 @@ export function PointerCanvas({ tool, onHoldSnap }: PointerCanvasProps) {
         return;
       }
 
+      if (manip || lasso) return;
+      rect = svg.getBoundingClientRect();
+      {
+        const v = view();
+        const w = toWorld(event.clientX, event.clientY, rect, v);
+        const state = sessionStore.getState();
+        // 1) 고른 것 위를 누르면 → 끌어서 옮기기 (지우개·지우개 버튼 제외)
+        if (state.selection.length > 0 && toolRef.current !== "eraser" && !isBarrelPressed(event)) {
+          const box = selectionBox(state.items, state.selection);
+          const pad = ink.tapSlop / v.k + 4;
+          if (box && w.x >= box.minX - pad && w.x <= box.maxX + pad && w.y >= box.minY - pad && w.y <= box.maxY + pad) {
+            manip = { kind: "move", pointerId: event.pointerId, pointerType: event.pointerType, sx: event.clientX, sy: event.clientY, t: event.timeStamp, moved: 0, ids: [...state.selection], base: state.items, view: { ...v } };
+            capture(event.pointerId);
+            event.preventDefault();
+            return;
+          }
+        }
+        // 2) 펜을 쓰는 기기의 손가락 하나 → 화면 이동 (톡 치면 고르기)
+        if (event.pointerType === "touch" && rejector.isPenMode()) {
+          manip = { kind: "pan", pointerId: event.pointerId, pointerType: "touch", sx: event.clientX, sy: event.clientY, t: event.timeStamp, moved: 0, ids: [], base: state.items, view: { ...v } };
+          capture(event.pointerId);
+          event.preventDefault();
+          return;
+        }
+      }
+
       const verdict = rejector.evaluate({
         pointerType: event.pointerType,
         width: event.width,
@@ -318,6 +432,14 @@ export function PointerCanvas({ tool, onHoldSnap }: PointerCanvasProps) {
 
       event.preventDefault();
       rect = svg.getBoundingClientRect();
+
+      if (toolRef.current === "lasso" && !isBarrelPressed(event)) {
+        const w = toWorld(event.clientX, event.clientY, rect, view());
+        lasso = { pointerId: event.pointerId, pts: [{ x: w.x, y: w.y, p: 0.5, t: 0 }] };
+        capture(event.pointerId);
+        lassoRef.current?.setAttribute("d", "");
+        return;
+      }
 
       if (toolRef.current === "eraser" || isBarrelPressed(event)) {
         erasingPointerId = event.pointerId;
@@ -362,6 +484,17 @@ export function PointerCanvas({ tool, onHoldSnap }: PointerCanvasProps) {
           moveGesture();
           return;
         }
+      }
+      if (manip && manip.pointerId === event.pointerId) {
+        moveManip(event);
+        return;
+      }
+      if (lasso && lasso.pointerId === event.pointerId) {
+        if (!rect) return;
+        const w = toWorld(event.clientX, event.clientY, rect, view());
+        lasso.pts.push({ x: w.x, y: w.y, p: 0.5, t: 0 });
+        lassoRef.current?.setAttribute("d", `M${lasso.pts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join("L")}Z`);
+        return;
       }
       if (erasingPointerId === event.pointerId) {
         if (eraseStart) eraseStart.moved = Math.max(eraseStart.moved, distance(eraseStart.x, eraseStart.y, event.clientX, event.clientY));
@@ -428,16 +561,10 @@ export function PointerCanvas({ tool, onHoldSnap }: PointerCanvasProps) {
       const last = captured.points[captured.points.length - 1];
       const isTap = !!first && !!last && captured.length < ink.tapMaxMove && last.t - first.t < ink.tapMaxMs;
       if (isTap && first) {
-        const hit = [...state.items]
-          .reverse()
-          .find(
-            (i) =>
-              i.kind === "object" &&
-              first.x >= i.bbox.minX - ink.tapSlop &&
-              first.x <= i.bbox.maxX + ink.tapSlop &&
-              first.y >= i.bbox.minY - ink.tapSlop &&
-              first.y <= i.bbox.maxY + ink.tapSlop,
-          );
+        // 손가락 탭은 손글씨까지 고르고, 펜·마우스 탭은 객체만 (손글씨 위 펜 탭은 점 찍기)
+        const k = view().k;
+        const pool = captured.pointerType === "touch" ? state.items : state.items.filter((i) => i.kind === "object");
+        const hit = hitItem(pool, first.x, first.y, ink.tapSlop / k);
         if (hit || state.selection.length > 0) {
           state.setSelection(hit ? [hit.id] : []);
           clearLive();
@@ -469,6 +596,14 @@ export function PointerCanvas({ tool, onHoldSnap }: PointerCanvasProps) {
 
     const onPointerUp = (event: PointerEvent): void => {
       if (liftTouch(event.pointerId)) return;
+      if (manip && manip.pointerId === event.pointerId) {
+        finishManip(event);
+        return;
+      }
+      if (lasso && lasso.pointerId === event.pointerId) {
+        finishLasso();
+        return;
+      }
       if (erasingPointerId === event.pointerId) {
         erasingPointerId = null;
         release(event.pointerId);
@@ -500,6 +635,11 @@ export function PointerCanvas({ tool, onHoldSnap }: PointerCanvasProps) {
 
     const onPointerCancel = (event: PointerEvent): void => {
       liftTouch(event.pointerId);
+      if (manip?.pointerId === event.pointerId) cancelManip();
+      if (lasso?.pointerId === event.pointerId) {
+        lasso = null;
+        lassoRef.current?.setAttribute("d", "");
+      }
       // 시스템이 포인터를 회수했다(전화 수신, 제스처 인식 등). 획은 버린다.
       if (erasingPointerId === event.pointerId) erasingPointerId = null;
       if (drawing?.pointerId === event.pointerId) drawing = null;
@@ -570,6 +710,8 @@ export function PointerCanvas({ tool, onHoldSnap }: PointerCanvasProps) {
 
       {/* 진행 중인 획 (예측 점 포함). React가 아니라 위 effect가 직접 d를 갱신한다. */}
       <path ref={livePathRef} fill={theme.color.ink} fillRule="nonzero" shapeRendering="geometricPrecision" />
+      {/* 올가미 — 점선 테두리, 옅은 안쪽 (선 굵기는 확대와 무관) */}
+      <path ref={lassoRef} fill={theme.color.groupHint} stroke={theme.color.accent} strokeWidth={1.5} strokeDasharray="6 5" vectorEffect="non-scaling-stroke" pointerEvents="none" />
 
       <circle
         ref={hoverRef}

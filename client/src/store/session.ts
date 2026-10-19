@@ -1,4 +1,5 @@
 import type { SceneIR } from "@sketchlab/shared";
+import { cloneItem, translateItem } from "../ink/editing";
 import { applyPatches, enablePatches, produceWithPatches, type Patch } from "immer";
 import { useStore } from "zustand";
 import { createStore, type StoreApi } from "zustand/vanilla";
@@ -63,6 +64,14 @@ export interface SessionState extends Doc {
   previewObjectIR(id: string, ir: SceneIR): void;
   /** 항목 삭제 (선택 메뉴의 "삭제"). Undo 1단위 */
   removeItems(ids: readonly string[]): void;
+  /**
+   * 끌어서 옮기는 중 — 이력 없이 base(끌기 시작할 때의 항목들)에서 (dx, dy)만큼 옮긴 모습을 보여 준다.
+   * 끝나면 commitTranslate로 한 번에 기록 (Undo 1단위 "이동").
+   */
+  previewTranslate(ids: readonly string[], dx: number, dy: number, base: readonly CanvasItem[]): void;
+  commitTranslate(ids: readonly string[], dx: number, dy: number, base: readonly CanvasItem[]): void;
+  /** 복제 — 살짝 비켜 놓고 복제본을 선택한다. Undo 1단위 */
+  duplicateItems(ids: readonly string[]): string[];
   commitObjectIR(id: string, before: SceneIR, after: SceneIR, label: string): void;
   /** 지정한 지점 근처의 획을 지운다. 지운 개수를 돌려준다. */
   eraseAt(x: number, y: number, radius: number): number;
@@ -203,6 +212,29 @@ export const sessionStore: StoreApi<SessionState> = createStore<SessionState>((s
         draft.selection = draft.selection.filter((id) => !ids.includes(id));
         if (draft.activeGroupId && ids.includes(draft.activeGroupId)) draft.activeGroupId = null;
       });
+    },
+
+    previewTranslate(ids, dx, dy, base) {
+      set({ items: base.map((i) => (ids.includes(i.id) ? translateItem(i, dx, dy) : i)) });
+    },
+
+    commitTranslate(ids, dx, dy, base) {
+      set({ items: [...base] });
+      if (dx === 0 && dy === 0) return;
+      commit("이동", (draft) => {
+        draft.items = draft.items.map((i) => (ids.includes(i.id) ? translateItem(i, dx, dy) : i));
+      });
+    },
+
+    duplicateItems(ids) {
+      const originals = get().items.filter((i) => ids.includes(i.id));
+      const clones = originals.map((i) => cloneItem(i, newId, 24, 24));
+      commit("복제", (draft) => {
+        draft.items.push(...clones);
+        draft.selection = clones.map((c) => c.id);
+        draft.activeGroupId = null;
+      });
+      return clones.map((c) => c.id);
     },
 
     previewObjectIR(id, ir) {

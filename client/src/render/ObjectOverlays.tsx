@@ -25,6 +25,8 @@ const OVERLAY_KINDS = new Set(["plot2d", "formula", "chemEq", "solid3d", "space3
 export function ObjectOverlays({ interactive }: { interactive: boolean }): ReactElement {
   const items = useSession((s) => s.items);
   const overlays = items.filter((i): i is ObjectItem => i.kind === "object" && OVERLAY_KINDS.has(i.ir.kind));
+  // 고른 입체는 돌리지 않고 끌어서 옮긴다 (돌리기는 고르지 않았을 때)
+  const selection = useSession((s) => s.selection);
   const tx = useViewport((s) => s.tx);
   const ty = useViewport((s) => s.ty);
   const k = useViewport((s) => s.k);
@@ -37,9 +39,9 @@ export function ObjectOverlays({ interactive }: { interactive: boolean }): React
         <Suspense fallback={null}>
           {overlays.map((item) =>
             item.ir.kind === "solid3d" ? (
-              <SolidObject key={item.id} item={item} interactive={interactive} />
+              <SolidObject key={item.id} item={item} interactive={interactive && !selection.includes(item.id)} />
             ) : item.ir.kind === "space3d" ? (
-              <SpaceObject key={item.id} item={item} interactive={interactive} />
+              <SpaceObject key={item.id} item={item} interactive={interactive && !selection.includes(item.id)} />
             ) : item.ir.kind === "chem" ? (
               <ChemObject key={item.id} item={item} />
             ) : item.ir.kind === "text" ? (

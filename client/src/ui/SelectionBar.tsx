@@ -1,4 +1,4 @@
-import { Atom, ChartSpline, Circle, Copy, Download, Share2, Sigma, Trash2 } from "lucide-react";
+import { Atom, ChartSpline, Circle, Copy, CopyPlus, Download, Share2, Sigma, Trash2 } from "lucide-react";
 import { useEffect, useLayoutEffect, useState, type CSSProperties, type ReactElement } from "react";
 import type { CanvasItem } from "../ink/types";
 import { theme } from "../render/theme";
@@ -10,7 +10,8 @@ import { useViewport, viewportStore } from "../store/viewport";
  *   [복사] 클립보드 PNG → 삼성노트·GoodNotes에서 길게 눌러 붙여넣기 (PC는 Ctrl+V)
  *   [저장] PNG 파일 → 갤러리/내 파일 → 노트에 이미지 삽입 (항상 되는 길)
  *   [공유] 안드로이드·iPad 공유 시트 → 노트 앱 선택
- *   [삭제]
+ *   [복제] [삭제]
+ * 여러 개를 골랐으면(올가미) [복제] [삭제]만. 고른 것은 끌어서 옮긴다 (PointerCanvas).
  * 그래프는 [축] [이름], 화학 구조식은 [원] [모든 원자] 켜고 끄기가 앞에 붙는다.
  * 내보내기 코드는 누를 때 불러온다 (lazy).
  */
@@ -45,13 +46,22 @@ function boxOf(item: CanvasItem): Box {
 export function SelectionBar({ onMessage }: { onMessage: (message: string) => void }): ReactElement | null {
   const selection = useSession((s) => s.selection);
   const items = useSession((s) => s.items);
-  const item = selection.length === 1 ? items.find((i) => i.id === selection[0]) : undefined;
+  const chosen = items.filter((i) => selection.includes(i.id));
+  const item = chosen.length === 1 ? chosen[0] : undefined;
   const [box, setBox] = useState<Box | null>(null);
   const [busy, setBusy] = useState<Action | null>(null);
   const viewKey = useViewport((s) => `${s.tx},${s.ty},${s.k}`);
 
   useLayoutEffect(() => {
-    setBox(item ? boxOf(item) : null);
+    if (chosen.length === 0) {
+      setBox(null);
+      return;
+    }
+    // 여러 개면 모두를 감싸는 상자
+    const boxes = chosen.map(boxOf);
+    const left = Math.min(...boxes.map((b) => b.left));
+    const top = Math.min(...boxes.map((b) => b.top));
+    setBox({ left, top, width: Math.max(...boxes.map((b) => b.left + b.width)) - left, height: Math.max(...boxes.map((b) => b.top + b.height)) - top });
     if (!item) return;
     // 그림 크기가 나중에 바뀌는 객체(화학 구조식은 RDKit 계산 후 그려진다)도 상자가 따라가게
     const el = document.querySelector(`[data-overlay-id="${item.id}"]`);
@@ -59,7 +69,8 @@ export function SelectionBar({ onMessage }: { onMessage: (message: string) => vo
     const ro = new ResizeObserver(() => setBox(boxOf(item)));
     ro.observe(el);
     return () => ro.disconnect();
-  }, [item, viewKey]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- chosen은 items·selection에서 나온다
+  }, [items, selection, viewKey]);
 
   // 끌어서 노트에 놓을 수 있는 미리보기 이미지 (선택할 때마다, 그림 크기가 바뀔 때마다 새로 만든다)
   const [thumb, setThumb] = useState<string | null>(null);
@@ -81,15 +92,19 @@ export function SelectionBar({ onMessage }: { onMessage: (message: string) => vo
     return () => {
       alive = false;
     };
-  }, [item, sizeKey]);
+    // 옮기기만 해서는 다시 만들지 않는다 — 내용(IR·획 수)이나 크기가 바뀔 때만
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item?.id, item?.kind === "object" ? item.ir : item?.strokes.length, sizeKey]);
 
-  if (!item || !box) return null;
+  if (chosen.length === 0 || !box) return null;
+  const ids = chosen.map((i) => i.id);
   const pad = theme.space[2];
   const barH = theme.touch.minTarget;
   const above = box.top - pad - barH - theme.space[2] > 0;
   const canShare = typeof navigator.share === "function";
 
   const act = async (action: Action) => {
+    if (!item) return;
     setBusy(action);
     try {
       const msg = await runExport(action, item);
@@ -101,15 +116,15 @@ export function SelectionBar({ onMessage }: { onMessage: (message: string) => vo
 
   /** 그래프 표시 설정 켜고 끄기 (Undo 1단위) */
   const toggle = (key: "showAxes" | "showCaption", label: string) => {
-    if (item.kind !== "object" || item.ir.kind !== "plot2d") return;
+    if (!item || item.kind !== "object" || item.ir.kind !== "plot2d") return;
     const before = item.ir;
     sessionStore.getState().commitObjectIR(item.id, before, { ...before, data: { ...before.data, [key]: !before.data[key] } }, label);
   };
-  const plotData = item.kind === "object" && item.ir.kind === "plot2d" ? item.ir.data : null;
-  const chemData = item.kind === "object" && item.ir.kind === "chem" ? item.ir.data : null;
+  const plotData = item?.kind === "object" && item.ir.kind === "plot2d" ? item.ir.data : null;
+  const chemData = item?.kind === "object" && item.ir.kind === "chem" ? item.ir.data : null;
   /** 화학 구조식 표시 설정 (Undo 1단위) */
   const chemToggle = (patch: "circle" | "full") => {
-    if (item.kind !== "object" || item.ir.kind !== "chem") return;
+    if (!item || item.kind !== "object" || item.ir.kind !== "chem") return;
     const before = item.ir;
     const data =
       patch === "circle"
@@ -182,7 +197,8 @@ export function SelectionBar({ onMessage }: { onMessage: (message: string) => vo
           maxWidth: "calc(100vw - 16px)",
         }}
       >
-        {thumb && (
+        {!item && <span style={{ alignSelf: "center", padding: `0 ${theme.space[2]}px`, fontSize: 14, color: theme.color.asymptote }}>{chosen.length}개</span>}
+        {item && thumb && (
           <img
             src={thumb}
             alt="끌어서 노트에 놓기"
@@ -205,10 +221,11 @@ export function SelectionBar({ onMessage }: { onMessage: (message: string) => vo
         {plotData && button("이름", Sigma, () => toggle("showCaption", "식 표시"), false, plotData.showCaption)}
         {chemData && button("원", Circle, () => chemToggle("circle"), false, chemData.aromaticCircle)}
         {chemData && button("모든 원자", Atom, () => chemToggle("full"), false, chemData.style === "full")}
-        {button("복사", Copy, () => void act("copy"))}
-        {button("저장", Download, () => void act("save"))}
-        {canShare && button("공유", Share2, () => void act("share"))}
-        {button("삭제", Trash2, () => sessionStore.getState().removeItems([item.id]), true)}
+        {item && button("복사", Copy, () => void act("copy"))}
+        {item && button("저장", Download, () => void act("save"))}
+        {item && canShare && button("공유", Share2, () => void act("share"))}
+        {button("복제", CopyPlus, () => sessionStore.getState().duplicateItems(ids))}
+        {button("삭제", Trash2, () => sessionStore.getState().removeItems(ids), true)}
       </div>
     </>
   );
