@@ -1,37 +1,42 @@
-import { Bot, Eraser, Lasso, Pen, Redo2, Sparkles, SquareFunction, Undo2 } from "lucide-react";
+import { Sparkles } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactElement } from "react";
 import { DebugPanel } from "./DebugPanel";
 import { ErrorBoundary } from "./ErrorBoundary";
-import { PointerCanvas, type Tool } from "./ink/PointerCanvas";
+import { PointerCanvas } from "./ink/PointerCanvas";
 import { recognizeGroup } from "./recognize/recognize";
 import { ObjectOverlays } from "./render/ObjectOverlays";
 import { runExport, SelectionBar } from "./ui/SelectionBar";
 import { theme } from "./render/theme";
 import { sessionStore, useSession } from "./store/session";
 import { useViewport, viewportStore } from "./store/viewport";
-import { useLayoutMode, type LayoutMode } from "./ui/layoutMode";
+import { penStore } from "./store/pen";
+import { useLayoutMode } from "./ui/layoutMode";
 import { aiConfigured, modelName } from "./ai/settings";
-import { PenPalette } from "./ui/PenPalette";
+import { ToolRail, type RailTool } from "./ui/ToolRail";
 
 /**
  * 앱 셸 — 마스터스펙 v4 §15.2의 화면 구조.
  *
- *   ┌─────────────────────────────┐
- *   │  캔버스 (전면, 크롬 최소)      │   결과는 그린 자리에 in-place 교체.
- *   │              [활성 그룹 hint] │   ✨ FAB는 우하단 엄지 존.
- *   │                        (✨)  │
- *   ├─ 툴바 ──────────────────────┤   펜/지우개/올가미/undo/redo만.
- *   └─────────────────────────────┘   wide·split은 위, compact(팝업 창·폰)는 아래.
+ *   ┌──────────────────────────┬──┐
+ *   │  캔버스 (전면, 크롬 최소)   │도│   결과는 그린 자리에 in-place 교체.
+ *   │           [활성 그룹 hint] │구│   ✨ FAB는 레일 옆 엄지 존.
+ *   │                     (✨)  │레│   노트 앱처럼 도구는 오른쪽 세로 레일 (ToolRail).
+ *   └──────────────────────────┴──┘   compact(팝업 창·폰)는 아래 가로 막대.
  */
 
 /** 수식 입력 시트 — Compute Engine·KaTeX를 쓰므로 처음 열 때 내려받는다 */
 const FormulaSheet = lazy(() => import("./ui/FormulaSheet"));
 const AiSettings = lazy(() => import("./ui/AiSettings"));
 
+const penStoreKind = () => penStore.getState().kind;
+
 const NO_MATCH_MESSAGE = "도형이 아니에요 · 손글씨(글자·수식·화학)를 알아보려면 🤖 AI 설정에서 연결해 주세요";
 
 export function App(): ReactElement {
-  const [tool, setTool] = useState<Tool>("pen");
+  const [tool, setTool] = useState<RailTool>(() => (penStoreKind() === "highlighter" ? "highlighter" : "pen"));
+  // 캔버스가 아는 입력 방식 — 펜·형광펜은 그리기(색·굵기는 penStore), 지우개는 지우기
+  const canvasTool = tool === "eraser" ? "eraser" : "pen";
+  const drawing = tool === "pen" || tool === "highlighter";
   const mode = useLayoutMode();
   const { toast, showToast } = useToast();
   const [sheetArea, setSheetArea] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
@@ -66,7 +71,7 @@ export function App(): ReactElement {
   useKeyboardShortcuts(() => recognize(sessionStore.getState().activeGroupId), showToast);
 
   const [aiOpen, setAiOpen] = useState(false);
-  const toolbar = <Toolbar tool={tool} onToolChange={setTool} mode={mode} onFormula={openSheet} onAi={() => setAiOpen(true)} />;
+  const toolbar = <ToolRail tool={tool} onTool={setTool} mode={mode} onFormula={openSheet} onAi={() => setAiOpen(true)} disabled={["text", "lasso"]} />;
 
   return (
     <div
@@ -74,15 +79,13 @@ export function App(): ReactElement {
         // 100dvh: 모바일 주소창이 접히고 펴져도 높이가 튀지 않는다 (§12.4)
         height: "100dvh",
         display: "flex",
-        flexDirection: "column",
+        flexDirection: mode === "compact" ? "column" : "row",
         background: theme.color.bg,
         color: theme.color.ink,
         fontFamily: theme.font.ui,
         touchAction: "none",
       }}
     >
-      {mode !== "compact" && toolbar}
-
       <main
         style={{
           position: "relative",
@@ -93,9 +96,9 @@ export function App(): ReactElement {
       >
         {/* 캔버스가 죽어도 툴바까지 백지가 되지는 않게 따로 감싼다. */}
         <ErrorBoundary area="canvas">
-          <PointerCanvas tool={tool} onHoldSnap={(id) => recognize(id, false)} />
+          <PointerCanvas tool={canvasTool} onHoldSnap={(id) => recognize(id, false)} />
         </ErrorBoundary>
-        <ObjectOverlays interactive={tool === "pen"} />
+        <ObjectOverlays interactive={drawing} />
 
         <EmptyHint />
         <Toast message={toast} />
@@ -122,7 +125,7 @@ export function App(): ReactElement {
         )}
       </main>
 
-      {mode === "compact" && toolbar}
+      {toolbar}
     </div>
   );
 }
@@ -173,126 +176,6 @@ function useKeyboardShortcuts(onRecognize: () => void, onMessage: (m: string) =>
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
-}
-
-// ─────────────────────────────────────────────────────────── 툴바
-
-interface ToolbarProps {
-  tool: Tool;
-  onToolChange: (tool: Tool) => void;
-  mode: LayoutMode;
-  onFormula: () => void;
-  onAi: () => void;
-}
-
-function Toolbar({ tool, onToolChange, mode, onFormula, onAi }: ToolbarProps): ReactElement {
-  const canUndo = useSession((s) => s.history.undo.length > 0);
-  const canRedo = useSession((s) => s.history.redo.length > 0);
-  const bottom = mode === "compact";
-  const pad = theme.space[1];
-  const side = theme.space[3];
-
-  return (
-    <header
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: theme.space[1],
-        padding: bottom
-          ? `${pad}px ${side}px calc(${pad}px + env(safe-area-inset-bottom))`
-          : `calc(${pad}px + env(safe-area-inset-top)) ${side}px ${pad}px`,
-        ...(bottom
-          ? { borderTop: `1px solid ${theme.color.sub}` }
-          : { borderBottom: `1px solid ${theme.color.sub}` }),
-        flex: "0 0 auto",
-        justifyContent: bottom ? "space-around" : "flex-start",
-      }}
-    >
-      <ToolButton
-        label="펜"
-        Icon={Pen}
-        active={tool === "pen"}
-        onClick={() => onToolChange("pen")}
-      />
-      <ToolButton
-        label="지우개"
-        Icon={Eraser}
-        active={tool === "eraser"}
-        hint="S Pen 버튼을 누른 채 그어도 지워집니다"
-        onClick={() => onToolChange("eraser")}
-      />
-      <PenPalette onPick={() => onToolChange("pen")} openUp={bottom} />
-      <ToolButton label="올가미" Icon={Lasso} disabled hint="P7에서 활성화" />
-      <ToolButton label="수식·그래프 입력" Icon={SquareFunction} onClick={onFormula} hint="y=x^2, sin(x), x^2+y^2=4 …" />
-      <ToolButton label="AI 설정" Icon={Bot} onClick={onAi} hint="손글씨 인식·AI 그리기에 쓸 모델" />
-
-      {!bottom && <span style={{ width: theme.space[2] }} />}
-
-      <ToolButton
-        label="실행 취소"
-        Icon={Undo2}
-        disabled={!canUndo}
-        onClick={() => sessionStore.getState().undo()}
-      />
-      <ToolButton
-        label="다시 실행"
-        Icon={Redo2}
-        disabled={!canRedo}
-        onClick={() => sessionStore.getState().redo()}
-      />
-
-      {mode === "wide" && (
-        <>
-          <span style={{ flex: 1 }} />
-          <span style={{ fontSize: 12, color: theme.color.asymptote }}>SketchLab · P3</span>
-        </>
-      )}
-    </header>
-  );
-}
-
-interface ToolButtonProps {
-  label: string;
-  Icon: typeof Pen;
-  active?: boolean;
-  disabled?: boolean;
-  hint?: string;
-  onClick?: () => void;
-}
-
-function ToolButton({
-  label,
-  Icon,
-  active = false,
-  disabled = false,
-  hint,
-  onClick,
-}: ToolButtonProps): ReactElement {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      aria-label={label}
-      aria-pressed={active}
-      title={hint ? `${label} — ${hint}` : label}
-      style={{
-        width: theme.touch.minTarget,
-        height: theme.touch.minTarget,
-        display: "grid",
-        placeItems: "center",
-        border: "none",
-        borderRadius: theme.radius.s,
-        background: active ? theme.color.selection : "transparent",
-        color: active ? theme.color.accent : theme.color.ink,
-        opacity: disabled ? 0.3 : 1,
-        cursor: disabled ? "not-allowed" : "pointer",
-        transition: `background ${theme.motion.fast}ms ${theme.motion.easeOut}`,
-      }}
-    >
-      <Icon size={20} strokeWidth={1.5} />
-    </button>
-  );
 }
 
 // ─────────────────────────────────────────────────────────── 오버레이
