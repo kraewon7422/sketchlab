@@ -1,12 +1,16 @@
 import { deleteItems, flushSaves, loadItems, saveItems } from "./persistence";
 import { itemsKey, pagesStore, type Background, type PageMeta } from "./pages";
-import { sessionStore } from "./session";
+import { sessionStore, type SessionState } from "./session";
 import { viewportStore } from "./viewport";
 
 /**
  * 쪽 다루기 — 새 쪽·넘기기·이름·순서·지우기·배경.
- * 쪽을 넘기면 지금 쪽을 먼저 확실히 저장한 뒤 다음 쪽을 불러온다 (되돌리기 기록은 쪽마다 새로).
+ * 쪽을 넘기면 지금 쪽을 먼저 확실히 저장한 뒤 다음 쪽을 불러온다.
+ * 되돌리기 기록은 쪽마다 따로 들고 있다가 돌아오면 이어 쓴다 (앱을 닫으면 사라진다).
  */
+
+/** 쪽 id → 그 쪽의 되돌리기 기록 (메모리에만) */
+const histories = new Map<string, SessionState["history"]>();
 
 let counter = 0;
 const newPageId = () => `p${Date.now().toString(36)}${(++counter).toString(36)}`;
@@ -19,7 +23,10 @@ export async function switchPage(id: string): Promise<void> {
   const items = (await loadItems(itemsKey(id))) ?? [];
   // 쪽 번호를 먼저 바꾼 뒤 불러온다 — 불러오는 순간의 자동 저장이 새 쪽 키로 가도록
   pagesStore.getState().set(s.pages, id);
+  histories.set(s.currentId, sessionStore.getState().history);
   sessionStore.getState().hydrate(items);
+  const kept = histories.get(id);
+  if (kept) sessionStore.setState({ history: kept });
   viewportStore.getState().reset();
 }
 
@@ -63,6 +70,7 @@ export async function deletePage(id: string): Promise<void> {
   const rest = s.pages.filter((p) => p.id !== id);
   if (id === s.currentId) await switchPage((rest[Math.max(0, i - 1)] as PageMeta).id);
   pagesStore.getState().set(rest);
+  histories.delete(id);
   await deleteItems(itemsKey(id));
 }
 
