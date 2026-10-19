@@ -126,6 +126,7 @@ export function itemsInLasso(items: readonly CanvasItem[], poly: readonly Point[
   if (poly.length < 3) return [];
   return items
     .filter((item) => {
+      if (item.locked) return false; // 잠근 것은 올가미에 안 잡힌다 (톡 쳐서 골라 풀기)
       if (item.kind === "object") {
         const b = item.bbox;
         return pointInPolygon((b.minX + b.maxX) / 2, (b.minY + b.maxY) / 2, poly);

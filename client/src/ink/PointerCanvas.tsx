@@ -483,7 +483,8 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
         const w = toWorld(event.clientX, event.clientY, rect, v);
         const state = sessionStore.getState();
         // 1) 고른 것 위를 누르면 → 끌어서 옮기기 (지우개·지우개 버튼 제외)
-        if (state.selection.length > 0 && toolRef.current !== "eraser" && !isBarrelPressed(event)) {
+        const lockedSel = state.items.some((i) => i.locked && state.selection.includes(i.id));
+        if (state.selection.length > 0 && !lockedSel && toolRef.current !== "eraser" && !isBarrelPressed(event)) {
           const box = selectionBox(state.items, state.selection);
           const pad = ink.tapSlop / v.k + 4;
           if (box && w.x >= box.minX - pad && w.x <= box.maxX + pad && w.y >= box.minY - pad && w.y <= box.maxY + pad) {

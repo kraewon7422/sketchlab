@@ -76,6 +76,10 @@ export interface SessionState extends Doc {
   /** 크기 바꾸는 중 — previewTranslate와 같은 방식 (끝나면 commitScale로 Undo 1단위 "크기") */
   previewScale(ids: readonly string[], k: number, ox: number, oy: number, base: readonly CanvasItem[]): void;
   commitScale(ids: readonly string[], k: number, ox: number, oy: number, base: readonly CanvasItem[]): void;
+  /** 잠그기·풀기 (Undo 1단위) */
+  setLocked(ids: readonly string[], locked: boolean): void;
+  /** 맨 앞으로·맨 뒤로 (같은 층 안에서의 순서, Undo 1단위) */
+  reorder(ids: readonly string[], where: "front" | "back"): void;
   /** 다시 칠하기 (색·굵기). 같은 mergeKey면 슬라이더를 끄는 동안의 변경을 Undo 1단계로 */
   recolorItems(ids: readonly string[], color: string | undefined, width: number | undefined, mergeKey?: string): void;
   /** 복제 — 살짝 비켜 놓고 복제본을 선택한다. Undo 1단위 */
@@ -270,6 +274,20 @@ export const sessionStore: StoreApi<SessionState> = createStore<SessionState>((s
       });
     },
 
+    setLocked(ids, locked) {
+      commit(locked ? "잠금" : "잠금 해제", (draft) => {
+        for (const i of draft.items) if (ids.includes(i.id)) i.locked = locked || undefined;
+      });
+    },
+
+    reorder(ids, where) {
+      commit(where === "front" ? "맨 앞으로" : "맨 뒤로", (draft) => {
+        const moving = draft.items.filter((i) => ids.includes(i.id));
+        const rest = draft.items.filter((i) => !ids.includes(i.id));
+        draft.items = where === "front" ? [...rest, ...moving] : [...moving, ...rest];
+      });
+    },
+
     recolorItems(ids, color, width, mergeKey) {
       commit(
         "다시 칠하기",
@@ -313,6 +331,10 @@ export const sessionStore: StoreApi<SessionState> = createStore<SessionState>((s
         const survivors: CanvasItem[] = [];
 
         for (const item of draft.items) {
+          if (item.locked) {
+            survivors.push(item); // 잠근 것은 지우개가 건드리지 않는다
+            continue;
+          }
           if (item.kind === "object") {
             // 인식된 객체는 선에 닿으면 통째로 지운다 (획 단위 지우개와 같은 감각). Undo로 복구.
             if (item.ir.kind === "shape2d" && distanceToShape2D(item.ir.data, item.transform, x, y) <= radius) {

@@ -222,6 +222,28 @@ describe("영역 지우기 · 한 번 문지르기 = 되돌리기 한 번", () =
   });
 });
 
+describe("잠금·순서", () => {
+  it("잠근 손글씨는 지우개가 건드리지 않고, 풀면 지워진다", () => {
+    s().addStroke(stroke(0, 0, 20, 20, 1000));
+    const id = s().items[0]?.id as string;
+    s().setLocked([id], true);
+    expect(s().eraseAt(10, 10, 8)).toBe(0);
+    expect(s().items).toHaveLength(1);
+    s().setLocked([id], false);
+    expect(s().eraseAt(10, 10, 8)).toBe(1);
+  });
+
+  it("맨 앞·맨 뒤는 그리는 순서를 바꾸고 되돌릴 수 있다", () => {
+    s().addStroke(stroke(0, 0, 20, 20, 1000));
+    s().addStroke(stroke(500, 400, 20, 20, 9000));
+    const [a, b] = s().items.map((i) => i.id);
+    s().reorder([a as string], "front");
+    expect(s().items.map((i) => i.id)).toEqual([b, a]);
+    s().undo();
+    expect(s().items.map((i) => i.id)).toEqual([a, b]);
+  });
+});
+
 describe("hydrate (새로고침 복원)", () => {
   it("복원한 내용은 되돌리기 이력에 남기지 않는다 (§5.3 단방향)", () => {
     s().addStroke(stroke(0, 0, 20, 20, 1000));

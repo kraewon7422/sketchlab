@@ -1,4 +1,4 @@
-import { Atom, ChartSpline, Circle, Copy, CopyPlus, Download, Palette, Pencil, Share2, Sigma, Trash2 } from "lucide-react";
+import { Atom, BringToFront, ChartSpline, Circle, Copy, CopyPlus, Download, Lock, LockOpen, Palette, Pencil, SendToBack, Share2, Sigma, Trash2 } from "lucide-react";
 import { canRecolor, selectionBox } from "../ink/editing";
 import { rainbow } from "../ink/color";
 import { useEffect, useLayoutEffect, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactElement } from "react";
@@ -105,6 +105,7 @@ export function SelectionBar({ onMessage, onEditText }: { onMessage: (message: s
 
   if (chosen.length === 0 || !box) return null;
   const ids = chosen.map((i) => i.id);
+  const locked = chosen.some((i) => i.locked);
   const paintable = chosen.filter(canRecolor);
   const inkWidths = chosen.flatMap((i) => (i.kind === "ink" ? i.strokes.filter((s) => s.tool !== "highlighter").map((s) => s.width ?? 2.6) : []));
   const paint = (color: string | undefined, width: number | undefined) =>
@@ -218,6 +219,7 @@ export function SelectionBar({ onMessage, onEditText }: { onMessage: (message: s
 
   return (
     <>
+      {!locked && (
       <div
         role="slider"
         aria-label="크기 바꾸기"
@@ -240,6 +242,7 @@ export function SelectionBar({ onMessage, onEditText }: { onMessage: (message: s
           boxSizing: "border-box",
         }}
       />
+      )}
       <div
         aria-hidden
         style={{
@@ -274,6 +277,7 @@ export function SelectionBar({ onMessage, onEditText }: { onMessage: (message: s
         }}
       >
         {!item && <span style={{ alignSelf: "center", padding: `0 ${theme.space[2]}px`, fontSize: 14, color: theme.color.asymptote }}>{chosen.length}개</span>}
+        {locked && button("잠금 해제", LockOpen, () => sessionStore.getState().setLocked(ids, false))}
         {item && thumb && (
           <img
             src={thumb}
@@ -297,17 +301,20 @@ export function SelectionBar({ onMessage, onEditText }: { onMessage: (message: s
         {plotData && button("이름", Sigma, () => toggle("showCaption", "식 표시"), false, plotData.showCaption)}
         {chemData && button("원", Circle, () => chemToggle("circle"), false, chemData.aromaticCircle)}
         {chemData && button("모든 원자", Atom, () => chemToggle("full"), false, chemData.style === "full")}
-        {item?.kind === "object" && item.ir.kind === "text" && onEditText && button("편집", Pencil, () => onEditText(item.id))}
+        {!locked && item?.kind === "object" && item.ir.kind === "text" && onEditText && button("편집", Pencil, () => onEditText(item.id))}
         {item && button("복사", Copy, () => void act("copy"))}
         {item && button("저장", Download, () => void act("save"))}
         {item && canShare && button("공유", Share2, () => void act("share"))}
-        {paintable.length > 0 &&
+        {!locked && paintable.length > 0 &&
           button("색", Palette, () => {
             setPaintKey(`paint-${Date.now()}`);
             setPaintOpen((o) => !o);
           }, false, paintOpen || undefined)}
+        {!locked && button("잠금", Lock, () => sessionStore.getState().setLocked(ids, true))}
+        {!locked && button("맨 앞", BringToFront, () => sessionStore.getState().reorder(ids, "front"))}
+        {!locked && button("맨 뒤", SendToBack, () => sessionStore.getState().reorder(ids, "back"))}
         {button("복제", CopyPlus, () => sessionStore.getState().duplicateItems(ids))}
-        {button("삭제", Trash2, () => sessionStore.getState().removeItems(ids), true)}
+        {!locked && button("삭제", Trash2, () => sessionStore.getState().removeItems(ids), true)}
         {paintOpen && (
           <div style={{ flexBasis: "100%", display: "grid", gap: theme.space[2], padding: theme.space[2], borderTop: `1px solid ${theme.color.sub}` }}>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>

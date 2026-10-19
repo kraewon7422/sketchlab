@@ -44,6 +44,8 @@ export interface InkItem {
   kind: "ink";
   strokes: Stroke[];
   bbox: BBox;
+  /** 잠금 — 옮기기·크기·지우개·올가미가 건드리지 않는다 (선택 메뉴에서 풀기) */
+  locked?: boolean;
 }
 
 export interface ObjectItem {
@@ -54,6 +56,8 @@ export interface ObjectItem {
   /** 재인식·되돌리기용 원본. 절대 변형하지 않는다 (§5.1). */
   sourceStrokes: Stroke[];
   transform: { x: number; y: number; scale: number };
+  /** 잠금 — 그 위에 필기해도 움직이지 않게 (선택 메뉴에서 풀기) */
+  locked?: boolean;
 }
 
 export type CanvasItem = InkItem | ObjectItem;

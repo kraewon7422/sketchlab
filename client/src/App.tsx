@@ -188,7 +188,8 @@ function useKeyboardShortcuts(onRecognize: () => void, onMessage: (m: string) =>
         event.preventDefault();
         ref.current();
       } else if (!mod && (event.key === "Delete" || event.key === "Backspace")) {
-        const sel = sessionStore.getState().selection;
+        const { selection, items } = sessionStore.getState();
+        const sel = selection.filter((id) => !items.find((i) => i.id === id)?.locked); // 잠근 것은 Delete로도 안 지운다
         if (sel.length) {
           event.preventDefault();
           sessionStore.getState().removeItems(sel);
