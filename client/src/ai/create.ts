@@ -4,22 +4,17 @@ import { buildFromInput } from "../math/build";
 import { chem as chemTheme, plot } from "../render/theme";
 import { resolveMolecule } from "./chemResolve";
 import { askJson } from "./client";
+import { measureKatex } from "../math/measure";
 
 /**
  * 수식·반응식이 실제로 차지할 폭 — 글자 수로 어림하면 겹친다 (실측: 반응식 두 줄이 겹침).
  * 브라우저에서는 KaTeX로 그려서 재고, DOM이 없으면(테스트) 넉넉히 어림한다.
  */
 async function measureLatex(latex: string, fontSize: number): Promise<{ width: number; height: number }> {
-  if (typeof document === "undefined") return { width: latex.length * fontSize * 0.62 + 24, height: fontSize * 2 };
+  if (typeof document === "undefined") return measureKatex(null as never, latex, fontSize, false);
   const katex = (await import("katex")).default;
   await import("katex/contrib/mhchem");
-  const el = document.createElement("div");
-  el.style.cssText = `position:absolute;left:-9999px;top:0;white-space:nowrap;font-size:${fontSize}px`;
-  el.innerHTML = katex.renderToString(latex, { throwOnError: false, displayMode: false });
-  document.body.appendChild(el);
-  const r = { width: Math.ceil(el.offsetWidth) + 8, height: Math.ceil(el.offsetHeight) + 8 };
-  el.remove();
-  return r;
+  return measureKatex(katex, latex, fontSize, false);
 }
 
 /**

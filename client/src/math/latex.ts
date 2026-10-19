@@ -139,6 +139,23 @@ export function analyze(input: string): Analysis {
   return asFormula;
 }
 
+/**
+ * 등식 하나 → (왼쪽 − 오른쪽)과 그 안의 변수들 (선형대수용).
+ * 변수는 한 글자 이름만 (e·π·i 같은 상수는 빼고). 등식이 아니거나 해석이 안 되면 null.
+ */
+export function equationResidual(input: string): { vars: string[]; F: (names: readonly string[]) => (...v: number[]) => number; latex: string } | null {
+  const latex = normalizeInput(input);
+  if (!latex) return null;
+  const expr = ce.parse(latex);
+  if (!expr.isValid) return null;
+  const json = expr.json as Json;
+  if (!Array.isArray(json) || json[0] !== "Equal" || json.length !== 3) return null;
+  const F = ["Subtract", json[1], json[2]];
+  const vars = freeVars(F).filter((v) => /^[a-zA-Z]$/.test(v) && v !== "e" && v !== "i");
+  if (vars.length === 0) return null;
+  return { vars, F: (names) => toFunction(F, names), latex };
+}
+
 /** MathJSON → JS 함수. 변수 이름 목록 순서대로 인자를 받는다. */
 export function toFunction(json: Json, varNames: readonly string[]): (...args: number[]) => number {
   const result = compile(ce.box(json as never), { mode: "strict" });

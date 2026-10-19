@@ -5,6 +5,8 @@ import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import type { BBox } from "../ink/types";
 import { IR_VERSION, SOLID_KINDS, type SceneIR, type SolidKind } from "@sketchlab/shared";
 import { buildFromInput, describe } from "../math/build";
+import { describeLinear } from "../math/linearBuild";
+import { measureKatex } from "../math/measure";
 import { SOLID_NAMES } from "../solid/mesh";
 import { CHEM_EXAMPLES, chemFromInput } from "../chem/names";
 import { analyze, normalizeInput } from "../math/latex";
@@ -31,6 +33,10 @@ const EXAMPLES: Array<[label: string, latex: string]> = [
   ["극좌표", "r=1+\\cos\\theta"],
   ["정적분", "\\int_0^2 x^2\\,dx"],
   ["공간좌표", "A(2,3,4)"],
+  ["연립방정식", "2x+3y=7, x-y=1"],
+  ["3원 연립", "x+y+z=6, 2x-y+z=3, x+2y-z=2"],
+  ["행렬", "[[2,1],[1,3]]"],
+  ["역행렬", "inv [[2,1],[1,3]]"],
   ["수식", "\\sum_{k=1}^{n} k=\\frac{n(n+1)}{2}"],
 ];
 
@@ -57,8 +63,11 @@ export default function FormulaSheet({ onClose, area, onOpenAiSettings }: Formul
     const latex = normalizeInput(text);
     if (!latex) return { html: "", note: "식을 입력하거나 아래 예시를 누르세요" };
     if (c) return { html: "", note: "화학 구조식 (SMILES)" };
+    const html = katex.renderToString(latex, { throwOnError: false, displayMode: true });
+    const lin = describeLinear(text);
+    if (lin) return { html, note: lin };
     const a = analyze(text);
-    return { html: katex.renderToString(latex, { throwOnError: false, displayMode: true }), note: describe(a) };
+    return { html, note: describe(a) };
   }, [text]);
 
   const add = (input: string) => {
@@ -111,9 +120,18 @@ export default function FormulaSheet({ onClose, area, onOpenAiSettings }: Formul
       return;
     }
     const isPlot = r.ir.kind === "plot2d";
-    const w = isPlot ? Math.min(plot.width, area.width - theme.space[6] * 2) : Math.min(520, area.width - theme.space[6] * 2);
+    const maxW = area.width - theme.space[6] * 2;
+    let w = isPlot ? Math.min(plot.width, maxW) : Math.min(520, maxW);
     const sliders = r.ir.kind === "plot2d" ? (r.ir.data.params?.length ?? 0) : 0;
-    const h = isPlot ? w * plot.aspect + 48 + sliders * theme.touch.minTarget : 72;
+    // 그래프 아래 식이 연립식(cases)이면 두세 줄이라 더 높다
+    const captionH = r.ir.kind === "plot2d" && r.ir.data.caption?.includes("cases") ? 90 : 48;
+    let h = isPlot ? w * plot.aspect + captionH + sliders * theme.touch.minTarget : 72;
+    if (r.ir.kind === "formula") {
+      // 수식은 실제로 그려 보고 잰다 (풀이 과정·행렬은 여러 줄)
+      const m = measureKatex(katex, r.ir.data.latex, 22, true);
+      w = Math.min(maxW, m.width);
+      h = m.height;
+    }
     const { x, y } = freeSpot(w, h, area);
     const bbox: BBox = { minX: x, minY: y, maxX: x + w, maxY: y + h };
     const id = sessionStore.getState().addObject(r.ir, { x, y, scale: w }, bbox);

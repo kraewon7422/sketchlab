@@ -4,6 +4,7 @@ import { analyze, toFunction, toLatex, type Analysis } from "./latex";
 import type { Fn } from "./sample";
 import { fitView } from "./view";
 import { parsePoints } from "../solid/space";
+import { buildLinear } from "./linearBuild";
 
 /**
  * 입력한 식 → Scene IR (수동 입력 경로, 마스터스펙 v4 §9.3).
@@ -25,6 +26,10 @@ function meta(): Pick<SceneIR, "version" | "confidence" | "source"> {
 }
 
 export function buildFromInput(input: string): BuildResult {
+  // 연립일차방정식·행렬 — 쉼표로 나뉜 식이나 [[…]]는 여기서 먼저 (아니면 null로 넘어간다)
+  const lin = buildLinear(input);
+  if (lin) return { ok: true, analysis: { kind: "formula", latex: input }, ir: lin.ir };
+
   // 공간좌표의 점: "A(2,3,4), B(-1,2,0)" — LaTeX 분석 전에 먼저 본다
   const pts = parsePoints(input);
   if (pts) {

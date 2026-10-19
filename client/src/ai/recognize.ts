@@ -3,6 +3,7 @@ import { z } from "zod";
 import { debugLog } from "../debug";
 import type { BBox, InkItem } from "../ink/types";
 import { buildFromInput } from "../math/build";
+import { buildLinear } from "../math/linearBuild";
 import { markFresh } from "../render/Shape2DView";
 import { chem as chemTheme, plot } from "../render/theme";
 import { sessionStore } from "../store/session";
@@ -130,6 +131,14 @@ export async function toObject(a: HandwritingAnswer, item: InkItem): Promise<Pla
     case "math": {
       const latex = (a.latex || a.written).trim();
       if (!latex) return null;
+      // 손글씨 연립방정식·행렬은 풀어서 보여 준다 (그래프 또는 풀이 과정)
+      const lin = buildLinear(latex);
+      if (lin) {
+        if (lin.ir.kind === "plot2d") return toObject({ ...a, kind: "graph", latex }, item);
+        const fs = Math.round(clamp(inkH * 0.4, 16, 28));
+        const p = at(Math.max(inkW, 360), fs * 9);
+        return { ir: { ...lin.ir, source: "vlm", confidence: 0.9 }, transform: { x: p.x, y: p.y, scale: 1 }, bbox: p.bbox, label: lin.note };
+      }
       const fontSize = Math.round(clamp(inkH * 0.6, 16, 64));
       const p = at(Math.max(inkW, latex.length * fontSize * 0.4), fontSize * 1.6);
       return { ir: { ...meta(), kind: "formula", data: { latex, evaluate: false, fontSize } }, transform: { x: p.x, y: p.y, scale: 1 }, bbox: p.bbox, label: "수식" };

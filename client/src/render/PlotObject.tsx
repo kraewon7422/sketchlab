@@ -179,6 +179,21 @@ function PlotBox({ item, ir }: { item: ObjectItem; ir: PlotIR }) {
             <path key={`c${i}`} d={c.d} stroke={c.color} pathLength={fresh ? 1 : undefined} className={fresh ? "sl-draw" : undefined} />
           ))}
         </g>
+        {/* 점 (연립방정식의 교점 등) — 검은 점과 이름표 */}
+        <g clipPath={`url(#${clipId})`}>
+          {(data.points ?? []).map((p, i) => (
+            <circle key={`p${i}`} cx={box.x(p.at[0])} cy={box.y(p.at[1])} r={4} fill={theme.color.ink} />
+          ))}
+        </g>
+        <g fill={theme.color.ink} fontSize={plot.labelSize + 1} fontFamily={labelFont} stroke={theme.color.bg} strokeWidth={3} strokeLinejoin="round" paintOrder="stroke">
+          {(data.points ?? []).map((p, i) =>
+            p.label ? (
+              <text key={`pl${i}`} x={box.x(p.at[0]) + (box.x(p.at[0]) > W - 90 ? -8 : 8)} y={box.y(p.at[1]) - 9} textAnchor={box.x(p.at[0]) > W - 90 ? "end" : "start"}>
+                {p.label}
+              </text>
+            ) : null,
+          )}
+        </g>
         {/* 라벨은 곡선 위에, 흰 테두리(halo)로 — 곡선이 지나가도 글자가 읽힌다 (교과서 그림 관행) */}
         {data.showAxes && (
         <g
