@@ -134,8 +134,10 @@ export const pageBg = {
 
 /** 캔버스 이동·확대 (v4 §12.2) — 두 손가락 핀치, 마우스 휠, Ctrl+휠. */
 export const viewport = {
-  minZoom: 0.4,
-  maxZoom: 4,
+  minZoom: 0.5,
+  maxZoom: 6,
+  /** 손을 뗄 때 이 안쪽이면 100%로 맞춘다 (노트 앱처럼) */
+  snapToOne: 0.07,
   /** 휠 한 단위(deltaY 1)당 확대 비율 지수 */
   wheelZoom: 0.0015,
 } as const;

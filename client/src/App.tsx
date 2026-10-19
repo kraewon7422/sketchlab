@@ -69,6 +69,7 @@ export function App(): ReactElement {
   const mode = useLayoutMode();
   const { toast, showToast } = useToast();
   const [sheetArea, setSheetArea] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
+  const [aiOpen, setAiOpen] = useState(false);
   const openSheet = useCallback(() => {
     const r = document.querySelector("main")?.getBoundingClientRect();
     // 이동·확대된 화면에서 지금 보이는 부분 (월드 좌표)
@@ -76,6 +77,7 @@ export function App(): ReactElement {
     const w = r?.width ?? window.innerWidth;
     const h = r?.height ?? window.innerHeight;
     setSheetArea({ x: -tx / k, y: -ty / k, width: w / k, height: h / k });
+    setAiOpen(false); // 아래에서 올라오는 시트는 한 번에 하나만 (겹치지 않게)
   }, []);
 
   const recognize = useCallback(
@@ -99,8 +101,10 @@ export function App(): ReactElement {
 
   useKeyboardShortcuts(() => recognize(sessionStore.getState().activeGroupId), showToast);
 
-  const [aiOpen, setAiOpen] = useState(false);
-  const toolbar = <ToolRail tool={tool} onTool={setTool} mode={mode} onFormula={openSheet} onAi={() => setAiOpen(true)} panels={{ eraser: () => <EraserOptions />, text: () => <TextPanel />, shape: () => <ShapeOptions />, page: () => <PagePanel onMessage={showToast} /> }} forcePanel={editingText && tool === "text" ? "text" : null} />;
+  const toolbar = <ToolRail tool={tool} onTool={setTool} mode={mode} onFormula={openSheet} onAi={() => {
+        setSheetArea(null); // ƒ 시트가 열려 있으면 닫고 AI 설정을 연다
+        setAiOpen(true);
+      }} panels={{ eraser: () => <EraserOptions />, text: () => <TextPanel />, shape: () => <ShapeOptions />, page: () => <PagePanel onMessage={showToast} /> }} forcePanel={editingText && tool === "text" ? "text" : null} />;
 
   return (
     <div
@@ -251,7 +255,8 @@ function EmptyHint(): ReactElement {
 
 /** 이동·확대했을 때만 보이는 "원래대로" 알약 — 지금 배율도 알려 준다 */
 function ZoomReset(): ReactElement | null {
-  const k = useViewport((s) => s.k);
+  // 핀치하는 동안 매 프레임 다시 그리지 않게 — 퍼센트가 바뀔 때만
+  const pct = useViewport((s) => Math.round(s.k * 100));
   const moved = useViewport((s) => s.tx !== 0 || s.ty !== 0 || s.k !== 1);
   if (!moved) return null;
   return (
@@ -275,7 +280,7 @@ function ZoomReset(): ReactElement | null {
         cursor: "pointer",
       }}
     >
-      {Math.round(k * 100)}% · 원래대로
+      {pct}% · 원래대로
     </button>
   );
 }

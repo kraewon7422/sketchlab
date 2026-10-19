@@ -1,9 +1,9 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { debugLog } from "../debug";
 import { ObjectItemView } from "../render/Shape2DView";
 import { ink, penOpts, theme, viewport } from "../render/theme";
 import { createStroke, sessionStore, useSession } from "../store/session";
-import { useViewport, viewportStore } from "../store/viewport";
+import { viewportStore } from "../store/viewport";
 import { usePages } from "../store/pages";
 import { PageBackground } from "../render/PageBackground";
 import { currentStrokeStyle, penStore } from "../store/pen";
@@ -77,9 +77,13 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
   const items = useSession((s) => s.items);
   const activeGroupId = useSession((s) => s.activeGroupId);
   const background = usePages((s) => s.pages.find((p) => p.id === s.currentId)?.background ?? "blank");
-  const tx = useViewport((s) => s.tx);
-  const ty = useViewport((s) => s.ty);
-  const k = useViewport((s) => s.k);
+  /** 월드 좌표 그룹 — 이동·확대는 React를 거치지 않고 이 요소의 transform만 바꾼다 (핀치가 매끄럽게) */
+  const worldRef = useRef<SVGGElement>(null);
+  useLayoutEffect(() => {
+    const apply = ({ tx, ty, k }: View) => worldRef.current?.setAttribute("transform", `translate(${tx} ${ty}) scale(${k})`);
+    apply(viewportStore.getState());
+    return viewportStore.subscribe(apply);
+  }, []);
 
   // 리스너를 다시 붙이지 않기 위해 도구·콜백은 ref로 읽는다.
   const toolRef = useRef<Tool>(tool);
@@ -126,7 +130,7 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
     /** 화면에 닿아 있는 손가락 (화면 좌표) */
     const touches = new Map<number, { x: number; y: number }>();
     /** 두 손가락 제스처: 시작 때의 중점·거리·화면 상태 */
-    let gesture: { mx: number; my: number; dist: number; view: View } | null = null;
+    let gesture: { mx: number; my: number; dist: number; view: View; lastMx: number; lastMy: number } | null = null;
     /** 제스처 뒤 남은 손가락은 다 뗄 때까지 그리지 않는다 (한 손가락 떼는 순간 점이 찍히지 않게) */
     let gestureLock = false;
     const view = (): View => viewportStore.getState();
@@ -434,7 +438,7 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
       const f = gestureFrame();
       if (!f) return;
       rect = svg.getBoundingClientRect();
-      gesture = { dist: f.dist, mx: f.mx - rect.left, my: f.my - rect.top, view: { ...view() } };
+      gesture = { dist: f.dist, mx: f.mx - rect.left, my: f.my - rect.top, view: { ...view() }, lastMx: f.mx - rect.left, lastMy: f.my - rect.top };
       gestureLock = true;
     };
     const moveGesture = (): void => {
@@ -443,6 +447,8 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
       const g = gesture;
       const mx = f.mx - rect.left;
       const my = f.my - rect.top;
+      g.lastMx = mx;
+      g.lastMy = my;
       // 시작 화면에서 중점 아래 있던 점을 기준으로 확대한 뒤, 손가락 중점이 움직인 만큼 옮긴다
       const zoomed = zoomAbout(g.view, g.mx, g.my, g.view.k * (f.dist / g.dist), viewport.minZoom, viewport.maxZoom);
       viewportStore.getState().setView({ k: zoomed.k, tx: zoomed.tx + (mx - g.mx), ty: zoomed.ty + (my - g.my) });
@@ -505,7 +511,8 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
         const state = sessionStore.getState();
         // 1) 고른 것 위를 누르면 → 끌어서 옮기기 (지우개·지우개 버튼 제외)
         const lockedSel = state.items.some((i) => i.locked && state.selection.includes(i.id));
-        if (state.selection.length > 0 && !lockedSel && toolRef.current !== "eraser" && !isBarrelPressed(event)) {
+        // 고른 것은 어느 도구에서든 (지우개 포함) 끌어서 옮긴다 — S Pen 버튼(임시 지우개)만 예외
+        if (state.selection.length > 0 && !lockedSel && !isBarrelPressed(event)) {
           const box = selectionBox(state.items, state.selection);
           const pad = ink.tapSlop / v.k + 4;
           if (box && w.x >= box.minX - pad && w.x <= box.maxX + pad && w.y >= box.minY - pad && w.y <= box.maxY + pad) {
@@ -515,8 +522,19 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
             return;
           }
         }
-        // 2) 펜을 쓰는 기기의 손가락 하나 → 화면 이동 (톡 치면 고르기)
+        // 2) 펜을 쓰는 기기의 손가락 하나
+        //    무언가(그래프·구조식·글 상자·도형·손글씨) 위에서 시작 → 그것을 바로 끌어 옮긴다 (어느 도구에서든)
+        //    빈 곳에서 시작 → 화면 이동, 톡 치면 고르기
         if (event.pointerType === "touch" && (rejector.isPenMode() || penStore.getState().penOnly)) {
+          const hit = hitItem(state.items, w.x, w.y, ink.tapSlop / v.k);
+          if (hit && !hit.locked) {
+            const ids = state.selection.includes(hit.id) ? [...state.selection] : [hit.id];
+            if (!state.selection.includes(hit.id)) state.setSelection(ids);
+            manip = { kind: "move", pointerId: event.pointerId, pointerType: "touch", sx: event.clientX, sy: event.clientY, t: event.timeStamp, moved: 0, ids, base: sessionStore.getState().items, view: { ...v } };
+            capture(event.pointerId);
+            event.preventDefault();
+            return;
+          }
           manip = { kind: "pan", pointerId: event.pointerId, pointerType: "touch", sx: event.clientX, sy: event.clientY, t: event.timeStamp, moved: 0, ids: [], base: state.items, view: { ...v } };
           capture(event.pointerId);
           event.preventDefault();
@@ -739,7 +757,14 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
     /** 손가락을 뗐다: 제스처 정리. 제스처에 쓰인 손가락이면 true */
     const liftTouch = (pointerId: number): boolean => {
       if (!touches.delete(pointerId)) return false;
-      if (touches.size < 2) gesture = null;
+      if (touches.size < 2 && gesture) {
+        // 100% 근처에서 손을 떼면 100%로 맞춘다 (손가락 중점은 제자리)
+        const v = view();
+        if (Math.abs(v.k - 1) < viewport.snapToOne && v.k !== 1) {
+          viewportStore.getState().setView(zoomAbout(v, gesture.lastMx, gesture.lastMy, 1, viewport.minZoom, viewport.maxZoom));
+        }
+        gesture = null;
+      }
       const wasLocked = gestureLock;
       if (touches.size === 0) gestureLock = false;
       return wasLocked;
@@ -859,7 +884,7 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
         cursor: tool === "eraser" ? "cell" : tool === "text" ? "text" : "crosshair",
       }}
     >
-      <g transform={`translate(${tx} ${ty}) scale(${k})`}>
+      <g ref={worldRef}>
       <PageBackground kind={background} />
       {activeGroup && <GroupHint item={activeGroup} />}
 

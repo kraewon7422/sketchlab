@@ -1,7 +1,7 @@
-import { lazy, Suspense, type ReactElement } from "react";
+import { lazy, Suspense, useLayoutEffect, useRef, type ReactElement } from "react";
 import type { ObjectItem } from "../ink/types";
 import { useSession } from "../store/session";
-import { useViewport } from "../store/viewport";
+import { viewportStore } from "../store/viewport";
 import { ErrorBoundary } from "../ErrorBoundary";
 import { TextObject } from "./TextObject";
 import { TextEditorHost } from "../ui/TextEditor";
@@ -28,14 +28,20 @@ export function ObjectOverlays({ interactive }: { interactive: boolean }): React
   const overlays = items.filter((i): i is ObjectItem => i.kind === "object" && OVERLAY_KINDS.has(i.ir.kind));
   // 고른 입체는 돌리지 않고 끌어서 옮긴다 (돌리기는 고르지 않았을 때)
   const selection = useSession((s) => s.selection);
-  const tx = useViewport((s) => s.tx);
-  const ty = useViewport((s) => s.ty);
-  const k = useViewport((s) => s.k);
+  // 이동·확대는 React를 거치지 않고 transform만 바꾼다 (그래프 수십 개가 있어도 핀치가 매끄럽게)
+  const layerRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const apply = ({ tx, ty, k }: { tx: number; ty: number; k: number }) => {
+      if (layerRef.current) layerRef.current.style.transform = `translate(${tx}px, ${ty}px) scale(${k})`;
+    };
+    apply(viewportStore.getState());
+    return viewportStore.subscribe(apply);
+  }, []);
 
   return (
     <div style={{ position: "absolute", inset: 0, pointerEvents: "none", overflow: "hidden" }}>
       {/* 캔버스와 같은 이동·확대 (화면 = 월드 × k + t) */}
-      <div style={{ position: "absolute", left: 0, top: 0, transformOrigin: "0 0", transform: `translate(${tx}px, ${ty}px) scale(${k})` }}>
+      <div ref={layerRef} style={{ position: "absolute", left: 0, top: 0, transformOrigin: "0 0", willChange: "transform" }}>
       <ErrorBoundary area="graphs">
         <Suspense fallback={null}>
           {overlays.map((item) =>
