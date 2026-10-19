@@ -1,7 +1,9 @@
-import { Atom, ChartSpline, Circle, Copy, CopyPlus, Download, Pencil, Share2, Sigma, Trash2 } from "lucide-react";
+import { Atom, ChartSpline, Circle, Copy, CopyPlus, Download, Palette, Pencil, Share2, Sigma, Trash2 } from "lucide-react";
+import { canRecolor } from "../ink/editing";
+import { rainbow } from "../ink/color";
 import { useEffect, useLayoutEffect, useState, type CSSProperties, type ReactElement } from "react";
 import type { CanvasItem } from "../ink/types";
-import { theme } from "../render/theme";
+import { penOpts, theme } from "../render/theme";
 import { sessionStore, useSession } from "../store/session";
 import { useViewport, viewportStore } from "../store/viewport";
 
@@ -50,6 +52,11 @@ export function SelectionBar({ onMessage, onEditText }: { onMessage: (message: s
   const item = chosen.length === 1 ? chosen[0] : undefined;
   const [box, setBox] = useState<Box | null>(null);
   const [busy, setBusy] = useState<Action | null>(null);
+  /** [색] 단추로 연 다시 칠하기 줄 */
+  const [paintOpen, setPaintOpen] = useState(false);
+  const [paintKey, setPaintKey] = useState("");
+  const selKey = selection.join(",");
+  useEffect(() => setPaintOpen(false), [selKey]);
   const viewKey = useViewport((s) => `${s.tx},${s.ty},${s.k}`);
 
   useLayoutEffect(() => {
@@ -94,10 +101,19 @@ export function SelectionBar({ onMessage, onEditText }: { onMessage: (message: s
     };
     // 옮기기만 해서는 다시 만들지 않는다 — 내용(IR·획 수)이나 크기가 바뀔 때만
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [item?.id, item?.kind === "object" ? item.ir : item?.strokes.length, sizeKey]);
+  }, [item?.id, item?.kind === "object" ? item.ir : item?.strokes.map((s) => `${s.color ?? ""}/${s.width ?? ""}`).join(","), sizeKey]);
 
   if (chosen.length === 0 || !box) return null;
   const ids = chosen.map((i) => i.id);
+  const paintable = chosen.filter(canRecolor);
+  const inkWidths = chosen.flatMap((i) => (i.kind === "ink" ? i.strokes.filter((s) => s.tool !== "highlighter").map((s) => s.width ?? 2.6) : []));
+  const paint = (color: string | undefined, width: number | undefined) =>
+    sessionStore.getState().recolorItems(
+      paintable.map((i) => i.id),
+      color,
+      width,
+      width !== undefined ? paintKey : undefined,
+    );
   const pad = theme.space[2];
   const barH = theme.touch.minTarget;
   const above = box.top - pad - barH - theme.space[2] > 0;
@@ -225,8 +241,43 @@ export function SelectionBar({ onMessage, onEditText }: { onMessage: (message: s
         {item && button("복사", Copy, () => void act("copy"))}
         {item && button("저장", Download, () => void act("save"))}
         {item && canShare && button("공유", Share2, () => void act("share"))}
+        {paintable.length > 0 &&
+          button("색", Palette, () => {
+            setPaintKey(`paint-${Date.now()}`);
+            setPaintOpen((o) => !o);
+          }, false, paintOpen || undefined)}
         {button("복제", CopyPlus, () => sessionStore.getState().duplicateItems(ids))}
         {button("삭제", Trash2, () => sessionStore.getState().removeItems(ids), true)}
+        {paintOpen && (
+          <div style={{ flexBasis: "100%", display: "grid", gap: theme.space[2], padding: theme.space[2], borderTop: `1px solid ${theme.color.sub}` }}>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {[...penOpts.colors, ...rainbow(penOpts.rainbowPen.s, penOpts.rainbowPen.l)].map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  aria-label={`색 ${c}`}
+                  onClick={() => paint(c, undefined)}
+                  style={{ width: 26, height: 26, padding: 0, border: "none", borderRadius: "50%", background: c, boxShadow: `0 0 0 1px ${theme.color.sub}`, cursor: "pointer" }}
+                />
+              ))}
+            </div>
+            {inkWidths.length > 0 && (
+              <label style={{ display: "flex", alignItems: "center", gap: theme.space[2], fontSize: 13 }}>
+                굵기
+                <input
+                  type="range"
+                  aria-label="손글씨 굵기"
+                  min={penOpts.penWidth.min}
+                  max={penOpts.penWidth.max}
+                  step={0.1}
+                  defaultValue={inkWidths[0]}
+                  onChange={(e) => paint(undefined, Number(e.target.value))}
+                  style={{ flex: 1, accentColor: theme.color.accent }}
+                />
+              </label>
+            )}
+          </div>
+        )}
       </div>
     </>
   );

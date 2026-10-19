@@ -1,5 +1,5 @@
 import type { SceneIR } from "@sketchlab/shared";
-import { cloneItem, translateItem } from "../ink/editing";
+import { cloneItem, recolorItem, translateItem } from "../ink/editing";
 import { cutStroke } from "../ink/erase";
 import { applyPatches, enablePatches, produceWithPatches, type Patch } from "immer";
 import { useStore } from "zustand";
@@ -73,6 +73,8 @@ export interface SessionState extends Doc {
    */
   previewTranslate(ids: readonly string[], dx: number, dy: number, base: readonly CanvasItem[]): void;
   commitTranslate(ids: readonly string[], dx: number, dy: number, base: readonly CanvasItem[]): void;
+  /** 다시 칠하기 (색·굵기). 같은 mergeKey면 슬라이더를 끄는 동안의 변경을 Undo 1단계로 */
+  recolorItems(ids: readonly string[], color: string | undefined, width: number | undefined, mergeKey?: string): void;
   /** 복제 — 살짝 비켜 놓고 복제본을 선택한다. Undo 1단위 */
   duplicateItems(ids: readonly string[]): string[];
   commitObjectIR(id: string, before: SceneIR, after: SceneIR, label: string): void;
@@ -251,6 +253,16 @@ export const sessionStore: StoreApi<SessionState> = createStore<SessionState>((s
       commit("이동", (draft) => {
         draft.items = draft.items.map((i) => (ids.includes(i.id) ? translateItem(i, dx, dy) : i));
       });
+    },
+
+    recolorItems(ids, color, width, mergeKey) {
+      commit(
+        "다시 칠하기",
+        (draft) => {
+          draft.items = draft.items.map((i) => (ids.includes(i.id) ? recolorItem(i, color, width) : i));
+        },
+        mergeKey,
+      );
     },
 
     duplicateItems(ids) {

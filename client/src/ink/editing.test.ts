@@ -1,6 +1,6 @@
 import { IR_VERSION } from "@sketchlab/shared";
 import { describe, expect, it } from "vitest";
-import { cloneItem, hitItem, itemsInLasso, pointInPolygon, selectionBox, translateItem } from "./editing";
+import { canRecolor, cloneItem, hitItem, itemsInLasso, pointInPolygon, recolorItem, selectionBox, translateItem } from "./editing";
 import type { InkItem, ObjectItem, Point, Stroke } from "./types";
 
 const pt = (x: number, y: number): Point => ({ x, y, p: 0.5, t: 0 });
@@ -90,5 +90,23 @@ describe("톡 쳐서 고르기", () => {
     const items = [graph("a", 0, 0), graph("b", 200, 300)];
     expect(selectionBox(items, ["a", "b"])).toEqual({ minX: 0, minY: 0, maxX: 300, maxY: 350 });
     expect(selectionBox(items, [])).toBeNull();
+  });
+});
+
+describe("다시 칠하기", () => {
+  it("손글씨: 색과 굵기, 형광펜은 색만", () => {
+    const a = ink("a", [pt(0, 0), pt(10, 0)]);
+    const withHl = { ...a, strokes: [...a.strokes, { ...a.strokes[0]!, id: "h", tool: "highlighter" as const, width: 18 }] };
+    const r = recolorItem(withHl, "#DC2626", 5);
+    expect(r.strokes.map((s) => [s.color, s.width])).toEqual([
+      ["#DC2626", 5],
+      ["#DC2626", 18],
+    ]);
+  });
+
+  it("수식·그래프는 다시 칠하지 않는다", () => {
+    const g = graph("g", 0, 0);
+    expect(canRecolor(g)).toBe(false);
+    expect(recolorItem(g, "#DC2626", undefined)).toBe(g);
   });
 });

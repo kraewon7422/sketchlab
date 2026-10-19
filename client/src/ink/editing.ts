@@ -33,6 +33,32 @@ export function cloneItem<T extends CanvasItem>(item: T, newId: (prefix: string)
   return { ...moved, id: newId("obj"), sourceStrokes: moved.sourceStrokes.map((s) => ({ ...s, id: newId("s") })) };
 }
 
+/** 다시 칠하기에 쓸 수 있는 항목인가 (손글씨·정리한 도형·글 상자) */
+export function canRecolor(item: CanvasItem): boolean {
+  return item.kind === "ink" || (item.kind === "object" && (item.ir.kind === "shape2d" || item.ir.kind === "text"));
+}
+
+/**
+ * 다시 칠하기 — 색과(손글씨면) 굵기를 바꾼다. 바꿀 수 없는 항목은 그대로.
+ * 형광펜 자국은 색만 바꾸고 굵기는 그대로 둔다 (펜 굵기를 형광펜에 주면 가늘어진다).
+ */
+export function recolorItem<T extends CanvasItem>(item: T, color: string | undefined, width: number | undefined): T {
+  if (item.kind === "ink") {
+    return {
+      ...item,
+      strokes: item.strokes.map((s) => ({
+        ...s,
+        ...(color ? { color } : {}),
+        ...(width !== undefined && s.tool !== "highlighter" ? { width } : {}),
+      })),
+    };
+  }
+  if (item.kind === "object" && color && (item.ir.kind === "shape2d" || item.ir.kind === "text")) {
+    return { ...item, ir: { ...item.ir, data: { ...item.ir.data, color } } } as T;
+  }
+  return item;
+}
+
 /** 점이 다각형(올가미) 안에 있는가 — 짝수-홀수 규칙 */
 export function pointInPolygon(x: number, y: number, poly: readonly { x: number; y: number }[]): boolean {
   let inside = false;
