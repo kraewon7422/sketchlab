@@ -41,3 +41,12 @@ createRoot(container).render(
 void startPersistence().catch((error: unknown) => {
   debugLog.error("persistence", "저장소 초기화에 실패했습니다", error);
 });
+
+// 오프라인 지원 — 배포본에서만 (개발 서버에서 캐시가 끼면 수정이 안 보인다)
+if (import.meta.env.PROD && "serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).catch((error: unknown) => {
+      debugLog.warn("pwa", "오프라인 지원을 켜지 못했습니다", error);
+    });
+  });
+}

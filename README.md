@@ -46,7 +46,8 @@ that must pass before the next one starts. The full design is in the
 | **P4** | **3D solids and 3D coordinate space, with smooth inertial rotation and exact hidden lines** | ✅ |
 | **P5** | **Chemistry: skeletal formulas from a name (benzene, 에탄올) or SMILES, aromatic circles, full structural formulas (RDKit layout, lazy-loaded)**; handwriting recognition next | ✅ / 🔜 |
 | **P6** | **Into your notes: tap → Copy / Save / Share as a crisp 3× PNG, or drag the preview into a split-screen notes app** (re-edit links next) | ✅ / 🔜 |
-| P7 | Correction UI, offline PWA, share-to-SketchLab from notes apps | planned |
+| **P7** | **Note-app editing: tool rail, tap/lasso select, move, resize, duplicate, recolor, lock, stroke/area eraser, rich text boxes, shape tool, pen presets, notebook pages with ruled/grid/graph paper, whole-page PNG/PDF export, dark screen, installable offline app (PWA)** | ✅ |
+| **P8** | **Linear algebra: systems of linear equations (lines + exact intersection, or augmented matrix → RREF → solution) and matrices (det, inverse, rank, transpose, product) with exact fractions** | ✅ |
 
 ## Textbook graphs
 
