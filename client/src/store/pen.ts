@@ -21,6 +21,10 @@ export interface PenSettings {
   recentHighlight: string[];
   /** 흔들림 보정 0(끔) ~ 1(강함) */
   smoothing: number;
+  /** 지우개: 획 지우기(닿은 획 통째로) / 영역 지우기(문지른 부분만) */
+  eraserMode: "stroke" | "area";
+  /** 지우개 반지름 (화면 px) */
+  eraserSize: number;
 }
 
 export interface PenState extends PenSettings {
@@ -41,6 +45,8 @@ const DEFAULTS: PenSettings = {
   recentPen: [],
   recentHighlight: [],
   smoothing: penOpts.defaultSmoothing,
+  eraserMode: "stroke",
+  eraserSize: penOpts.eraserSize.default,
 };
 
 const clamp = (v: unknown, r: { min: number; max: number; default: number }) =>
@@ -66,6 +72,8 @@ function load(): PenSettings {
       recentPen: hexList(v.recentPen),
       recentHighlight: hexList(v.recentHighlight),
       smoothing: typeof v.smoothing === "number" ? Math.min(1, Math.max(0, v.smoothing)) : DEFAULTS.smoothing,
+      eraserMode: v.eraserMode === "area" ? "area" : "stroke",
+      eraserSize: clamp(v.eraserSize, penOpts.eraserSize),
     };
   } catch {
     return DEFAULTS;
@@ -74,8 +82,11 @@ function load(): PenSettings {
 
 function persist(s: PenSettings): void {
   try {
-    const { kind, penColor, highlightColor, penWidth, highlightWidth, recentPen, recentHighlight, smoothing } = s;
-    localStorage.setItem(KEY, JSON.stringify({ kind, penColor, highlightColor, penWidth, highlightWidth, recentPen, recentHighlight, smoothing }));
+    const { kind, penColor, highlightColor, penWidth, highlightWidth, recentPen, recentHighlight, smoothing, eraserMode, eraserSize } = s;
+    localStorage.setItem(
+      KEY,
+      JSON.stringify({ kind, penColor, highlightColor, penWidth, highlightWidth, recentPen, recentHighlight, smoothing, eraserMode, eraserSize }),
+    );
   } catch {
     /* 저장이 막혀도 이번 세션 동안은 그대로 쓴다 */
   }

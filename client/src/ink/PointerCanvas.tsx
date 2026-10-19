@@ -255,6 +255,7 @@ export function PointerCanvas({ tool, onHoldSnap }: PointerCanvasProps) {
     };
     const hideHover = (): void => {
       hoverRef.current?.setAttribute("visibility", "hidden");
+      hoverRef.current?.setAttribute("r", String(ink.hoverRadius));
     };
 
     // ── 그리고 멈추기 ──────────────────────────────────────
@@ -310,12 +311,39 @@ export function PointerCanvas({ tool, onHoldSnap }: PointerCanvasProps) {
       livePathRef.current?.setAttribute("d", "");
     };
 
+    /** 이번에 문지르는 동작의 이름 — 같은 동작의 지우기는 Undo 1단계로 합친다 */
+    let eraseGesture = "";
+    let eraseCount = 0;
+    /** 직전에 지운 자리 (월드) — 빠르게 쓸어도 사이를 빠짐없이 지우려고 */
+    let lastErase: { x: number; y: number } | null = null;
+
     const eraseAtEvent = (event: PointerEvent): void => {
       if (!rect) return;
       const v = view();
       const { x, y } = toWorld(event.clientX, event.clientY, rect, v);
+      const { eraserMode, eraserSize } = penStore.getState();
       // 지우개 반경은 화면 기준 — 확대해도 손에 느껴지는 크기가 같게
-      sessionStore.getState().eraseAt(x, y, ink.eraserRadius / v.k);
+      const r = eraserSize / v.k;
+      showEraser(x, y, r);
+      const session = sessionStore.getState();
+      // 빠른 손놀림: 직전 자리와 사이를 반지름의 절반 간격으로 메운다
+      const from = lastErase ?? { x, y };
+      const steps = Math.max(1, Math.ceil(Math.hypot(x - from.x, y - from.y) / (r / 2)));
+      for (let i = 1; i <= steps; i++) {
+        const t = i / steps;
+        session.eraseAt(from.x + (x - from.x) * t, from.y + (y - from.y) * t, r, eraserMode, eraseGesture);
+      }
+      lastErase = { x, y };
+    };
+
+    /** 지우개 크기를 보여 주는 원 (호버 커서 원을 함께 쓴다) */
+    const showEraser = (x: number, y: number, r: number): void => {
+      const dot = hoverRef.current;
+      if (!dot) return;
+      dot.setAttribute("cx", String(x));
+      dot.setAttribute("cy", String(y));
+      dot.setAttribute("r", String(r));
+      dot.setAttribute("visibility", "visible");
     };
 
     // ── 이동·확대 ─────────────────────────────────────────
@@ -444,6 +472,9 @@ export function PointerCanvas({ tool, onHoldSnap }: PointerCanvasProps) {
       if (toolRef.current === "eraser" || isBarrelPressed(event)) {
         erasingPointerId = event.pointerId;
         eraseStart = { x: event.clientX, y: event.clientY, t: event.timeStamp, moved: 0 };
+        eraseCount += 1;
+        eraseGesture = `erase-${eraseCount}-${Math.round(event.timeStamp)}`;
+        lastErase = null;
         capture(event.pointerId);
         eraseAtEvent(event);
         return;
@@ -607,6 +638,7 @@ export function PointerCanvas({ tool, onHoldSnap }: PointerCanvasProps) {
       if (erasingPointerId === event.pointerId) {
         erasingPointerId = null;
         release(event.pointerId);
+        hideHover();
         const start = eraseStart;
         eraseStart = null;
         // 지우개로 톡: 지우개가 안 지우는 객체(그래프·화학 구조식…)면 선택해서 [삭제] 버튼을 띄운다

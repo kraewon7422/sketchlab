@@ -108,6 +108,8 @@ export const penOpts = {
   highlightOpacity: 0.38,
   /** 흔들림 보정 기본값 (0~1) */
   defaultSmoothing: 0.45,
+  /** 지우개 반지름 슬라이더 (화면 px) */
+  eraserSize: { min: 4, max: 60, default: 14 },
   /** 보정 100%일 때 "줄" 길이 (화면 px) — 이보다 작은 떨림은 선에 안 나타난다 */
   stabilizeMaxPx: 9,
 } as const;

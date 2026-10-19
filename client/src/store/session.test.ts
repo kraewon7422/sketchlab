@@ -172,6 +172,56 @@ describe("지우개", () => {
   });
 });
 
+describe("영역 지우기 · 한 번 문지르기 = 되돌리기 한 번", () => {
+  it("긴 획 한가운데를 영역 지우기하면 두 조각이 남는다 (색·종류 유지)", () => {
+    s().addStroke(
+      createStroke(
+        [
+          { x: 0, y: 0, p: 0.5, t: 0 },
+          { x: 200, y: 0, p: 0.5, t: 50 },
+        ],
+        1000,
+        { tool: "pen", color: "#2563EB", width: 3 },
+      ),
+    );
+    const changed = s().eraseAt(100, 0, 10, "area");
+    expect(changed).toBe(1);
+    const strokes = inkItems()[0]?.strokes ?? [];
+    expect(strokes).toHaveLength(2);
+    expect(strokes.every((st) => st.color === "#2563EB" && st.width === 3)).toBe(true);
+    expect(Math.max(...(strokes[0]?.points ?? []).map((p) => p.x))).toBeLessThan(90);
+  });
+
+  it("같은 동작의 여러 번 지우기는 Undo 한 번에 모두 돌아온다", () => {
+    s().addStroke(stroke(0, 0, 20, 20, 1000));
+    s().addStroke(stroke(500, 400, 20, 20, 9000));
+    const before = s().history.undo.length;
+    s().eraseAt(10, 10, 8, "stroke", "g1");
+    s().eraseAt(510, 410, 8, "stroke", "g1");
+    expect(s().items).toHaveLength(0);
+    expect(s().history.undo.length).toBe(before + 1);
+    s().undo();
+    expect(s().items).toHaveLength(2);
+  });
+
+  it("다른 동작은 따로 되돌린다", () => {
+    s().addStroke(stroke(0, 0, 20, 20, 1000));
+    s().addStroke(stroke(500, 400, 20, 20, 9000));
+    s().eraseAt(10, 10, 8, "stroke", "g1");
+    s().eraseAt(510, 410, 8, "stroke", "g2");
+    s().undo();
+    expect(s().items).toHaveLength(1);
+  });
+
+  it("페이지 모두 지우기도 되돌릴 수 있다", () => {
+    s().addStroke(stroke(0, 0, 20, 20, 1000));
+    s().clearAll();
+    expect(s().items).toHaveLength(0);
+    s().undo();
+    expect(s().items).toHaveLength(1);
+  });
+});
+
 describe("hydrate (새로고침 복원)", () => {
   it("복원한 내용은 되돌리기 이력에 남기지 않는다 (§5.3 단방향)", () => {
     s().addStroke(stroke(0, 0, 20, 20, 1000));

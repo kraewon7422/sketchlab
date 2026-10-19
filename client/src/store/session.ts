@@ -1,5 +1,6 @@
 import type { SceneIR } from "@sketchlab/shared";
 import { cloneItem, translateItem } from "../ink/editing";
+import { cutStroke } from "../ink/erase";
 import { applyPatches, enablePatches, produceWithPatches, type Patch } from "immer";
 import { useStore } from "zustand";
 import { createStore, type StoreApi } from "zustand/vanilla";
@@ -39,6 +40,8 @@ interface HistoryEntry {
   label: string;
   forward: Patch[];
   inverse: Patch[];
+  /** 같은 키로 이어 들어온 변경은 한 단계로 합친다 (지우개 한 번 문지르기 = Undo 1번) */
+  mergeKey?: string;
 }
 
 export interface SessionState extends Doc {
@@ -73,8 +76,15 @@ export interface SessionState extends Doc {
   /** 복제 — 살짝 비켜 놓고 복제본을 선택한다. Undo 1단위 */
   duplicateItems(ids: readonly string[]): string[];
   commitObjectIR(id: string, before: SceneIR, after: SceneIR, label: string): void;
-  /** 지정한 지점 근처의 획을 지운다. 지운 개수를 돌려준다. */
-  eraseAt(x: number, y: number, radius: number): number;
+  /**
+   * 지정한 지점 근처를 지운다. 지운(바뀐) 획 수를 돌려준다.
+   *   stroke: 닿은 획을 통째로 (획 지우기)
+   *   area:   원 안 부분만 잘라 낸다 (영역 지우기)
+   * gestureKey가 같으면 한 번 문지른 것으로 보고 Undo 1단계로 합친다.
+   */
+  eraseAt(x: number, y: number, radius: number, mode?: "stroke" | "area", gestureKey?: string): number;
+  /** 페이지 모두 지우기 (Undo 가능) */
+  clearAll(): void;
   setSelection(ids: string[]): void;
   setActiveGroup(id: string | null): void;
   undo(): void;
@@ -92,7 +102,7 @@ export const sessionStore: StoreApi<SessionState> = createStore<SessionState>((s
    * 아무것도 바뀌지 않았으면 이력을 더럽히지 않는다 — 사용자가 undo를 눌렀는데
    * 아무 일도 안 일어나는 것처럼 보이는 상황을 막는다.
    */
-  const commit = (label: string, recipe: (draft: Doc) => void): void => {
+  const commit = (label: string, recipe: (draft: Doc) => void, mergeKey?: string): void => {
     const state = get();
     const doc: Doc = {
       items: state.items,
@@ -103,12 +113,17 @@ export const sessionStore: StoreApi<SessionState> = createStore<SessionState>((s
     const [next, forward, inverse] = produceWithPatches(doc, recipe);
     if (forward.length === 0) return;
 
+    const last = state.history.undo[state.history.undo.length - 1];
+    const merged =
+      mergeKey && last?.mergeKey === mergeKey
+        ? [...state.history.undo.slice(0, -1), { label, forward: [...last.forward, ...forward], inverse: [...inverse, ...last.inverse], mergeKey }]
+        : [...state.history.undo, { label, forward, inverse, ...(mergeKey ? { mergeKey } : {}) }];
     set({
       items: next.items,
       selection: next.selection,
       activeGroupId: next.activeGroupId,
       history: {
-        undo: [...state.history.undo, { label, forward, inverse }].slice(-MAX_HISTORY),
+        undo: merged.slice(-MAX_HISTORY),
         // 새 작업을 하면 앞으로 가기는 무효가 된다 — 일반적인 편집기 동작.
         redo: [],
       },
@@ -252,7 +267,7 @@ export const sessionStore: StoreApi<SessionState> = createStore<SessionState>((s
       });
     },
 
-    eraseAt(x, y, radius) {
+    eraseAt(x, y, radius, mode = "stroke", gestureKey) {
       let removed = 0;
 
       commit("지우개", (draft) => {
@@ -271,15 +286,28 @@ export const sessionStore: StoreApi<SessionState> = createStore<SessionState>((s
             continue;
           }
 
-          const kept = item.strokes.filter(
-            (s) => distanceToPolyline(x, y, s.points) > radius,
-          );
-          removed += item.strokes.length - kept.length;
+          let kept: Stroke[];
+          if (mode === "area") {
+            // 원 안 부분만 잘라 내고, 남은 조각은 새 획으로 (색·굵기·종류는 그대로)
+            kept = [];
+            for (const s of item.strokes) {
+              const pieces = cutStroke(s.points, x, y, radius + (s.width ?? 2.6) / 2);
+              if (pieces === null) {
+                kept.push(s);
+                continue;
+              }
+              removed += 1;
+              for (const pts of pieces) kept.push({ ...s, id: newId("s"), points: pts, bbox: bboxOfPoints(pts) });
+            }
+          } else {
+            kept = item.strokes.filter((s) => distanceToPolyline(x, y, s.points) > radius);
+            removed += item.strokes.length - kept.length;
+          }
 
           // 획이 하나도 안 남은 그룹은 통째로 사라진다.
           if (kept.length === 0) continue;
 
-          if (kept.length !== item.strokes.length) {
+          if (kept.length !== item.strokes.length || kept.some((s, i) => s !== item.strokes[i])) {
             item.strokes = kept;
             item.bbox = unionBBoxes(kept.map((s) => s.bbox));
           }
@@ -293,9 +321,17 @@ export const sessionStore: StoreApi<SessionState> = createStore<SessionState>((s
         if (!survivors.some((i) => i.id === draft.activeGroupId)) {
           draft.activeGroupId = null;
         }
-      });
+      }, gestureKey);
 
       return removed;
+    },
+
+    clearAll() {
+      commit("모두 지우기", (draft) => {
+        draft.items = [];
+        draft.selection = [];
+        draft.activeGroupId = null;
+      });
     },
 
     setSelection(ids) {

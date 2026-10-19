@@ -13,6 +13,7 @@ import { penStore } from "./store/pen";
 import { useLayoutMode } from "./ui/layoutMode";
 import { aiConfigured, modelName } from "./ai/settings";
 import { ToolRail, type RailTool } from "./ui/ToolRail";
+import { EraserOptions } from "./ui/EraserOptions";
 
 /**
  * 앱 셸 — 마스터스펙 v4 §15.2의 화면 구조.
@@ -71,7 +72,7 @@ export function App(): ReactElement {
   useKeyboardShortcuts(() => recognize(sessionStore.getState().activeGroupId), showToast);
 
   const [aiOpen, setAiOpen] = useState(false);
-  const toolbar = <ToolRail tool={tool} onTool={setTool} mode={mode} onFormula={openSheet} onAi={() => setAiOpen(true)} disabled={["text"]} />;
+  const toolbar = <ToolRail tool={tool} onTool={setTool} mode={mode} onFormula={openSheet} onAi={() => setAiOpen(true)} disabled={["text"]} panels={{ eraser: () => <EraserOptions /> }} />;
 
   return (
     <div
