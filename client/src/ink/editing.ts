@@ -33,6 +33,53 @@ export function cloneItem<T extends CanvasItem>(item: T, newId: (prefix: string)
   return { ...moved, id: newId("obj"), sourceStrokes: moved.sourceStrokes.map((s) => ({ ...s, id: newId("s") })) };
 }
 
+/**
+ * 크기 바꾸기 — (ox, oy)를 고정점으로 k배.
+ *   손글씨: 점과 펜 굵기 · 그래프·구조식·입체·도형: transform.scale · 수식·글 상자: 글자 크기
+ */
+export function scaleItem<T extends CanvasItem>(item: T, k: number, ox: number, oy: number): T {
+  if (k === 1) return item;
+  const sx = (x: number) => ox + (x - ox) * k;
+  const sy = (y: number) => oy + (y - oy) * k;
+  const box = (b: BBox): BBox => ({ minX: sx(b.minX), minY: sy(b.minY), maxX: sx(b.maxX), maxY: sy(b.maxY) });
+  const scaleStroke = (s: Stroke): Stroke => ({
+    ...s,
+    points: s.points.map((p) => ({ ...p, x: sx(p.x), y: sy(p.y) })),
+    bbox: box(s.bbox),
+    ...(s.width !== undefined || s.tool === "pen" ? { width: (s.width ?? 2.6) * k } : {}),
+  });
+  if (item.kind === "ink") return { ...item, strokes: item.strokes.map(scaleStroke), bbox: box(item.bbox) };
+
+  const ir = item.ir;
+  let nextIr = ir;
+  let scale = item.transform.scale;
+  if (ir.kind === "formula" || ir.kind === "chemEq") {
+    // 크기를 바꿔도 모양(한 줄/가운데 정렬)이 바뀌지 않게 inline을 지금 값으로 고정해 둔다
+    const inline = ir.data.inline ?? ir.data.fontSize !== undefined;
+    nextIr = { ...ir, data: { ...ir.data, fontSize: Math.max(6, (ir.data.fontSize ?? 22) * k), inline } } as typeof ir;
+  } else if (ir.kind === "text") {
+    const html = ir.data.html?.replace(/font-size:\s*([\d.]+)px/g, (_, v: string) => `font-size:${Math.round(Number(v) * k * 10) / 10}px`);
+    nextIr = {
+      ...ir,
+      data: {
+        ...ir.data,
+        fontSize: Math.max(6, (ir.data.fontSize ?? 20) * k),
+        ...(ir.data.width ? { width: ir.data.width * k } : {}),
+        ...(html !== undefined ? { html } : {}),
+      },
+    };
+  } else {
+    scale = item.transform.scale * k; // 그래프 폭·결합 길이·입체 크기·도형 배율
+  }
+  return {
+    ...item,
+    ir: nextIr,
+    transform: { x: sx(item.transform.x), y: sy(item.transform.y), scale },
+    bbox: box(item.bbox),
+    sourceStrokes: item.sourceStrokes.map(scaleStroke),
+  };
+}
+
 /** 다시 칠하기에 쓸 수 있는 항목인가 (손글씨·정리한 도형·글 상자) */
 export function canRecolor(item: CanvasItem): boolean {
   return item.kind === "ink" || (item.kind === "object" && (item.ir.kind === "shape2d" || item.ir.kind === "text"));

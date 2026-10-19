@@ -1,7 +1,7 @@
 import { Atom, ChartSpline, Circle, Copy, CopyPlus, Download, Palette, Pencil, Share2, Sigma, Trash2 } from "lucide-react";
-import { canRecolor } from "../ink/editing";
+import { canRecolor, selectionBox } from "../ink/editing";
 import { rainbow } from "../ink/color";
-import { useEffect, useLayoutEffect, useState, type CSSProperties, type ReactElement } from "react";
+import { useEffect, useLayoutEffect, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactElement } from "react";
 import type { CanvasItem } from "../ink/types";
 import { penOpts, theme } from "../render/theme";
 import { sessionStore, useSession } from "../store/session";
@@ -178,8 +178,68 @@ export function SelectionBar({ onMessage, onEditText }: { onMessage: (message: s
     </button>
   );
 
+  /** 오른쪽 아래 손잡이를 끌어 크기 바꾸기 — 왼쪽 위를 고정점으로 (Undo 1단위) */
+  const startResize = (e: ReactPointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const state = sessionStore.getState();
+    const wbox = selectionBox(state.items, ids);
+    const main = document.querySelector("main")?.getBoundingClientRect();
+    if (!wbox || !main) return;
+    const base = state.items;
+    const view = viewportStore.getState();
+    const w0 = Math.max(1, wbox.maxX - wbox.minX);
+    const h0 = Math.max(1, wbox.maxY - wbox.minY);
+    const el = e.currentTarget;
+    try {
+      el.setPointerCapture(e.pointerId);
+    } catch {
+      /* 캡처 실패해도 요소 위에서는 계속 받는다 */
+    }
+    let k = 1;
+    const move = (ev: PointerEvent) => {
+      const wx = (ev.clientX - main.left - view.tx) / view.k;
+      const wy = (ev.clientY - main.top - view.ty) / view.k;
+      k = Math.min(8, Math.max(0.2, ((wx - wbox.minX) / w0 + (wy - wbox.minY) / h0) / 2));
+      sessionStore.getState().previewScale(ids, k, wbox.minX, wbox.minY, base);
+    };
+    const end = (cancel: boolean) => () => {
+      el.removeEventListener("pointermove", move);
+      el.removeEventListener("pointerup", up);
+      el.removeEventListener("pointercancel", cancelFn);
+      sessionStore.getState().commitScale(ids, cancel ? 1 : k, wbox.minX, wbox.minY, base);
+    };
+    const up = end(false);
+    const cancelFn = end(true);
+    el.addEventListener("pointermove", move);
+    el.addEventListener("pointerup", up);
+    el.addEventListener("pointercancel", cancelFn);
+  };
+
   return (
     <>
+      <div
+        role="slider"
+        aria-label="크기 바꾸기"
+        aria-valuenow={1}
+        title="끌어서 크기 바꾸기"
+        onPointerDown={startResize}
+        style={{
+          position: "absolute",
+          left: box.left + box.width + pad - 13,
+          top: box.top + box.height + pad - 13,
+          width: 26,
+          height: 26,
+          borderRadius: "50%",
+          background: theme.color.bg,
+          border: `2px solid ${theme.color.accent}`,
+          boxShadow: "0 1px 4px rgba(26,26,26,0.2)",
+          cursor: "nwse-resize",
+          touchAction: "none",
+          zIndex: 16,
+          boxSizing: "border-box",
+        }}
+      />
       <div
         aria-hidden
         style={{

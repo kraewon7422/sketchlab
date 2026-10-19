@@ -1,5 +1,5 @@
 import type { SceneIR } from "@sketchlab/shared";
-import { cloneItem, recolorItem, translateItem } from "../ink/editing";
+import { cloneItem, recolorItem, scaleItem, translateItem } from "../ink/editing";
 import { cutStroke } from "../ink/erase";
 import { applyPatches, enablePatches, produceWithPatches, type Patch } from "immer";
 import { useStore } from "zustand";
@@ -73,6 +73,9 @@ export interface SessionState extends Doc {
    */
   previewTranslate(ids: readonly string[], dx: number, dy: number, base: readonly CanvasItem[]): void;
   commitTranslate(ids: readonly string[], dx: number, dy: number, base: readonly CanvasItem[]): void;
+  /** 크기 바꾸는 중 — previewTranslate와 같은 방식 (끝나면 commitScale로 Undo 1단위 "크기") */
+  previewScale(ids: readonly string[], k: number, ox: number, oy: number, base: readonly CanvasItem[]): void;
+  commitScale(ids: readonly string[], k: number, ox: number, oy: number, base: readonly CanvasItem[]): void;
   /** 다시 칠하기 (색·굵기). 같은 mergeKey면 슬라이더를 끄는 동안의 변경을 Undo 1단계로 */
   recolorItems(ids: readonly string[], color: string | undefined, width: number | undefined, mergeKey?: string): void;
   /** 복제 — 살짝 비켜 놓고 복제본을 선택한다. Undo 1단위 */
@@ -252,6 +255,18 @@ export const sessionStore: StoreApi<SessionState> = createStore<SessionState>((s
       if (dx === 0 && dy === 0) return;
       commit("이동", (draft) => {
         draft.items = draft.items.map((i) => (ids.includes(i.id) ? translateItem(i, dx, dy) : i));
+      });
+    },
+
+    previewScale(ids, k, ox, oy, base) {
+      set({ items: base.map((i) => (ids.includes(i.id) ? scaleItem(i, k, ox, oy) : i)) });
+    },
+
+    commitScale(ids, k, ox, oy, base) {
+      set({ items: [...base] });
+      if (k === 1) return;
+      commit("크기", (draft) => {
+        draft.items = draft.items.map((i) => (ids.includes(i.id) ? scaleItem(i, k, ox, oy) : i));
       });
     },
 

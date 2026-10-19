@@ -53,14 +53,16 @@ function KaTeX({ latex, display = false, size }: { latex: string; display?: bool
 }
 
 export default memo(function PlotObject({ item }: { item: ObjectItem }): ReactElement | null {
-  if (item.ir.kind === "formula") return <FormulaBox item={item} latex={item.ir.data.latex} fontSize={item.ir.data.fontSize} />;
-  if (item.ir.kind === "chemEq") return <FormulaBox item={item} latex={`\\ce{${item.ir.data.ce}}`} fontSize={item.ir.data.fontSize} />;
+  if (item.ir.kind === "formula") return <FormulaBox item={item} latex={item.ir.data.latex} fontSize={item.ir.data.fontSize} inline={item.ir.data.inline} />;
+  if (item.ir.kind === "chemEq") return <FormulaBox item={item} latex={`\\ce{${item.ir.data.ce}}`} fontSize={item.ir.data.fontSize} inline={item.ir.data.inline} />;
   if (item.ir.kind === "plot2d") return <PlotBox item={item} ir={item.ir} />;
   return null;
 });
 
-function FormulaBox({ item, latex, fontSize }: { item: ObjectItem; latex: string; fontSize?: number | undefined }) {
+function FormulaBox({ item, latex, fontSize, inline: inlineFlag }: { item: ObjectItem; latex: string; fontSize?: number | undefined; inline?: boolean | undefined }) {
   const fresh = isFresh(item.id);
+  // 한 줄 모양: 정해 두었으면 그대로, 아니면 글자 크기가 있을 때(손글씨에서 온 수식)만
+  const inline = inlineFlag ?? fontSize !== undefined;
   return (
     <div
       data-overlay-id={item.id}
@@ -76,7 +78,7 @@ function FormulaBox({ item, latex, fontSize }: { item: ObjectItem; latex: string
         pointerEvents: "none",
       }}
     >
-      <KaTeX latex={latex} display={!fontSize} size={fontSize ?? 22} />
+      <KaTeX latex={latex} display={!inline} size={fontSize ?? 22} />
     </div>
   );
 }

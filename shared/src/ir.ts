@@ -216,6 +216,8 @@ const Formula = z.object({
   evaluate: z.boolean().default(false),
   /** 글자 크기 px — 손글씨에서 온 수식은 손글씨 크기에 맞춘다 (없으면 기본) */
   fontSize: z.number().positive().optional(),
+  /** 한 줄(글 속) 모양으로 — 없으면 fontSize가 있을 때만 한 줄 (예전 저장본과 같게) */
+  inline: z.boolean().optional(),
 });
 
 const Chem = z.object({
@@ -231,7 +233,7 @@ const Chem = z.object({
 });
 
 /** 화학 반응식 — mhchem `\ce{...}` 의 안쪽 문자열 */
-const ChemEquation = z.object({ ce: z.string().min(1), fontSize: z.number().positive().optional() });
+const ChemEquation = z.object({ ce: z.string().min(1), fontSize: z.number().positive().optional(), inline: z.boolean().optional() });
 
 /** 글 상자 — 손글씨를 알아본 글자(P3b) 또는 직접 친 글 (서식 있는 글은 html) */
 const Text = z.object({

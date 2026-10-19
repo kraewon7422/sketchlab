@@ -1,6 +1,6 @@
 import { IR_VERSION } from "@sketchlab/shared";
 import { describe, expect, it } from "vitest";
-import { canRecolor, cloneItem, hitItem, itemsInLasso, pointInPolygon, recolorItem, selectionBox, translateItem } from "./editing";
+import { canRecolor, cloneItem, hitItem, itemsInLasso, pointInPolygon, recolorItem, scaleItem, selectionBox, translateItem } from "./editing";
 import type { InkItem, ObjectItem, Point, Stroke } from "./types";
 
 const pt = (x: number, y: number): Point => ({ x, y, p: 0.5, t: 0 });
@@ -108,5 +108,38 @@ describe("다시 칠하기", () => {
     const g = graph("g", 0, 0);
     expect(canRecolor(g)).toBe(false);
     expect(recolorItem(g, "#DC2626", undefined)).toBe(g);
+  });
+});
+
+describe("크기 바꾸기", () => {
+  it("손글씨: 고정점 기준으로 점·굵기가 함께 커진다", () => {
+    const a = ink("a", [pt(10, 10), pt(30, 10)]);
+    const r = scaleItem(a, 2, 10, 10);
+    expect(r.strokes[0]?.points.map((p) => [p.x, p.y])).toEqual([
+      [10, 10],
+      [50, 10],
+    ]);
+    expect(r.strokes[0]?.width).toBeCloseTo(5.2);
+    expect(r.bbox).toEqual({ minX: 10, minY: 10, maxX: 50, maxY: 10 });
+  });
+
+  it("수식: 글자 크기가 커지고 모양(한 줄/가운데)은 그대로", () => {
+    const g = graph("f", 100, 100); // formula, fontSize 없음 = 가운데 정렬 모양
+    const r = scaleItem(g, 1.5, 100, 100);
+    expect(r.ir).toMatchObject({ kind: "formula", data: { fontSize: 33, inline: false } });
+    expect(r.transform).toMatchObject({ x: 100, y: 100, scale: 100 });
+    expect(r.bbox).toEqual({ minX: 100, minY: 100, maxX: 250, maxY: 175 });
+  });
+
+  it("그래프·구조식 등은 transform.scale이 커진다", () => {
+    const plot = { ...graph("p", 0, 0), ir: { version: "4.0", confidence: 1, source: "manual", kind: "chem", data: { smiles: "C", style: "skeletal", aromaticCircle: false } } } as ObjectItem;
+    const r = scaleItem(plot, 0.5, 0, 0);
+    expect(r.transform.scale).toBe(50);
+  });
+
+  it("글 상자: 글자 크기·폭·글 속 px 크기까지", () => {
+    const t = { ...graph("t", 0, 0), ir: { version: "4.0", confidence: 1, source: "manual", kind: "text", data: { text: "a", html: '<span style="font-size:24px">a</span>', width: 200 } } } as ObjectItem;
+    const r = scaleItem(t, 2, 0, 0);
+    expect(r.ir).toMatchObject({ data: { fontSize: 40, width: 400, html: '<span style="font-size:48px">a</span>' } });
   });
 });
