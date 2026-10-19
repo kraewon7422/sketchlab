@@ -106,6 +106,53 @@ export function PenOptions(): ReactElement {
     <div style={{ display: "grid", gap: theme.space[3] }}>
       <strong style={{ fontSize: 14 }}>{highlighter ? "형광펜" : "펜"}</strong>
 
+      {/* 즐겨 찾는 펜 — 누르면 그 펜으로, ×로 빼기 */}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }} aria-label="즐겨 찾는 펜">
+        {pen.presets.map((pr, i) => {
+          const on = pr.kind === pen.kind && pr.color === current && Math.abs(pr.width - style.width) < 0.05;
+          return (
+            <span key={`${pr.color}-${pr.width}-${i}`} style={{ position: "relative" }}>
+              <button
+                type="button"
+                aria-label={`즐겨 찾는 펜 ${i + 1}`}
+                onClick={() =>
+                  penStore.getState().set(pr.kind === "highlighter" ? { kind: "highlighter", highlightColor: pr.color, highlightWidth: pr.width } : { kind: "pen", penColor: pr.color, penWidth: pr.width })
+                }
+                style={{
+                  width: 46,
+                  height: 34,
+                  display: "grid",
+                  placeItems: "center",
+                  border: `1.5px solid ${on ? theme.color.accent : theme.color.sub}`,
+                  borderRadius: 10,
+                  background: theme.color.bg,
+                  cursor: "pointer",
+                }}
+              >
+                <span style={{ width: 28, height: Math.max(2, Math.min(14, pr.kind === "highlighter" ? pr.width * 0.5 : pr.width * 1.3)), borderRadius: 99, background: pr.color, opacity: pr.kind === "highlighter" ? 0.6 : 1 }} />
+              </button>
+              <button
+                type="button"
+                aria-label={`즐겨 찾는 펜 ${i + 1} 빼기`}
+                onClick={() => penStore.getState().set({ presets: pen.presets.filter((_, j) => j !== i) })}
+                style={{ position: "absolute", top: -6, right: -6, width: 18, height: 18, padding: 0, border: "none", borderRadius: "50%", background: theme.color.sub, color: theme.color.ink, fontSize: 11, lineHeight: "18px", cursor: "pointer" }}
+              >
+                ×
+              </button>
+            </span>
+          );
+        })}
+        {pen.presets.length < 6 && (
+          <button
+            type="button"
+            onClick={() => penStore.getState().set({ presets: [...pen.presets, { kind: pen.kind, color: current, width: style.width }] })}
+            style={{ height: 34, padding: "0 10px", border: `1px dashed ${theme.color.accent}`, borderRadius: 10, background: theme.color.bg, color: theme.color.accent, fontSize: 12, cursor: "pointer" }}
+          >
+            + 지금 펜 저장
+          </button>
+        )}
+      </div>
+
       {/* 미리보기 */}
       <svg width="100%" height={52} viewBox="0 0 268 52" style={{ display: "block", borderRadius: theme.radius.s, background: "#FAFAFA" }}>
         <text x={20} y={34} fontSize={20} fill={theme.color.ink} opacity={highlighter ? 0.75 : 0}>
@@ -184,6 +231,17 @@ export function PenOptions(): ReactElement {
           style={{ width: "100%", accentColor: theme.color.accent }}
         />
       </label>
+
+      <label style={{ display: "flex", alignItems: "center", gap: theme.space[2], fontSize: 13, color: theme.color.ink }}>
+        <input
+          type="checkbox"
+          checked={pen.penOnly}
+          onChange={(e) => penStore.getState().set({ penOnly: e.target.checked })}
+          style={{ width: 18, height: 18, accentColor: theme.color.accent }}
+        />
+        손가락으로는 그리지 않기 (S Pen 전용)
+      </label>
+      <span style={{ fontSize: 12, color: theme.color.asymptote, marginTop: -theme.space[2] }}>손가락은 화면 이동·확대와 고르기만 해요</span>
     </div>
   );
 }

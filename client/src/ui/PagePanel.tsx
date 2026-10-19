@@ -5,6 +5,7 @@ import { theme } from "../render/theme";
 import { addPage, deletePage, movePage, renamePage, setBackground, switchPage } from "../store/pageActions";
 import { usePages, type Background } from "../store/pages";
 import { commitTextEdit } from "./TextEditor";
+import { penStore, usePen } from "../store/pen";
 
 /**
  * 쪽 패널 (레일의 [쪽] 단추) — 노트 앱의 페이지 목록.
@@ -28,6 +29,7 @@ export function PagePanel({ onMessage }: { onMessage: (m: string) => void }): Re
   const [renaming, setRenaming] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const dark = usePen((s) => s.dark);
 
   const go = async (fn: () => Promise<void>) => {
     commitTextEdit();
@@ -146,6 +148,12 @@ export function PagePanel({ onMessage }: { onMessage: (m: string) => void }): Re
       >
         <FilePlus size={16} /> 새 쪽
       </button>
+
+      {section("화면")}
+      <label style={{ display: "flex", alignItems: "center", gap: theme.space[2], fontSize: 14 }}>
+        <input type="checkbox" checked={dark} onChange={(e) => penStore.getState().set({ dark: e.target.checked })} style={{ width: 18, height: 18, accentColor: theme.color.accent }} />
+        어두운 화면
+      </label>
 
       {section("이 쪽 내보내기")}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>

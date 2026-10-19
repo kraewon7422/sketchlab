@@ -9,7 +9,7 @@ import { runExport, SelectionBar } from "./ui/SelectionBar";
 import { theme } from "./render/theme";
 import { sessionStore, useSession } from "./store/session";
 import { useViewport, viewportStore } from "./store/viewport";
-import { penStore } from "./store/pen";
+import { penStore, usePen } from "./store/pen";
 import { useLayoutMode } from "./ui/layoutMode";
 import { aiConfigured, modelName } from "./ai/settings";
 import { ToolRail, type RailTool } from "./ui/ToolRail";
@@ -44,6 +44,12 @@ export function App(): ReactElement {
   // 캔버스가 아는 입력 방식 — 펜·형광펜은 그리기(색·굵기는 penStore), 지우개는 지우기
   const canvasTool = tool === "eraser" ? "eraser" : tool === "lasso" ? "lasso" : tool === "text" ? "text" : tool === "shape" ? "shape" : "pen";
   const editingText = useTextEdit((s) => s.session !== null);
+  // 즐겨 찾는 펜으로 펜↔형광펜이 바뀌면 레일의 도구도 따라간다
+  const penKind = usePen((s) => s.kind);
+  useEffect(() => {
+    setTool((t) => (t === "pen" || t === "highlighter" ? penKind : t));
+  }, [penKind]);
+  const dark = usePen((s) => s.dark);
   // 다른 도구로 바꾸면 쓰던 글 상자를 저장한다
   useEffect(() => {
     if (tool !== "text") commitTextEdit();
@@ -107,6 +113,8 @@ export function App(): ReactElement {
         color: theme.color.ink,
         fontFamily: theme.font.ui,
         touchAction: "none",
+        // 어두운 화면: 밝기만 뒤집고 색상은 그대로 (내보내기 그림은 원래 색)
+        filter: dark ? "invert(0.9) hue-rotate(180deg)" : undefined,
       }}
     >
       <main

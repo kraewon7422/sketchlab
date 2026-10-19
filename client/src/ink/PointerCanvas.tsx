@@ -495,7 +495,7 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
           }
         }
         // 2) 펜을 쓰는 기기의 손가락 하나 → 화면 이동 (톡 치면 고르기)
-        if (event.pointerType === "touch" && rejector.isPenMode()) {
+        if (event.pointerType === "touch" && (rejector.isPenMode() || penStore.getState().penOnly)) {
           manip = { kind: "pan", pointerId: event.pointerId, pointerType: "touch", sx: event.clientX, sy: event.clientY, t: event.timeStamp, moved: 0, ids: [], base: state.items, view: { ...v } };
           capture(event.pointerId);
           event.preventDefault();
