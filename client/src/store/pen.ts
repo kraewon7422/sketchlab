@@ -99,7 +99,8 @@ function load(): PenSettings {
         legacy !== null && v.highlightWidth === undefined ? ([12, 18, 26][legacy] as number) : clamp(v.highlightWidth, penOpts.highlightWidth),
       recentPen: hexList(v.recentPen),
       recentHighlight: hexList(v.recentHighlight),
-      smoothing: typeof v.smoothing === "number" ? Math.min(1, Math.max(0, v.smoothing)) : DEFAULTS.smoothing,
+      // 예전 기본값(0.45)을 그대로 쓰던 사람은 새 기본값으로 — 직접 고른 값은 그대로 둔다
+      smoothing: typeof v.smoothing === "number" && v.smoothing !== 0.45 ? Math.min(1, Math.max(0, v.smoothing)) : DEFAULTS.smoothing,
       eraserMode: v.eraserMode === "area" ? "area" : "stroke",
       eraserSize: clamp(v.eraserSize, penOpts.eraserSize),
       shapeKind: SHAPES.includes(v.shapeKind as ShapeKind) ? (v.shapeKind as ShapeKind) : "line",

@@ -64,7 +64,12 @@ interface PointerCanvasProps {
  */
 export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProps) {
   const svgRef = useRef<SVGSVGElement>(null);
-  const livePathRef = useRef<SVGPathElement>(null);
+  /** 진행 중 획: 색·투명도는 이 그룹에, 모양은 아래 두 조각에 */
+  const livePathRef = useRef<SVGGElement>(null);
+  /** 앞부분(굳힌 부분) — 수십 점마다 한 번만 다시 만든다 */
+  const livePrefixRef = useRef<SVGPathElement>(null);
+  /** 끝부분(최근 점 + 예측 점) — 매 프레임 다시 만든다 */
+  const liveTailRef = useRef<SVGPathElement>(null);
   const lassoRef = useRef<SVGPathElement>(null);
   const shapeRef = useRef<SVGPathElement>(null);
   const hoverRef = useRef<SVGCircleElement>(null);
@@ -335,10 +340,18 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
     };
 
     // ── 진행 중 획 그리기 ───────────────────────────────────
+    /**
+     * 진행 중 획 그리기 — 길게 빨리 써도 프레임마다 드는 시간이 늘지 않게 두 조각으로:
+     *   앞부분은 TAIL_EVERY 점마다 한 번 굳히고, 매 프레임에는 끝부분(최근 점 + 예측 점)만 다시 만든다.
+     * 두 조각은 살짝 겹친다 (불투명 잉크라 이음새가 안 보이고, 형광펜은 그룹 투명도라 겹쳐도 진해지지 않는다).
+     */
+    const TAIL_EVERY = 48;
+    const TAIL_OVERLAP = 6;
+    let frozenUpTo = 0;
     const paint = (): void => {
       frame = null;
-      const path = livePathRef.current;
-      if (!drawing || !path) return;
+      const tail = liveTailRef.current;
+      if (!drawing || !tail) return;
 
       let previous = drawing.points[drawing.points.length - 1];
       for (const point of queued) {
@@ -348,9 +361,15 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
       }
       queued = [];
 
+      const pts = drawing.points;
+      const opts = { baseWidth: drawing.style.width };
+      if (pts.length - frozenUpTo > TAIL_EVERY + TAIL_OVERLAP) {
+        frozenUpTo = pts.length - TAIL_OVERLAP;
+        livePrefixRef.current?.setAttribute("d", smoothStrokePath(pts.slice(0, frozenUpTo + 1), opts));
+      }
       // 예측 점은 그릴 때만 덧붙인다 — 다음 프레임에 실제 점으로 대체된다
-      const shown = predicted.length > 0 ? [...drawing.points, ...predicted] : drawing.points;
-      path.setAttribute("d", smoothStrokePath(shown, { baseWidth: drawing.style.width }));
+      const recent = pts.slice(Math.max(0, frozenUpTo - TAIL_OVERLAP));
+      tail.setAttribute("d", smoothStrokePath(predicted.length > 0 ? [...recent, ...predicted] : recent, opts));
     };
 
     const schedulePaint = (): void => {
@@ -365,7 +384,9 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
         cancelAnimationFrame(frame);
         frame = null;
       }
-      livePathRef.current?.setAttribute("d", "");
+      livePrefixRef.current?.setAttribute("d", "");
+      liveTailRef.current?.setAttribute("d", "");
+      frozenUpTo = 0;
     };
 
     /** 이번에 문지르는 동작의 이름 — 같은 동작의 지우기는 Undo 1단계로 합친다 */
@@ -558,7 +579,8 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
       const startedAt = event.timeStamp;
       const style = currentStrokeStyle();
       // 줄 길이는 화면 기준 px — 확대해도 손에 느껴지는 보정이 같게
-      const stabilizer = createStabilizer((penStore.getState().smoothing * penOpts.stabilizeMaxPx) / view().k);
+      const stabilizer = createStabilizer((penStore.getState().smoothing * penOpts.stabilizeMaxPx) / view().k, view().k);
+      rawSeen = false;
       drawing = null;
       const raw = sample(event, startedAt);
       if (!raw) return;
@@ -580,7 +602,9 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
       armHold();
 
       styleLive(style);
-      livePathRef.current?.setAttribute("d", smoothStrokePath([first], { baseWidth: style.width }));
+      frozenUpTo = 0;
+      livePrefixRef.current?.setAttribute("d", "");
+      liveTailRef.current?.setAttribute("d", smoothStrokePath([first], { baseWidth: style.width }));
     };
 
     const onPointerMove = (event: PointerEvent): void => {
@@ -619,6 +643,35 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
       }
       if (drawing.pointerId !== event.pointerId) return;
 
+      // pointerrawupdate가 오는 브라우저(안드로이드·PC Chrome)에서는 좌표를 그쪽에서 받는다 — 더 빨리 온다
+      if (!rawSeen) addSamples(event);
+
+      const next =
+        typeof event.getPredictedEvents === "function" ? event.getPredictedEvents() : [];
+      predicted = [];
+      // 보정이 걸려 있는 동안(천천히 그을 때)은 예측 점을 쓰지 않는다 — 늦게 따라가는 선 앞에 예측이 붙으면 끝이 튄다.
+      // 빨리 쓸 때는 보정이 거의 꺼지므로 예측 점으로 체감 지연을 줄인다.
+      if (drawing.stabilizer.currentRadius() < 0.5) {
+        for (const raw of next) {
+          const point = sample(raw, drawing.startedAt);
+          if (point) predicted.push(point);
+        }
+      }
+      schedulePaint();
+    };
+
+    /** pointerrawupdate: 화면 갱신을 기다리지 않고 바로 오는 좌표 (지원하는 브라우저만) */
+    let rawSeen = false;
+    const onRawUpdate = (event: PointerEvent): void => {
+      if (!drawing || drawing.pointerId !== event.pointerId) return;
+      rawSeen = true;
+      addSamples(event);
+      schedulePaint();
+    };
+
+    /** 이벤트의 좌표들(브라우저가 합쳐 보낸 중간 좌표 포함)을 획에 더한다 */
+    const addSamples = (event: PointerEvent): void => {
+      if (!drawing) return;
       // 빠른 획에서 브라우저가 합쳐 보낸 중간 좌표까지 복원한다 (함정 #2).
       // 이게 없으면 빠르게 그은 곡선이 각져 보인다.
       const coalesced =
@@ -642,18 +695,6 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
           armHold();
         }
       }
-
-      const next =
-        typeof event.getPredictedEvents === "function" ? event.getPredictedEvents() : [];
-      predicted = [];
-      // 보정 중이면 예측 점을 쓰지 않는다 — 늦게 따라가는 선 앞에 실제 펜촉 예측이 붙으면 끝이 튄다
-      if (penStore.getState().smoothing === 0) {
-        for (const raw of next) {
-          const point = sample(raw, drawing.startedAt);
-          if (point) predicted.push(point);
-        }
-      }
-      schedulePaint();
     };
 
     const finishStroke = (): void => {
@@ -777,6 +818,7 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
     svg.addEventListener("pointerleave", hideHover);
     svg.addEventListener("contextmenu", onContextMenu);
     svg.addEventListener("wheel", onWheel, { passive: false });
+    svg.addEventListener("pointerrawupdate" as "pointermove", onRawUpdate);
 
     const resizeObserver = new ResizeObserver(() => {
       // 창 크기가 바뀌면 캐시해 둔 rect가 낡는다.
@@ -792,6 +834,7 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
       svg.removeEventListener("pointerleave", hideHover);
       svg.removeEventListener("contextmenu", onContextMenu);
       svg.removeEventListener("wheel", onWheel);
+      svg.removeEventListener("pointerrawupdate" as "pointermove", onRawUpdate);
       resizeObserver.disconnect();
       if (frame !== null) cancelAnimationFrame(frame);
       clearHold();
@@ -829,7 +872,10 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
       )}
 
       {/* 진행 중인 획 (예측 점 포함). React가 아니라 위 effect가 직접 d를 갱신한다. */}
-      <path ref={livePathRef} fill={theme.color.ink} fillRule="nonzero" shapeRendering="geometricPrecision" />
+      <g ref={livePathRef} fill={theme.color.ink} data-export-skip>
+        <path ref={livePrefixRef} fillRule="nonzero" shapeRendering="geometricPrecision" />
+        <path ref={liveTailRef} fillRule="nonzero" shapeRendering="geometricPrecision" />
+      </g>
       {/* 도형 도구 미리보기 */}
       <path ref={shapeRef} fill="none" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" pointerEvents="none" data-export-skip />
       {/* 올가미 — 점선 테두리, 옅은 안쪽 (선 굵기는 확대와 무관) */}
