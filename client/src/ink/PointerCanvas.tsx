@@ -200,15 +200,36 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
       markFresh(id);
     };
 
-    /** 톡 친 자리의 것을 고른다. 잉크까지 고를지는 입력에 따라 (펜 탭은 점 찍기라 잉크를 고르지 않는다) */
-    const tapSelect = (clientX: number, clientY: number, includeInk: boolean): void => {
-      if (!rect) return;
+    /**
+     * 탭 규칙 (사용자 결정): 옮길 수 있게 고르는 방법은 두 가지뿐 —
+     *   ① 올가미로 두르기  ② 그래프·도형·구조식·글 상자를 두 번 톡 (펜·손가락·마우스, 어느 도구에서든)
+     * 한 번 톡은 고르지 않는다 (손바닥이 닿거나 스치는 것으로 무언가 움직이지 않게).
+     * 무언가 골라져 있을 때 빈 곳을 한 번 톡 = 고르기 풀기.
+     * 반환 true = 이 탭은 고르기용으로 쓰였다 (점을 찍지 않는다).
+     */
+    let lastTap: { x: number; y: number; t: number } | null = null;
+    const DOUBLE_TAP_MS = 400;
+    const DOUBLE_TAP_PX = 24;
+    const handleTap = (clientX: number, clientY: number, t: number): boolean => {
+      if (!rect) return false;
       const v = view();
       const w = toWorld(clientX, clientY, rect, v);
       const state = sessionStore.getState();
-      const pool = includeInk ? state.items : state.items.filter((i) => i.kind === "object");
-      const hit = hitItem(pool, w.x, w.y, ink.tapSlop / v.k);
-      state.setSelection(hit ? [hit.id] : []);
+      const objects = state.items.filter((i) => i.kind === "object");
+      const hit = hitItem(objects, w.x, w.y, ink.tapSlop / v.k);
+      const prev = lastTap;
+      const double = !!prev && t - prev.t < DOUBLE_TAP_MS && distance(prev.x, prev.y, clientX, clientY) < DOUBLE_TAP_PX;
+      lastTap = double ? null : { x: clientX, y: clientY, t };
+      if (double && hit) {
+        state.setSelection([hit.id]);
+        return true;
+      }
+      if (state.selection.length > 0 && !(hit && state.selection.includes(hit.id))) {
+        state.setSelection([]);
+        return true;
+      }
+      // 객체 위 한 번 톡은 점을 남기지 않는다 (곧 두 번째 톡이 올 수 있다)
+      return !!hit;
     };
 
     /** 끌던 것을 제자리로 (취소) */
@@ -239,10 +260,10 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
         const dx = (event.clientX - m.sx) / m.view.k;
         const dy = (event.clientY - m.sy) / m.view.k;
         sessionStore.getState().commitTranslate(m.ids, tap ? 0 : dx, tap ? 0 : dy, m.base);
-        // 고른 것 위를 톡: 그 자리의 것만 다시 고른다 (여럿 중 하나 고르기)
-        if (tap) tapSelect(m.sx, m.sy, true);
+        // 고른 것 위를 두 번 톡: 그 자리의 객체 하나만 다시 고른다
+        if (tap) handleTap(m.sx, m.sy, event.timeStamp);
       } else if (tap) {
-        tapSelect(m.sx, m.sy, true);
+        handleTap(m.sx, m.sy, event.timeStamp);
       }
     };
 
@@ -522,19 +543,9 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
             return;
           }
         }
-        // 2) 펜을 쓰는 기기의 손가락 하나
-        //    무언가(그래프·구조식·글 상자·도형·손글씨) 위에서 시작 → 그것을 바로 끌어 옮긴다 (어느 도구에서든)
-        //    빈 곳에서 시작 → 화면 이동, 톡 치면 고르기
+        // 2) 펜을 쓰는 기기의 손가락 하나 → 화면 이동 (두 번 톡 치면 객체 고르기).
+        //    고르지 않은 것은 손가락으로 끌어도 움직이지 않는다 — 손바닥이 닿아 노트가 밀리지 않게.
         if (event.pointerType === "touch" && (rejector.isPenMode() || penStore.getState().penOnly)) {
-          const hit = hitItem(state.items, w.x, w.y, ink.tapSlop / v.k);
-          if (hit && !hit.locked) {
-            const ids = state.selection.includes(hit.id) ? [...state.selection] : [hit.id];
-            if (!state.selection.includes(hit.id)) state.setSelection(ids);
-            manip = { kind: "move", pointerId: event.pointerId, pointerType: "touch", sx: event.clientX, sy: event.clientY, t: event.timeStamp, moved: 0, ids, base: sessionStore.getState().items, view: { ...v } };
-            capture(event.pointerId);
-            event.preventDefault();
-            return;
-          }
           manip = { kind: "pan", pointerId: event.pointerId, pointerType: "touch", sx: event.clientX, sy: event.clientY, t: event.timeStamp, moved: 0, ids: [], base: state.items, view: { ...v } };
           capture(event.pointerId);
           event.preventDefault();
@@ -729,13 +740,12 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
       const first = captured.points[0];
       const last = captured.points[captured.points.length - 1];
       const isTap = !!first && !!last && captured.length < ink.tapMaxMove && last.t - first.t < ink.tapMaxMs;
-      if (isTap && first) {
-        // 손가락 탭은 손글씨까지 고르고, 펜·마우스 탭은 객체만 (손글씨 위 펜 탭은 점 찍기)
-        const k = view().k;
-        const pool = captured.pointerType === "touch" ? state.items : state.items.filter((i) => i.kind === "object");
-        const hit = hitItem(pool, first.x, first.y, ink.tapSlop / k);
-        if (hit || state.selection.length > 0) {
-          state.setSelection(hit ? [hit.id] : []);
+      if (isTap && first && rect) {
+        // 두 번 톡 = 객체 고르기, 고른 것이 있을 때 빈 곳 톡 = 풀기 (그 밖의 톡은 점 찍기)
+        const v = view();
+        const cx = first.x * v.k + v.tx + rect.left;
+        const cy = first.y * v.k + v.ty + rect.top;
+        if (handleTap(cx, cy, captured.startedAt + (last?.t ?? 0))) {
           clearLive();
           return;
         }
@@ -790,23 +800,8 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
         hideHover();
         const start = eraseStart;
         eraseStart = null;
-        // 지우개로 톡: 지우개가 안 지우는 객체(그래프·화학 구조식…)면 선택해서 [삭제] 버튼을 띄운다
-        if (start && rect && start.moved < ink.tapMaxMove && event.timeStamp - start.t < ink.tapMaxMs) {
-          const { x, y } = toWorld(start.x, start.y, rect, view());
-          const state = sessionStore.getState();
-          const hit = [...state.items]
-            .reverse()
-            .find(
-              (i) =>
-                i.kind === "object" &&
-                i.ir.kind !== "shape2d" &&
-                x >= i.bbox.minX - ink.tapSlop &&
-                x <= i.bbox.maxX + ink.tapSlop &&
-                y >= i.bbox.minY - ink.tapSlop &&
-                y <= i.bbox.maxY + ink.tapSlop,
-            );
-          state.setSelection(hit ? [hit.id] : []);
-        }
+        // 지우개로 두 번 톡: 지우개가 안 지우는 객체(그래프·화학 구조식…)를 골라 [삭제] 버튼을 띄운다
+        if (start && start.moved < ink.tapMaxMove && event.timeStamp - start.t < ink.tapMaxMs) handleTap(start.x, start.y, event.timeStamp);
         return;
       }
       if (!drawing || drawing.pointerId !== event.pointerId) return;
