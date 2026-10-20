@@ -24,6 +24,8 @@ export type Analysis =
   | { kind: "implicit"; F: Json; params: string[]; latex: string }
   | { kind: "polar"; rhs: Json; params: string[]; latex: string }
   | { kind: "integral"; body: Json; variable: string; from: number; to: number; params: string[]; latex: string }
+  /** 부등식 (사슬 1 < x+y < 3 포함) — 조건마다 F < 0 또는 F ≤ 0 꼴로 */
+  | { kind: "inequality"; parts: Array<{ F: Json; strict: boolean }>; params: string[]; latex: string }
   | { kind: "formula"; latex: string }
   | { kind: "error"; message: string; latex: string };
 
@@ -99,6 +101,29 @@ export function analyze(input: string): Analysis {
       if (Number.isFinite(from) && Number.isFinite(to) && params) {
         return { kind: "integral", body, variable, from, to, params, latex };
       }
+    }
+    return asFormula;
+  }
+
+  // 부등식: Less / LessEqual / Greater / GreaterEqual (a < b < c 사슬은 인자가 셋 이상)
+  const REL: Record<string, { strict: boolean; flip: boolean }> = {
+    Less: { strict: true, flip: false },
+    LessEqual: { strict: false, flip: false },
+    Greater: { strict: true, flip: true },
+    GreaterEqual: { strict: false, flip: true },
+  };
+  const rel = Array.isArray(json) ? REL[json[0] as string] : undefined;
+  if (rel && Array.isArray(json) && json.length >= 3) {
+    const vars = freeVars(json);
+    if (vars.includes("x") || vars.includes("y")) {
+      const args = json.slice(1) as Json[];
+      const parts = args.slice(0, -1).map((a, i) => {
+        const b = args[i + 1];
+        // a < b ⇔ a − b < 0 ,  a > b ⇔ b − a < 0
+        return { F: rel.flip ? ["Subtract", b, a] : ["Subtract", a, b], strict: rel.strict };
+      });
+      const params = paramsOf(json, ["x", "y"]);
+      if (params) return { kind: "inequality", parts, params, latex };
     }
     return asFormula;
   }

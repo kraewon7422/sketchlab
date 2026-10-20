@@ -5,6 +5,9 @@ import type { Fn } from "./sample";
 import { fitView } from "./view";
 import { parsePoints } from "../solid/space";
 import { buildLinear } from "./linearBuild";
+import { parseTupper, TUPPER_LATEX } from "./tupper";
+import { buildDist } from "./stats";
+import { parseVenn } from "./venn";
 
 /**
  * 입력한 식 → Scene IR (수동 입력 경로, 마스터스펙 v4 §9.3).
@@ -29,6 +32,36 @@ export function buildFromInput(input: string): BuildResult {
   // 연립일차방정식·행렬 — 쉼표로 나뉜 식이나 [[…]]는 여기서 먼저 (아니면 null로 넘어간다)
   const lin = buildLinear(input);
   if (lin) return { ok: true, analysis: { kind: "formula", latex: input }, ir: lin.ir };
+
+  // 벤 다이어그램: A∩B, (A∪B)ᶜ, 벤 A−B …
+  const venn = parseVenn(input);
+  if (venn) return { ok: true, analysis: { kind: "formula", latex: input }, ir: { ...meta(), kind: "venn", data: { sets: venn.sets, expr: venn.expr } } };
+
+  // 확률분포: N(170,6^2), B(10,0.3), Po(3) … (+ P(…) 확률)
+  const dist = buildDist(input);
+  if (dist) return { ok: true, analysis: { kind: "formula", latex: input }, ir: dist };
+
+  // 투퍼의 자기 참조 공식 — 543자리 k라 보통 계산으로는 못 그린다 (BigInt 전용 그림)
+  const tupper = parseTupper(input);
+  if (tupper) {
+    return {
+      ok: true,
+      analysis: { kind: "formula", latex: TUPPER_LATEX },
+      ir: {
+        ...meta(),
+        kind: "plot2d",
+        data: {
+          functions: [{ latex: TUPPER_LATEX, kind: "inequality" }],
+          view: { xmin: 0, xmax: 106, ymin: 0, ymax: 17, aspect: "auto", xTicks: "auto" },
+          grid: false,
+          showAxes: true,
+          showCaption: true,
+          tupper,
+          caption: TUPPER_LATEX,
+        },
+      },
+    };
+  }
 
   // 공간좌표의 점: "A(2,3,4), B(-1,2,0)" — LaTeX 분석 전에 먼저 본다
   const pts = parsePoints(input);
@@ -81,6 +114,7 @@ export function buildFromInput(input: string): BuildResult {
         },
       };
     }
+    case "inequality":
     case "implicit":
     case "polar": {
       const params = a.params.map((name) => ({ name, ...DEFAULT_PARAM }));
@@ -167,6 +201,8 @@ export function describe(a: Analysis): string {
       return a.params.length ? `그래프 · 계수 ${a.params.join(", ")} 슬라이더` : "그래프 y = f(x)";
     case "implicit":
       return "음함수 그래프";
+    case "inequality":
+      return "부등식 영역 · 참인 곳을 칠해요 (< 는 점선 경계, ≤ 는 실선 경계)";
     case "polar":
       return "극좌표 그래프 r = f(θ)";
     case "integral":

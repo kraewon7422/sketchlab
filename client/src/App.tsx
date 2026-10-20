@@ -79,7 +79,9 @@ export function App(): ReactElement {
     const { tx, ty, k } = viewportStore.getState();
     const w = r?.width ?? window.innerWidth;
     const h = r?.height ?? window.innerHeight;
-    setSheetArea({ x: -tx / k, y: -ty / k, width: w / k, height: h / k });
+    // 위쪽 56px은 노트 이름 막대 자리 — 새 그림이 그 밑에 숨지 않게
+    const top = 56;
+    setSheetArea({ x: -tx / k, y: (top - ty) / k, width: w / k, height: (h - top) / k });
     setAiOpen(false); // 아래에서 올라오는 시트는 한 번에 하나만 (겹치지 않게)
   }, []);
 

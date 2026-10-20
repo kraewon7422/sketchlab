@@ -49,6 +49,16 @@ export const GUIDE: Array<{ title: string; rows: GuideRow[] }> = [
     rows: [{ what: "점 찍기", code: "A(2,3,4), B(-1,2,0)", tip: "이름(좌표)을 쉼표로" }],
   },
   {
+    title: "부등식·확률·집합",
+    rows: [
+      { what: "부등식 영역", code: "y>x^2", tip: "< 는 점선, ≤ 는 실선 경계 · 1<x+y<3 처럼 이어 써도 돼요" },
+      { what: "정규분포", code: "N(170,6^2), P(164<X<182)", tip: "N(평균, 표준편차^2) · 뒤에 P(…)를 쓰면 그 확률을 칠해요" },
+      { what: "이항분포", code: "B(10,0.3), P(X\\le 3)", tip: "B(시행 횟수, 확률) · Po(λ) 포아송, U(a,b) 균등" },
+      { what: "벤 다이어그램", code: "(A\\cup B)\\cap C", tip: "\\cap ∩ · \\cup ∪ · A-B · A^c 여집합" },
+      { what: "투퍼 공식", code: "투퍼 공식", tip: "그래프가 식 자기 모양이 되는 공식 · k=… 로 다른 그림" },
+    ],
+  },
+  {
     title: "식만 쓰기 (그래프 없이)",
     rows: [
       { what: "합 (시그마)", code: "\\sum_{k=1}^{n} k=\\frac{n(n+1)}{2}" },

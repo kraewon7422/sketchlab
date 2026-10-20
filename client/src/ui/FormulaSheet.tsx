@@ -6,6 +6,9 @@ import type { BBox } from "../ink/types";
 import { IR_VERSION, SOLID_KINDS, type SceneIR, type SolidKind } from "@sketchlab/shared";
 import { buildFromInput, describe } from "../math/build";
 import { describeLinear } from "../math/linearBuild";
+import { parseTupper, TUPPER_LATEX } from "../math/tupper";
+import { parseVenn, vennLatex } from "../math/venn";
+import { parseDist } from "../math/stats";
 import { measureKatex } from "../math/measure";
 import { SOLID_NAMES } from "../solid/mesh";
 import { CHEM_EXAMPLES, chemFromInput } from "../chem/names";
@@ -16,6 +19,7 @@ import { sessionStore } from "../store/session";
 import { freeSpot, type Area } from "./placement";
 import { AiCreatePanel } from "./AiCreatePanel";
 import { LatexGuide } from "./LatexGuide";
+import { DataPanel } from "./DataPanel";
 
 /**
  * 수식·그래프 직접 입력 (마스터스펙 v4 §9.3 — API 키 없이 동작하는 1급 경로).
@@ -40,6 +44,28 @@ const GROUPS: Array<{ title: string; examples: Example[]; solids?: true; chem?: 
       ["원", "x^2+y^2=4"],
       ["극좌표", "r=1+\\cos\\theta"],
       ["정적분", "\\int_0^2 x^2\\,dx"],
+      ["부등식 영역", "1<x+y<3"],
+      ["원 안쪽", "x^2+y^2\\le 4"],
+      ["투퍼 공식", "투퍼 공식"],
+    ],
+  },
+  {
+    title: "확률·통계",
+    examples: [
+      ["정규분포 확률", "N(170,6^2), P(164<X<182)"],
+      ["표준정규분포", "P(-1<Z<1)"],
+      ["이항분포", "B(10,0.3), P(X\\le 3)"],
+      ["포아송분포", "Po(3), P(X=2)"],
+      ["균등분포", "U(0,2)"],
+    ],
+  },
+  {
+    title: "집합 (벤 다이어그램)",
+    examples: [
+      ["교집합", "A\\cap B"],
+      ["차집합", "A-B"],
+      ["여집합", "벤 (A\\cup B)^c"],
+      ["세 집합", "(A\\cup B)\\cap C"],
     ],
   },
   {
@@ -84,7 +110,7 @@ export interface FormulaSheetProps {
 }
 
 export default function FormulaSheet({ onClose, area, onOpenAiSettings }: FormulaSheetProps): ReactElement {
-  const [mode, setMode] = useState<"formula" | "ai">("formula");
+  const [mode, setMode] = useState<"formula" | "data" | "ai">("formula");
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -99,6 +125,17 @@ export default function FormulaSheet({ onClose, area, onOpenAiSettings }: Formul
     const latex = normalizeInput(text);
     if (!latex) return { html: "", note: "식을 입력하거나 아래 예시를 누르세요" };
     if (c) return { html: "", note: "화학 구조식 (SMILES)" };
+    if (parseTupper(text)) return { html: katex.renderToString(TUPPER_LATEX, { throwOnError: false, displayMode: true }), note: "투퍼의 자기 참조 공식 · 그래프가 이 식 모양이 돼요" };
+    const venn = parseVenn(text);
+    if (venn) return { html: katex.renderToString(vennLatex(venn), { throwOnError: false, displayMode: true }), note: `벤 다이어그램 · 집합 ${venn.sets.join(", ")} · 식의 영역을 칠해요` };
+    const dist = parseDist(text);
+    if (dist) {
+      const names = { normal: "정규분포", binomial: "이항분포", poisson: "포아송분포", uniform: "균등분포", exponential: "지수분포" } as const;
+      return {
+        html: katex.renderToString(`X\\sim ${dist.distLatex}${dist.query ? `,\\ ${dist.query.latex}` : ""}`, { throwOnError: false, displayMode: true }),
+        note: `${names[dist.dist.kind]} 그래프${dist.query ? " · 그 확률을 칠하고 값을 구해요" : ""}`,
+      };
+    }
     const html = katex.renderToString(latex, { throwOnError: false, displayMode: true });
     const lin = describeLinear(text);
     if (lin) return { html, note: lin };
@@ -155,6 +192,16 @@ export default function FormulaSheet({ onClose, area, onOpenAiSettings }: Formul
       onClose();
       return;
     }
+    if (r.ir.kind === "venn") {
+      // 벤 다이어그램: 상자 폭 × 0.72 + 아래 식
+      const vw = Math.min(420, area.width - theme.space[6] * 2);
+      const vh = vw * 0.72 + 44;
+      const pos = freeSpot(vw, vh, area);
+      const vid = sessionStore.getState().addObject(r.ir, { x: pos.x, y: pos.y, scale: vw }, { minX: pos.x, minY: pos.y, maxX: pos.x + vw, maxY: pos.y + vh });
+      markFresh(vid);
+      onClose();
+      return;
+    }
     const isPlot = r.ir.kind === "plot2d";
     const maxW = area.width - theme.space[6] * 2;
     let w = isPlot ? Math.min(plot.width, maxW) : Math.min(520, maxW);
@@ -162,6 +209,8 @@ export default function FormulaSheet({ onClose, area, onOpenAiSettings }: Formul
     // 그래프 아래 식이 연립식(cases)이면 두세 줄이라 더 높다
     const captionH = r.ir.kind === "plot2d" && r.ir.data.caption?.includes("cases") ? 90 : 48;
     let h = isPlot ? w * plot.aspect + captionH + sliders * theme.touch.minTarget : 72;
+    // 투퍼 그림은 가로로 긴 106×17 칸 + 식 두 줄
+    if (r.ir.kind === "plot2d" && r.ir.data.tupper) h = ((w - 62) / 106) * 17 + 110;
     if (r.ir.kind === "formula") {
       // 수식은 실제로 그려 보고 잰다 (풀이 과정·행렬은 여러 줄)
       const m = measureKatex(katex, r.ir.data.latex, 22, true);
@@ -213,7 +262,7 @@ export default function FormulaSheet({ onClose, area, onOpenAiSettings }: Formul
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: theme.space[2], marginBottom: theme.space[3] }}>
-        {(["formula", "ai"] as const).map((m) => (
+        {(["formula", "data", "ai"] as const).map((m) => (
           <button
             key={m}
             type="button"
@@ -228,10 +277,12 @@ export default function FormulaSheet({ onClose, area, onOpenAiSettings }: Formul
               color: mode === m ? theme.color.accent : theme.color.ink,
               fontSize: 15,
               fontWeight: mode === m ? 600 : 400,
+              whiteSpace: "nowrap",
+              flex: "0 0 auto",
               cursor: "pointer",
             }}
           >
-            {m === "formula" ? "수식·그래프·화학 입력" : "AI에게 부탁"}
+            {m === "formula" ? "수식·그래프" : m === "data" ? "표·차트" : "AI에게 부탁"}
           </button>
         ))}
         <span style={{ flex: 1 }} />
@@ -245,7 +296,9 @@ export default function FormulaSheet({ onClose, area, onOpenAiSettings }: Formul
         </button>
       </div>
 
-      {mode === "ai" ? (
+      {mode === "data" ? (
+        <DataPanel area={area} onClose={onClose} />
+      ) : mode === "ai" ? (
         <AiCreatePanel area={area} onClose={onClose} {...(onOpenAiSettings ? { onOpenSettings: onOpenAiSettings } : {})} />
       ) : (
       <>

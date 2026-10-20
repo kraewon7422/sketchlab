@@ -171,12 +171,14 @@ const Plot2D = z.object({
       z.object({
         /** 단일 진실. 별도의 expr 필드를 두지 않는다. */
         latex: z.string(),
-        kind: z.enum(["explicit", "parametric", "implicit", "polar"]),
+        /** inequality: 부등식 영역 (y > x², x²+y² ≤ 4, 1 < x+y < 3, ⌊x⌋ …) — 참인 곳을 칠한다 */
+        kind: z.enum(["explicit", "parametric", "implicit", "polar", "inequality"]),
         domain: z.tuple([z.number(), z.number()]).optional(),
         color: z.string().optional(),
       }),
     )
-    .min(1),
+    // 차트(막대·산점도)만 있는 그림은 함수가 없을 수 있다
+    .min(0),
   view: z.object({
     xmin: z.number(),
     xmax: z.number(),
@@ -214,6 +216,16 @@ const Plot2D = z.object({
   annotations: z.array(z.enum(["roots", "yIntercept", "extrema"])).optional(),
   /** 그래프 아래에 보여 줄 원래 식 (LaTeX). 정적분처럼 그린 함수와 입력 식이 다를 때 쓴다. */
   caption: z.string().optional(),
+  /** 막대 — 이산 확률분포(이항·포아송)와 막대그래프. on = 강조(구하는 확률의 범위) */
+  bars: z.array(z.object({ x: z.number(), h: z.number(), on: z.boolean().optional(), label: z.string().optional() })).optional(),
+  /** 막대 폭 (x 단위, 기본 0.8) */
+  barWidth: z.number().positive().optional(),
+  /** 자료 점·꺾은선 (산점도·꺾은선그래프) */
+  series: z.array(z.object({ pts: z.array(Vec2), line: z.boolean(), color: z.string().optional(), label: z.string().optional() })).optional(),
+  /** x축을 숫자 대신 이름으로 (막대그래프: x = 1, 2, 3 … 자리에 이 이름) */
+  xCategories: z.array(z.string()).optional(),
+  /** 투퍼의 자기 참조 공식 — k(아주 큰 정수, 17의 배수)부터 17줄 × 106칸 그림 */
+  tupper: z.object({ k: z.string().regex(/^\d+$/) }).optional(),
 });
 
 // ─────────────────────────────────────────────────────────── 수식·화학
@@ -289,6 +301,20 @@ const Image = z.object({
   name: z.string().optional(),
 });
 
+/** 표 — 붙여넣은 자료·엑셀·CSV (첫 줄이 제목이면 header) */
+const Table = z.object({
+  rows: z.array(z.array(z.string().max(200)).max(20)).min(1).max(300),
+  header: z.boolean(),
+});
+
+/** 벤 다이어그램 — 집합 식(∩ ∪ − Δ ᶜ)의 영역을 칠한다 (식은 앱이 정리한 기호 문자열) */
+const Venn = z.object({
+  sets: z.array(z.string().regex(/^[A-Z]$/)).min(1).max(3),
+  expr: z.string().min(1).max(200),
+  /** 전체집합 이름 (기본 U) */
+  universe: z.string().optional(),
+});
+
 // ─────────────────────────────────────────────────────────── 조립
 
 const meta = {
@@ -309,6 +335,8 @@ export const SceneIRSchema = z.discriminatedUnion("kind", [
   z.object({ ...meta, kind: z.literal("text"), data: Text }),
   z.object({ ...meta, kind: z.literal("tape"), data: Tape }),
   z.object({ ...meta, kind: z.literal("image"), data: Image }),
+  z.object({ ...meta, kind: z.literal("venn"), data: Venn }),
+  z.object({ ...meta, kind: z.literal("table"), data: Table }),
 ]);
 
 /**

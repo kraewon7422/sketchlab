@@ -11,6 +11,7 @@ import { simpson } from "../math/integrate";
 import { analyze, definiteIntegral, toFunction, type Analysis } from "../math/latex";
 import { sampleFunction, sampleParametric, type Fn, type Pt, type View } from "../math/sample";
 import { toBox } from "../math/view";
+import { TUPPER_H, TUPPER_W, tupperGrid } from "../math/tupper";
 import { sessionStore } from "../store/session";
 import { isFresh } from "./Shape2DView";
 import { plot, stroke, theme } from "./theme";
@@ -55,9 +56,57 @@ function KaTeX({ latex, display = false, size }: { latex: string; display?: bool
 export default memo(function PlotObject({ item }: { item: ObjectItem }): ReactElement | null {
   if (item.ir.kind === "formula") return <FormulaBox item={item} latex={item.ir.data.latex} fontSize={item.ir.data.fontSize} inline={item.ir.data.inline} />;
   if (item.ir.kind === "chemEq") return <FormulaBox item={item} latex={`\\ce{${item.ir.data.ce}}`} fontSize={item.ir.data.fontSize} inline={item.ir.data.inline} />;
-  if (item.ir.kind === "plot2d") return <PlotBox item={item} ir={item.ir} />;
+  if (item.ir.kind === "plot2d") return item.ir.data.tupper ? <TupperBox item={item} k={item.ir.data.tupper.k} caption={item.ir.data.caption} showCaption={item.ir.data.showCaption} /> : <PlotBox item={item} ir={item.ir} />;
   return null;
 });
+
+/**
+ * 투퍼의 자기 참조 공식 그림 — 106×17 칸 (사용자 사진처럼: x는 105 → 0, y는 k부터 아래로 k+16까지).
+ * 칸은 BigInt로 구한다 (math/tupper.ts). 축 눈금은 x 0~100, y는 k, k+5, k+10, k+15.
+ */
+function TupperBox({ item, k, caption, showCaption }: { item: ObjectItem; k: string; caption?: string | undefined; showCaption: boolean }) {
+  const W = item.transform.scale;
+  const left = 54;
+  const cell = (W - left - 8) / TUPPER_W;
+  const H = cell * TUPPER_H;
+  const grid = useMemo(() => tupperGrid(k), [k]);
+  const fresh = isFresh(item.id);
+  const font = "KaTeX_Main, 'Times New Roman', serif";
+  let d = "";
+  grid.forEach((row, j) =>
+    row.forEach((on, x) => {
+      if (on) d += `M${(left + (TUPPER_W - 1 - x) * cell).toFixed(2)},${(j * cell).toFixed(2)}h${cell.toFixed(2)}v${cell.toFixed(2)}h${(-cell).toFixed(2)}Z`;
+    }),
+  );
+  return (
+    <div data-overlay-id={item.id} className={fresh ? "sl-fade-in" : undefined} style={{ position: "absolute", left: item.transform.x, top: item.transform.y, width: W, pointerEvents: "none" }}>
+      <svg width={W} height={H + 22} style={{ display: "block", overflow: "visible" }}>
+        <rect x={left} y={0} width={cell * TUPPER_W} height={H} fill="none" stroke={theme.color.sub} />
+        <path d={d} fill={plot.palette[0]} shapeRendering="crispEdges" />
+        <g fill={theme.color.ink} fontSize={plot.labelSize} fontFamily={font}>
+          {[0, 5, 10, 15].map((j) => (
+            <text key={j} x={left - 6} y={(j + 0.75) * cell} textAnchor="end">
+              {j === 0 ? "k" : `k + ${j}`}
+            </text>
+          ))}
+          {[100, 80, 60, 40, 20, 0].map((x) => (
+            <text key={x} x={left + (TUPPER_W - 1 - x + 0.5) * cell} y={H + 15} textAnchor="middle">
+              {x}
+            </text>
+          ))}
+        </g>
+      </svg>
+      {showCaption && caption && (
+        <div style={{ marginTop: theme.space[1], textAlign: "center", color: theme.color.ink }}>
+          <KaTeX latex={caption} size={15} />
+        </div>
+      )}
+      <div data-export-skip style={{ marginTop: 2, textAlign: "center", fontSize: 12, color: theme.color.asymptote }}>
+        k = {k.length > 24 ? `${k.slice(0, 10)}…${k.slice(-10)} (${k.length}자리)` : k}
+      </div>
+    </div>
+  );
+}
 
 function FormulaBox({ item, latex, fontSize, inline: inlineFlag }: { item: ObjectItem; latex: string; fontSize?: number | undefined; inline?: boolean | undefined }) {
   const fresh = isFresh(item.id);
@@ -89,6 +138,8 @@ type PlotData = SceneDataOf<"plot2d">;
 interface Curve {
   d: string;
   color: string;
+  /** 부등식 < 의 경계 (점선) */
+  dash?: boolean;
 }
 
 function pathFrom(runs: Pt[][], bx: (x: number) => number, by: (y: number) => number): string {
@@ -114,7 +165,12 @@ function PlotBox({ item, ir }: { item: ObjectItem; ir: PlotIR }) {
   const ax = Math.min(Math.max(box.x(0), 0), W); // y축이 놓일 x (0이 화면 밖이면 가장자리)
   const ay = Math.min(Math.max(box.y(0), 0), H); // x축이 놓일 y
 
-  const xTicks: Tick[] = data.view.xTicks === "pi" ? piTicks(view.xmin, view.xmax) : numberTicks(view.xmin, view.xmax);
+  // 막대그래프: x축 눈금 자리에 이름 (1, 2, 3 … 자리)
+  const xTicks: Tick[] = data.xCategories?.length
+    ? data.xCategories.map((label, i) => ({ value: i + 1, label }))
+    : data.view.xTicks === "pi"
+      ? piTicks(view.xmin, view.xmax)
+      : numberTicks(view.xmin, view.xmax);
   // 1:1 비율이면 y 눈금도 x와 같은 간격(교과서), 비율이 다르면 y 범위에 맞는 간격
   const sameStep = data.view.aspect === "equal" && data.view.xTicks !== "pi" && xTicks.length > 1;
   const yTicks = numberTicks(view.ymin, view.ymax, sameStep ? Math.abs((xTicks[1] as Tick).value - (xTicks[0] as Tick).value) : undefined);
@@ -138,6 +194,37 @@ function PlotBox({ item, ir }: { item: ObjectItem; ir: PlotIR }) {
           </clipPath>
         </defs>
 
+        {/* 부등식 영역 — 옅게 칠한다 */}
+        <g clipPath={`url(#${clipId})`}>
+          {drawn.regions.map((rg, i) => (
+            <path key={`rg${i}`} d={rg.d} fill={rg.color === plot.palette[0] ? theme.color.accent : rg.color} opacity={0.16} shapeRendering="crispEdges" />
+          ))}
+        </g>
+        {/* 막대 (이산 확률분포·막대그래프) — 구하는 범위의 막대는 진하게 */}
+        <g clipPath={`url(#${clipId})`}>
+          {(data.bars ?? []).map((b, i) => {
+            const half = (data.barWidth ?? 0.8) / 2;
+            const x0 = box.x(b.x - half);
+            const x1 = box.x(b.x + half);
+            const y0 = box.y(Math.max(0, b.h));
+            const y1 = box.y(Math.min(0, b.h));
+            return (
+              <rect
+                key={`b${i}`}
+                x={x0}
+                y={y0}
+                width={Math.max(1, x1 - x0)}
+                height={Math.max(0.5, y1 - y0)}
+                // 구하는 범위가 있으면 그 막대만 진하게 (나머지는 옅은 회색), 없으면 모두 파랗게
+                fill={b.on || !(data.bars ?? []).some((x) => x.on) ? theme.color.accent : plot.palette[0]}
+                fillOpacity={b.on ? 0.55 : (data.bars ?? []).some((x) => x.on) ? 0.12 : 0.42}
+                stroke={b.on || !(data.bars ?? []).some((x) => x.on) ? theme.color.accent : plot.palette[0]}
+                strokeOpacity={0.7}
+                strokeWidth={1}
+              />
+            );
+          })}
+        </g>
         {/* 넓이 음영 — 곡선 아래에 깔린다 */}
         <g clipPath={`url(#${clipId})`}>
           {drawn.shades.map((s, i) => (
@@ -178,8 +265,24 @@ function PlotBox({ item, ir }: { item: ObjectItem; ir: PlotIR }) {
         {/* 곡선 */}
         <g clipPath={`url(#${clipId})`} fill="none" strokeWidth={stroke.main} strokeLinecap="round" strokeLinejoin="round">
           {drawn.curves.map((c, i) => (
-            <path key={`c${i}`} d={c.d} stroke={c.color} pathLength={fresh ? 1 : undefined} className={fresh ? "sl-draw" : undefined} />
+            <path key={`c${i}`} d={c.d} stroke={c.color} strokeDasharray={c.dash ? "7 5" : undefined} pathLength={fresh && !c.dash ? 1 : undefined} className={fresh && !c.dash ? "sl-draw" : undefined} />
           ))}
+        </g>
+        {/* 자료 (산점도의 점 · 꺾은선) */}
+        <g clipPath={`url(#${clipId})`}>
+          {(data.series ?? []).map((sr, i) => {
+            const color = sr.color ?? (plot.palette[(i + 1) % plot.palette.length] as string);
+            return (
+              <g key={`sr${i}`}>
+                {sr.line && sr.pts.length > 1 && (
+                  <path d={`M${sr.pts.map(([x, y]) => `${box.x(x).toFixed(1)},${box.y(y).toFixed(1)}`).join("L")}`} fill="none" stroke={color} strokeWidth={stroke.main} strokeLinejoin="round" />
+                )}
+                {sr.pts.map(([x, y], j) => (
+                  <circle key={j} cx={box.x(x)} cy={box.y(y)} r={sr.line ? 3 : 3.6} fill={sr.line ? color : theme.color.bg} stroke={color} strokeWidth={1.6} />
+                ))}
+              </g>
+            );
+          })}
         </g>
         {/* 점 (연립방정식의 교점 등) — 검은 점과 이름표 */}
         <g clipPath={`url(#${clipId})`}>
@@ -217,7 +320,8 @@ function PlotBox({ item, ir }: { item: ObjectItem; ir: PlotIR }) {
           {yTicks
             .filter((tk) => box.y(tk.value) > 16 && box.y(tk.value) < H - 6)
             .map((tk) => (
-              <text key={`yl${tk.value}`} x={ax - t - 3} y={box.y(tk.value) + plot.labelSize * 0.35} textAnchor="end">
+              // y축이 왼쪽 끝에 붙으면(x = 0이 화면 밖) 숫자를 축 안쪽에 — 그림 밖으로 나가지 않게
+              <text key={`yl${tk.value}`} x={ax < 24 ? ax + t + 4 : ax - t - 3} y={box.y(tk.value) + plot.labelSize * 0.35} textAnchor={ax < 24 ? "start" : "end"}>
                 {tk.label}
               </text>
             ))}
@@ -253,6 +357,8 @@ function by(box: ReturnType<typeof toBox>, y: number, H: number): number {
 interface Drawn {
   curves: Curve[];
   shades: Array<{ d: string; edges: number[]; edgeY: number[]; negative: boolean }>;
+  /** 부등식이 참인 곳 (칸을 이어 붙인 경로) */
+  regions: Array<{ d: string; color: string }>;
   vertical: number[];
   horizontal: number[];
   valueLatex: string | null;
@@ -261,7 +367,7 @@ interface Drawn {
 
 function renderCurves(data: PlotData, view: View, W: number, H: number, params: Record<string, number>): Drawn {
   const box = toBox(view, W, H);
-  const out: Drawn = { curves: [], shades: [], vertical: [], horizontal: [], valueLatex: null, error: null };
+  const out: Drawn = { curves: [], shades: [], regions: [], vertical: [], horizontal: [], valueLatex: null, error: null };
   const names = Object.keys(params).sort();
   const values = names.map((n) => params[n] as number);
   const explicitFns: Array<Fn | null> = [];
@@ -284,6 +390,41 @@ function renderCurves(data: PlotData, view: View, W: number, H: number, params: 
       const F = compileCached(`i|${fn.latex}|${names.join(",")}`, a.F, ["x", "y", ...names]);
       const lines = marchingSquares((x, y) => F(x, y, ...values), view, 140, Math.round(140 * plot.aspect));
       out.curves.push({ d: pathFrom(lines, box.x, box.y), color });
+    } else if (a.kind === "inequality") {
+      // 화면을 촘촘한 칸으로 나눠 조건이 참인 칸을 칠한다 (가로로 이어진 칸은 한 사각형으로)
+      const conds = a.parts.map((part, k) => ({ f: compileCached(`q${k}|${fn.latex}|${names.join(",")}`, part.F, ["x", "y", ...names]), strict: part.strict }));
+      const cols = Math.max(80, Math.round(W / 2.5));
+      const rows = Math.max(60, Math.round((cols * H) / W));
+      const dx = (view.xmax - view.xmin) / cols;
+      const dy = (view.ymax - view.ymin) / rows;
+      const cw = W / cols;
+      const ch = H / rows;
+      let d = "";
+      for (let r = 0; r < rows; r++) {
+        const y = view.ymax - (r + 0.5) * dy;
+        let start = -1;
+        for (let c = 0; c <= cols; c++) {
+          const inside =
+            c < cols &&
+            conds.every(({ f, strict }) => {
+              const v = f(view.xmin + (c + 0.5) * dx, y, ...values);
+              return strict ? v < 0 : v <= 0;
+            });
+          if (inside && start < 0) start = c;
+          if (!inside && start >= 0) {
+            d += `M${(start * cw).toFixed(1)},${(r * ch).toFixed(1)}h${((c - start) * cw).toFixed(1)}v${(ch + 0.4).toFixed(1)}h${(-(c - start) * cw).toFixed(1)}Z`;
+            start = -1;
+          }
+        }
+      }
+      out.regions.push({ d, color });
+      // 경계선: < 는 점선, ≤ 는 실선 (⌊ ⌋·mod처럼 끊어지는 식은 경계를 그리지 않는다 — 계단 모서리가 지저분해진다)
+      if (!/Floor|Ceil|Mod|Round/.test(JSON.stringify(a.parts))) {
+        conds.forEach(({ f, strict }) => {
+          const lines = marchingSquares((x, y) => f(x, y, ...values), view, 140, Math.round(140 * plot.aspect));
+          out.curves.push({ d: pathFrom(lines, box.x, box.y), color, ...(strict ? { dash: true } : {}) });
+        });
+      }
     } else if (a.kind === "polar") {
       const r = compileCached(`p|${fn.latex}|${names.join(",")}`, a.rhs, ["theta", ...names]);
       const runs = sampleParametric(

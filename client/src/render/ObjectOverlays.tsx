@@ -5,6 +5,7 @@ import { viewportStore } from "../store/viewport";
 import { ErrorBoundary } from "../ErrorBoundary";
 import { TapeObject } from "./TapeObject";
 import { TextObject } from "./TextObject";
+import { TableObject } from "./TableObject";
 import { TextEditorHost } from "../ui/TextEditor";
 
 /**
@@ -20,8 +21,10 @@ const SolidObject = lazy(() => import("./SolidObject"));
 const SpaceObject = lazy(() => import("./SpaceObject"));
 /** 화학은 RDKit(WASM 약 7 MB)을 쓰는 따로 된 청크 — 구조식을 처음 그릴 때만 내려받는다 */
 const ChemObject = lazy(() => import("./ChemObject"));
+/** 벤 다이어그램도 KaTeX를 쓰므로 따로 (처음 그릴 때만) */
+const VennObject = lazy(() => import("./VennObject").then((m) => ({ default: m.VennObject })));
 
-const OVERLAY_KINDS = new Set(["plot2d", "formula", "chemEq", "solid3d", "space3d", "chem", "text"]);
+const OVERLAY_KINDS = new Set(["plot2d", "formula", "chemEq", "solid3d", "space3d", "chem", "text", "venn", "table"]);
 
 /** interactive: 펜 도구일 때만 입체를 돌릴 수 있다 (지우개일 땐 터치가 캔버스로 가야 지워진다) */
 export function ObjectOverlays({ interactive }: { interactive: boolean }): ReactElement {
@@ -55,6 +58,10 @@ export function ObjectOverlays({ interactive }: { interactive: boolean }): React
               <ChemObject key={item.id} item={item} />
             ) : item.ir.kind === "text" ? (
               <TextObject key={item.id} item={item} />
+            ) : item.ir.kind === "venn" ? (
+              <VennObject key={item.id} item={item} />
+            ) : item.ir.kind === "table" ? (
+              <TableObject key={item.id} item={item} />
             ) : (
               <PlotObject key={item.id} item={item} />
             ),

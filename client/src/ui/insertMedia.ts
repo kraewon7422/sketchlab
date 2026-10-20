@@ -17,7 +17,8 @@ export function visibleArea(): Area {
   const { tx, ty, k } = viewportStore.getState();
   const w = r?.width ?? window.innerWidth;
   const h = r?.height ?? window.innerHeight;
-  return { x: -tx / k, y: -ty / k, width: w / k, height: h / k };
+  const top = 56; // 노트 이름 막대 밑부터
+  return { x: -tx / k, y: (top - ty) / k, width: w / k, height: (h - top) / k };
 }
 
 /** 그림 → (줄인) data URL + 크기 */
