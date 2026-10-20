@@ -14,8 +14,13 @@ import { viewportStore } from "./viewport";
 /** 쪽 id → 그 쪽의 되돌리기 기록 (메모리에만) */
 const histories = new Map<string, SessionState["history"]>();
 
+/** 다른 노트를 열 때 — 쪽별 되돌리기 기록을 비운다 */
+export function forgetHistories(): void {
+  histories.clear();
+}
+
 let counter = 0;
-const newPageId = () => `p${Date.now().toString(36)}${(++counter).toString(36)}`;
+export const newPageId = (): string => `p${Date.now().toString(36)}${(++counter).toString(36)}`;
 
 export async function switchPage(id: string): Promise<void> {
   const s = pagesStore.getState();

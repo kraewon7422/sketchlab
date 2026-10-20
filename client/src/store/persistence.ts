@@ -4,6 +4,7 @@ import { debugLog } from "../debug";
 import type { CanvasItem } from "../ink/types";
 import { sessionStore } from "./session";
 import { itemsKey, pagesStore, type PageMeta } from "./pages";
+import { LEGACY_NOTE_ID, libraryStore, type LibraryData } from "./library";
 
 /**
  * 세션 영속화 — 새로고침해도 그린 내용이 남게 한다.
@@ -121,13 +122,16 @@ export async function deleteItems(key: string): Promise<void> {
   }
 }
 
-const PAGES_KEY = "pages";
+/** 노트의 쪽 목록 저장 키 — 예전 한 권짜리 노트는 예전 키 그대로 */
+export function pagesKey(noteId: string): string {
+  return noteId === LEGACY_NOTE_ID ? "pages" : `pages:${noteId}`;
+}
 
-export async function loadPages(): Promise<{ pages: PageMeta[]; currentId: string } | null> {
+export async function loadPages(noteId: string = LEGACY_NOTE_ID): Promise<{ pages: PageMeta[]; currentId: string } | null> {
   const db = getDB();
   if (!db) return null;
   try {
-    const v = (await (await db).get(STORE_NAME, PAGES_KEY)) as { pages?: PageMeta[]; currentId?: string } | undefined;
+    const v = (await (await db).get(STORE_NAME, pagesKey(noteId))) as { pages?: PageMeta[]; currentId?: string } | undefined;
     if (!v || !Array.isArray(v.pages) || v.pages.length === 0) return null;
     return { pages: v.pages, currentId: v.currentId ?? (v.pages[0] as PageMeta).id };
   } catch (error) {
@@ -136,11 +140,11 @@ export async function loadPages(): Promise<{ pages: PageMeta[]; currentId: strin
   }
 }
 
-async function savePages(pages: PageMeta[], currentId: string): Promise<void> {
+export async function savePages(pages: PageMeta[], currentId: string, noteId: string): Promise<void> {
   const db = getDB();
   if (!db) return;
   try {
-    await (await db).put(STORE_NAME, { pages, currentId }, PAGES_KEY);
+    await (await db).put(STORE_NAME, { pages, currentId }, pagesKey(noteId));
   } catch (error) {
     debugLog.error("persistence", "쪽 목록을 저장하지 못했습니다", error);
   }
@@ -156,29 +160,109 @@ export async function clearPersisted(): Promise<void> {
   }
 }
 
+/** 쪽 하나와 노트 쪽 목록을 통째로 지운다 (휴지통에서 영구 삭제) */
+export async function deleteKey(key: string): Promise<void> {
+  const db = getDB();
+  if (!db) return;
+  try {
+    await (await db).delete(STORE_NAME, key);
+  } catch (error) {
+    debugLog.error("persistence", "지우지 못했습니다", error);
+  }
+}
+
+// ─────────────────────────────────────────────────────────── 노트 보관함
+
+const LIBRARY_KEY = "library";
+
+export async function loadLibrary(): Promise<LibraryData | null> {
+  const db = getDB();
+  if (!db) return null;
+  try {
+    const v = (await (await db).get(STORE_NAME, LIBRARY_KEY)) as Partial<LibraryData> | undefined;
+    if (!v || !Array.isArray(v.notes)) return null;
+    return {
+      notes: v.notes,
+      folders: Array.isArray(v.folders) ? v.folders : [],
+      sort: v.sort === "created" || v.sort === "title" ? v.sort : "updated",
+      sortDesc: v.sortDesc !== false,
+      view: v.view === "list" ? "list" : "grid",
+    };
+  } catch (error) {
+    debugLog.error("persistence", "노트 목록을 불러오지 못했습니다", error);
+    return null;
+  }
+}
+
+let libraryTimer: ReturnType<typeof setTimeout> | null = null;
+function saveLibrarySoon(data: LibraryData): void {
+  if (libraryTimer) clearTimeout(libraryTimer);
+  libraryTimer = setTimeout(() => {
+    libraryTimer = null;
+    const db = getDB();
+    if (!db) return;
+    void db
+      .then((d) => d.put(STORE_NAME, data, LIBRARY_KEY))
+      .catch((error: unknown) => debugLog.error("persistence", "노트 목록을 저장하지 못했습니다", error));
+  }, 250);
+}
+
 /**
- * 부팅 시 1회 복원한 뒤, items 변경을 구독해 저장을 시작한다.
+ * 부팅: 노트 보관함을 읽는다 (처음이면 예전 한 권짜리 노트를 "내 노트"로 옮겨 담는다 — 저장 키는 그대로라 복사가 없다).
+ * 그 뒤 저장 구독을 건다:
+ *   그림(items) → 열린 노트의 지금 쪽 키 · 쪽 목록 → 열린 노트의 쪽 목록 키 · 보관함 목록 → library 키
+ * 열린 노트가 없을 때(보관함 화면)는 그림·쪽 목록을 쓰지 않는다 — 노트를 닫으며 화면을 비워도 저장된 쪽이 지워지지 않게.
  * 반환값은 구독 해제 함수.
  */
 export async function startPersistence(): Promise<() => void> {
-  const index = await loadPages();
-  if (index) pagesStore.getState().load(index.pages, index.currentId);
-  const restored = await loadItems(itemsKey(pagesStore.getState().currentId));
-  if (restored && restored.length > 0) {
-    sessionStore.getState().hydrate(restored);
-    debugLog.info("persistence", `이전 세션 복원 — 항목 ${restored.length}개`);
+  let data = await loadLibrary();
+  if (!data) {
+    const legacy = await loadPages(LEGACY_NOTE_ID);
+    const now = Date.now();
+    data = {
+      notes: [{ id: LEGACY_NOTE_ID, title: "내 노트", folderId: null, createdAt: now, updatedAt: now, pageCount: legacy?.pages.length ?? 1 }],
+      folders: [],
+      sort: "updated",
+      sortDesc: true,
+      view: "grid",
+    };
+    debugLog.info("persistence", `노트 보관함을 처음 만듦 — 예전 노트를 "내 노트"로 (쪽 ${legacy?.pages.length ?? 1}개)`);
   }
+  libraryStore.getState().setData(data);
+  libraryStore.setState({ ready: true });
+  saveLibrarySoon(data);
 
   let lastItems = sessionStore.getState().items;
   const stopItems = sessionStore.subscribe((state) => {
     // 참조가 그대로면 items는 바뀌지 않은 것이다 (선택·활성 그룹만 변한 경우).
     if (state.items === lastItems) return;
     lastItems = state.items;
+    const noteId = libraryStore.getState().openNoteId;
+    if (!noteId) return;
     void saveItems(state.items, itemsKey(pagesStore.getState().currentId));
+    touchNote(noteId);
   });
-  const stopPages = pagesStore.subscribe((s) => void savePages(s.pages, s.currentId));
+  const stopPages = pagesStore.subscribe((s) => {
+    const noteId = libraryStore.getState().openNoteId;
+    if (noteId) void savePages(s.pages, s.currentId, noteId);
+  });
+  const stopLibrary = libraryStore.subscribe((s, prev) => {
+    if (s.notes === prev.notes && s.folders === prev.folders && s.sort === prev.sort && s.sortDesc === prev.sortDesc && s.view === prev.view) return;
+    saveLibrarySoon({ notes: s.notes, folders: s.folders, sort: s.sort, sortDesc: s.sortDesc, view: s.view });
+  });
   return () => {
     stopItems();
     stopPages();
+    stopLibrary();
   };
+}
+
+/** 열린 노트의 "수정한 날짜"를 지금으로 (너무 자주 바꾸지 않게 2초에 한 번) */
+let lastTouch = 0;
+function touchNote(noteId: string): void {
+  const now = Date.now();
+  if (now - lastTouch < 2000) return;
+  lastTouch = now;
+  const lib = libraryStore.getState();
+  lib.setData({ notes: lib.notes.map((n) => (n.id === noteId ? { ...n, updatedAt: now } : n)) });
 }

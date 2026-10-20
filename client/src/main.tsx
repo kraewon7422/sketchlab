@@ -1,12 +1,11 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { App } from "./App";
+import { Root } from "./Root";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { debugLog, installGlobalHandlers } from "./debug";
 import { applyThemeVars } from "./render/theme";
 import { startPersistence } from "./store/persistence";
-import { fitPaper, startPaperAutoExtend } from "./store/pageActions";
-import { currentPage, paperOf } from "./store/pages";
+import { startPaperAutoExtend } from "./store/pageActions";
 import "./index.css";
 // 글 상자 글씨체 (명조·손글씨) — @font-face만 등록, 글꼴 조각은 그 글씨체로 쓴 글자가 있을 때만 받는다
 import "@fontsource/nanum-myeongjo/400.css";
@@ -37,22 +36,17 @@ if (!container) {
 createRoot(container).render(
   <StrictMode>
     <ErrorBoundary area="app">
-      <App />
+      <Root />
     </ErrorBoundary>
   </StrictMode>,
 );
 
 // 복원이 늦어도 화면은 이미 떠 있다. 실패해도 앱은 계속 쓸 수 있어야 하므로
 // 던지지 않고 로그만 남긴다 (규약 §2-6 — 대신 조용히 넘어가지도 않는다).
-void startPersistence()
-  .then(() => {
-    // 종이 모드 쪽이면 첫 장이 화면에 맞게
-    const paper = paperOf(currentPage());
-    if (paper) fitPaper(paper);
-  })
-  .catch((error: unknown) => {
-    debugLog.error("persistence", "저장소 초기화에 실패했습니다", error);
-  });
+// 앱은 노트 보관함에서 시작한다 — 노트를 열 때 그 노트의 쪽을 불러온다 (noteActions.openNote)
+void startPersistence().catch((error: unknown) => {
+  debugLog.error("persistence", "저장소 초기화에 실패했습니다", error);
+});
 // 종이 모드: 마지막 장에 쓰기 시작하면 빈 장을 하나 더
 startPaperAutoExtend();
 

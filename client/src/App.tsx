@@ -1,4 +1,4 @@
-import { Sparkles } from "lucide-react";
+import { ChevronLeft, Sparkles } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactElement } from "react";
 import { DebugPanel } from "./DebugPanel";
 import { ErrorBoundary } from "./ErrorBoundary";
@@ -10,6 +10,7 @@ import { theme } from "./render/theme";
 import { sessionStore, useSession } from "./store/session";
 import { useViewport, viewportStore } from "./store/viewport";
 import { penStore, usePen } from "./store/pen";
+import { useLibrary } from "./store/library";
 import { useLayoutMode } from "./ui/layoutMode";
 import { aiConfigured, modelName } from "./ai/settings";
 import { ToolRail, type RailTool } from "./ui/ToolRail";
@@ -198,6 +199,7 @@ export function App(): ReactElement {
         <ObjectOverlays interactive={drawing} />
 
         <EmptyHint />
+        <NoteBar />
         <Toast message={toast} />
         <SelectionBar
           onMessage={showToast}
@@ -427,6 +429,82 @@ function Toast({ message }: { message: string | null }): ReactElement {
       }}
     >
       {message}
+    </div>
+  );
+}
+
+/**
+ * 노트 위 막대 (왼쪽 위): ‹ 보관함으로 · 노트 이름 (톡 = 이름 바꾸기).
+ * 보관함으로 갈 때 첫 쪽을 표지로 찍는다.
+ */
+function NoteBar(): ReactElement | null {
+  const id = useLibrary((s) => s.openNoteId);
+  const title = useLibrary((s) => s.notes.find((n) => n.id === s.openNoteId)?.title ?? "");
+  const [renaming, setRenaming] = useState(false);
+  const [leaving, setLeaving] = useState(false);
+  if (!id) return null;
+  const back = async () => {
+    if (leaving) return;
+    setLeaving(true);
+    commitTextEdit();
+    const [{ closeNote }, { captureCover }] = await Promise.all([import("./store/noteActions"), import("./export/cover")]);
+    await closeNote(captureCover);
+  };
+  return (
+    <div
+      className="sl-pop"
+      style={{
+        position: "absolute",
+        left: `calc(${theme.space[2]}px + env(safe-area-inset-left))`,
+        top: `calc(${theme.space[2]}px + env(safe-area-inset-top))`,
+        zIndex: 16,
+        display: "flex",
+        alignItems: "center",
+        maxWidth: "min(60%, 360px)",
+        height: 40,
+        padding: "0 6px 0 2px",
+        borderRadius: 999,
+        background: "rgba(255,255,255,0.94)",
+        boxShadow: "0 2px 10px rgba(26,26,26,0.12)",
+        border: `1px solid ${theme.color.sub}`,
+      }}
+    >
+      <button
+        type="button"
+        aria-label="노트 보관함으로"
+        title="노트 보관함으로"
+        onClick={() => void back()}
+        style={{ width: 36, height: 36, flex: "0 0 auto", display: "grid", placeItems: "center", border: "none", borderRadius: "50%", background: "transparent", color: theme.color.ink, cursor: "pointer" }}
+      >
+        <ChevronLeft size={20} />
+      </button>
+      {renaming ? (
+        <input
+          autoFocus
+          defaultValue={title}
+          aria-label="노트 이름"
+          maxLength={80}
+          onFocus={(e) => e.currentTarget.select()}
+          onBlur={(e) => {
+            void import("./store/noteActions").then((m) => m.renameNote(id, e.target.value));
+            setRenaming(false);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") e.currentTarget.blur();
+            e.stopPropagation();
+          }}
+          style={{ minWidth: 0, width: 200, height: 30, padding: "0 8px", border: `1px solid ${theme.color.accent}`, borderRadius: 8, fontSize: 14, userSelect: "text" }}
+        />
+      ) : (
+        <button
+          type="button"
+          title="톡 하면 이름 바꾸기"
+          onClick={() => setRenaming(true)}
+          style={{ minWidth: 0, padding: "0 6px", border: "none", background: "transparent", fontSize: 14, fontWeight: 600, color: theme.color.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", cursor: "text" }}
+        >
+          {leaving ? "저장하는 중…" : title}
+        </button>
+      )}
     </div>
   );
 }

@@ -14,7 +14,11 @@ const MAX_PAGES = 300;
 /** PDF 쪽을 그릴 폭 px — 종이 폭(794)의 약 2배라 확대해도 글자가 또렷하다 */
 const RENDER_W = 1600;
 
-export async function importPdf(file: File, onProgress?: (done: number, total: number) => void): Promise<string> {
+/** PDF → 종이 모드 쪽 하나의 내용 (새 쪽이나 새 노트로 넣는 건 부르는 쪽이 정한다) */
+export async function buildPdfPage(
+  file: File,
+  onProgress?: (done: number, total: number) => void,
+): Promise<{ title: string; meta: { title: string; background: "blank"; layout: "vertical"; sheets: number; sheetW: number; sheetH: number }; items: ObjectItem[]; skipped: number }> {
   const pdfjs = await import("pdfjs-dist");
   const worker = await import("pdfjs-dist/build/pdf.worker.min.mjs?url");
   pdfjs.GlobalWorkerOptions.workerSrc = worker.default;
@@ -60,6 +64,19 @@ export async function importPdf(file: File, onProgress?: (done: number, total: n
   await doc.cleanup();
 
   const title = file.name.replace(/\.pdf$/i, "").slice(0, 60) || "PDF";
-  await addPageWith({ title, background: "blank", layout: "vertical", sheets: total, sheetW: paper.w, sheetH: paper.h }, items);
-  return doc.numPages > MAX_PAGES ? `PDF 앞 ${MAX_PAGES}쪽을 새 쪽 "${title}"으로 넣었어요` : `PDF ${total}쪽을 새 쪽 "${title}"으로 넣었어요 · 그 위에 바로 쓰세요`;
+  return { title, meta: { title, background: "blank", layout: "vertical", sheets: total, sheetW: paper.w, sheetH: paper.h }, items, skipped: doc.numPages - total };
+}
+
+/** 열린 노트에 PDF를 새 쪽으로 */
+export async function importPdf(file: File, onProgress?: (done: number, total: number) => void): Promise<string> {
+  const r = await buildPdfPage(file, onProgress);
+  await addPageWith(r.meta, r.items);
+  return r.skipped > 0 ? `PDF 앞 ${MAX_PAGES}쪽을 새 쪽 "${r.title}"으로 넣었어요` : `PDF ${r.meta.sheets}쪽을 새 쪽 "${r.title}"으로 넣었어요 · 그 위에 바로 쓰세요`;
+}
+
+/** 보관함에서: PDF를 새 노트로 (그 노트 id) */
+export async function importPdfAsNote(file: File, folderId: string | null, onProgress?: (done: number, total: number) => void): Promise<string> {
+  const r = await buildPdfPage(file, onProgress);
+  const { createNote } = await import("../store/noteActions");
+  return createNote(r.title, folderId, [{ meta: { ...r.meta, title: "1쪽" }, items: r.items }]);
 }
