@@ -194,6 +194,7 @@ export default function FormulaSheet({ onClose, area, onOpenAiSettings }: Formul
   return (
     <div
       role="dialog"
+      className="sl-sheet-up"
       aria-label="수식 입력"
       style={{
         position: "absolute",

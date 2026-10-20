@@ -84,6 +84,7 @@ export default function AiSettings({ onClose }: { onClose: () => void }): ReactE
   return (
     <div
       role="dialog"
+      className="sl-sheet-up"
       aria-label="AI 설정"
       style={{
         position: "absolute",

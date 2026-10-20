@@ -112,20 +112,24 @@ export function ToolRail({ tool, onTool, mode, onFormula, onAi, onFiles, disable
   const divider = <span aria-hidden style={vertical ? { height: 1, width: 28, background: theme.color.sub, margin: `${theme.space[1]}px 0` } : { width: 1, height: 28, background: theme.color.sub }} />;
 
   return (
-    <div ref={rootRef} style={{ position: "relative", flex: "0 0 auto", zIndex: 25 }}>
+    <div ref={rootRef} style={{ position: "relative", flex: "0 0 auto", zIndex: 25, minWidth: 0, maxWidth: "100%" }}>
       <nav
         aria-label="도구"
         style={{
           display: "flex",
           flexDirection: vertical ? "column" : "row",
           alignItems: "center",
-          justifyContent: vertical ? "flex-start" : "space-around",
+          justifyContent: "flex-start",
           gap: 2,
           height: vertical ? "100%" : undefined,
           padding: vertical ? `calc(${theme.space[2]}px + env(safe-area-inset-top)) ${theme.space[1]}px ${theme.space[2]}px` : `${theme.space[1]}px ${theme.space[2]}px calc(${theme.space[1]}px + env(safe-area-inset-bottom))`,
           ...(vertical ? { borderLeft: `1px solid ${theme.color.sub}` } : { borderTop: `1px solid ${theme.color.sub}` }),
           background: "#FAFAFB",
-          overflowY: vertical ? "auto" : undefined,
+          // 폰(아래 막대)은 도구가 많으면 옆으로 밀어 넘긴다 — 화면 밖으로 삐져나가지 않게 (스크롤 막대는 숨김)
+          overflowY: vertical ? "auto" : "hidden",
+          overflowX: vertical ? "hidden" : "auto",
+          scrollbarWidth: "none",
+          WebkitOverflowScrolling: "touch",
           boxSizing: "border-box",
         }}
       >
@@ -174,6 +178,7 @@ export function ToolRail({ tool, onTool, mode, onFormula, onAi, onFiles, disable
         <div key="panel-wrap" style={{ display: "contents" }}>
         <div
           role="dialog"
+          className="sl-pop"
           aria-label={`${shown} 설정`}
           style={{
             position: "absolute",

@@ -30,7 +30,7 @@ export const GUIDE: Array<{ title: string; rows: GuideRow[] }> = [
       { what: "지수", code: "y=e^{-x}" },
       { what: "절댓값", code: "y=|x-1|" },
       { what: "계수 슬라이더", code: "y=ax^2+b", tip: "한 글자 계수(a, b, k…)는 슬라이더가 생겨요" },
-      { what: "원·곡선 (x, y 둘 다)", code: "x^2+y^2=4" },
+      { what: "원·곡선", code: "x^2+y^2=4", tip: "x와 y가 둘 다 있는 식" },
       { what: "극좌표", code: "r=2\\cos(3\\theta)", tip: "θ는 \\theta" },
       { what: "정적분 (넓이)", code: "\\int_0^2 x^2\\,dx" },
     ],

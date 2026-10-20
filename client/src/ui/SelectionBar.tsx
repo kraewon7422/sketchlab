@@ -327,6 +327,7 @@ export function SelectionBar({ onMessage, onEditText }: { onMessage: (message: s
       />
       <div
         role="toolbar"
+        className="sl-pop"
         aria-label="선택한 그림"
         style={{
           position: "absolute",

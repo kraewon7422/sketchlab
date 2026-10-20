@@ -85,6 +85,11 @@ export function PenOptions(): ReactElement {
       background: on ? theme.color.selection : theme.color.bg,
       color: on ? theme.color.accent : theme.color.ink,
       fontSize: 11,
+      // 단추 안 글자는 한 줄로 (좁으면 글자 사이를 살짝 좁힌다)
+      whiteSpace: "nowrap",
+      letterSpacing: -0.3,
+      minWidth: 0,
+      overflow: "hidden",
       cursor: "pointer",
     }) as const;
 
@@ -185,7 +190,8 @@ export function PenOptions(): ReactElement {
             style={choice(style.brush === k)}
           >
             <StrokeSample look={{ ...style, brush: k, line: "solid", width: highlighter ? 12 : 3 }} w={highlighter ? 100 : 44} h={24} />
-            {label}
+            {/* 좁은 칸에 맞게 짧은 이름 (전체 이름은 aria-label) */}
+            {label === "캘리그래피" ? "캘리" : label}
           </button>
         ))}
       </div>

@@ -73,7 +73,6 @@ export function ColorPicker({ value, onChange, onCommit }: { value: string; onCh
           overflow: "hidden",
         }}
       >
-        <div style={{ position: "absolute", inset: 0, background: "#000", opacity: 1 - hsv.v / 100, pointerEvents: "none" }} />
         <span
           style={{
             position: "absolute",

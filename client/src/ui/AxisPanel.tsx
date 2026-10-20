@@ -108,7 +108,8 @@ function RangeRow({
   onZoom: (factor: number) => void;
   onSet: (min: number, max: number) => void;
 }): ReactElement {
-  const fmt = (n: number) => String(Number(n.toPrecision(6)));
+  // 4자리면 칸(64px)에 들어간다 — 더 길면 잘려 보인다
+  const fmt = (n: number) => String(Number(n.toPrecision(4)));
   const [lo, setLo] = useState<string | null>(null);
   const [hi, setHi] = useState<string | null>(null);
   const commit = () => {

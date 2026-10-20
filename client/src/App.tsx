@@ -172,6 +172,7 @@ export function App(): ReactElement {
       style={{
         // 100dvh: 모바일 주소창이 접히고 펴져도 높이가 튀지 않는다 (§12.4)
         height: "100dvh",
+        overflow: "hidden", // 앱 화면 자체는 절대 옆·아래로 밀리지 않는다
         display: "flex",
         flexDirection: mode === "compact" ? "column" : "row",
         background: theme.color.bg,
