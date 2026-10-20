@@ -51,6 +51,12 @@ export function rainbow(s: number, l: number): string[] {
   return Array.from({ length: 12 }, (_, i) => hslToHex({ h: i * 30, s, l }));
 }
 
+/** 무지개 레이저: 0 = 빨강 → 주황·노랑·초록·파랑·보라 → 1 = 다시 빨강 (1보다 크면 또 한 바퀴) */
+export function laserHue(turns: number): string {
+  const t = turns - Math.floor(turns);
+  return `hsl(${Math.round(t * 360)} 100% 55%)`;
+}
+
 /** HSV — 색 고르기 판(가로 = 색상, 세로 = 채도)과 밝기 막대에 쓴다. h 0~360, s·v 0~100 */
 export interface Hsv {
   h: number;

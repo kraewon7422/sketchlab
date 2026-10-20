@@ -70,7 +70,7 @@ export function ObjectOverlays({ interactive }: { interactive: boolean }): React
             ) : item.ir.kind === "text" ? (
               <TextObject key={item.id} item={item} />
             ) : item.ir.kind === "venn" ? (
-              <VennObject key={item.id} item={item} />
+              <VennObject key={item.id} item={item} interactive={interactive && !selection.includes(item.id)} />
             ) : item.ir.kind === "table" ? (
               <TableObject key={item.id} item={item} />
             ) : item.ir.kind === "tensor" ? (
@@ -78,11 +78,11 @@ export function ObjectOverlays({ interactive }: { interactive: boolean }): React
             ) : item.ir.kind === "topology" ? (
               <TopologyObject key={item.id} item={item} interactive={interactive && !selection.includes(item.id)} />
             ) : item.ir.kind === "nnet" ? (
-              <NNetObject key={item.id} item={item} />
+              <NNetObject key={item.id} item={item} interactive={interactive && !selection.includes(item.id)} />
             ) : item.ir.kind === "code" ? (
               <CodeObject key={item.id} item={item} interactive={interactive && !selection.includes(item.id)} />
             ) : (
-              <PlotObject key={item.id} item={item} />
+              <PlotObject key={item.id} item={item} interactive={interactive && !selection.includes(item.id)} />
             ),
           )}
         </Suspense>

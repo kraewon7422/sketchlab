@@ -415,14 +415,6 @@ export default function FormulaSheet({ onClose, area, onOpenAiSettings }: Formul
         {loading ? "구조식 준비 중… (처음 한 번은 몇 초 걸려요)" : (error ?? preview.note)}
       </p>
 
-      <LatexGuide
-        onPick={(code) => {
-          setText(code);
-          setError(null);
-          inputRef.current?.focus();
-        }}
-      />
-
       <div style={{ display: "grid", gap: theme.space[2], marginTop: theme.space[3] }}>
         {GROUPS.map((g) => {
           const open = openGroups.has(g.title);
@@ -480,6 +472,17 @@ export default function FormulaSheet({ onClose, area, onOpenAiSettings }: Formul
             </section>
           );
         })}
+      </div>
+
+      {/* 작성법은 맨 아래 — 예시를 먼저 보고, 직접 쓸 때 펼쳐 본다 */}
+      <div style={{ marginTop: theme.space[4] }}>
+        <LatexGuide
+          onPick={(code) => {
+            setText(code);
+            setError(null);
+            inputRef.current?.focus();
+          }}
+        />
       </div>
       </>
       )}

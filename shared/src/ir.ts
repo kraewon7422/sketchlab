@@ -241,6 +241,17 @@ const Plot2D = z.object({
   xCategories: z.array(z.string()).optional(),
   /** 투퍼의 자기 참조 공식 — k(아주 큰 정수, 17의 배수)부터 17줄 × 106칸 그림 */
   tupper: z.object({ k: z.string().regex(/^\d+$/) }).optional(),
+  /**
+   * 확률분포 그래프의 분포 (막대를 톡 · 음영 끝을 끌면 확률을 다시 계산한다).
+   * p: normal [μ, σ] · binomial [n, p] · poisson [λ] · uniform [a, b] · exponential [λ]
+   */
+  dist: z
+    .object({
+      kind: z.enum(["normal", "binomial", "poisson", "uniform", "exponential"]),
+      p: z.array(z.number()).min(1).max(2),
+      latex: z.string(),
+    })
+    .optional(),
 });
 
 // ─────────────────────────────────────────────────────────── 수식·화학

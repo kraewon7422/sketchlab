@@ -13,6 +13,7 @@ import { GroupHint, InkItemView } from "./InkLayer";
 import { hitItem, itemsInLasso, itemsTouchedByLasso, selectionBox } from "./editing";
 import { asPoints, buildFreeTape, buildTape, TAPE_MIN_LEN } from "./tape";
 import { centerlinePath } from "./smoothOutline";
+import { laserHue } from "./color";
 import { straightenStroke } from "./straighten";
 import { colorAt, eyedropperStore } from "../ui/eyedropper";
 import { buildShape } from "./shapes";
@@ -174,11 +175,16 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
      * 직선 자동 보정이 켜져 있고 거의 곧게 그었으면 손을 뗄 때 곧은 테이프로.
      */
     let tapeDrag: { pointerId: number; pts: Array<{ x: number; y: number }>; sx: number; sy: number } | null = null;
-    /** 레이저 포인터 — 빨갛게 빛나는 자국이 손을 떼면 서서히 사라진다 (발표·설명용, 노트에 남지 않는다) */
-    let laser: { pointerId: number; pts: Array<{ x: number; y: number }>; el: SVGPathElement } | null = null;
+    /**
+     * 레이저 포인터 — 빛나는 자국이 손을 떼면 서서히 사라진다 (발표·설명용, 노트에 남지 않는다).
+     * 무지개: 빨강에서 시작해 그은 길이를 따라 주황·노랑·초록·파랑·보라 → 다시 빨강 (한 바퀴 = 화면 600px).
+     * 경로 하나는 길이를 따라 색을 바꿀 수 없어서 짧은 조각마다 색을 준다.
+     */
+    let laser: { pointerId: number; last: { x: number; y: number }; dist: number; el: SVGGElement } | null = null;
     const LASER_HOLD_MS = 700;
     const LASER_FADE_MS = 600;
-    const fadeLaser = (el: SVGPathElement): void => {
+    const LASER_CYCLE_PX = 600;
+    const fadeLaser = (el: SVGGElement): void => {
       setTimeout(() => {
         el.style.transition = `opacity ${LASER_FADE_MS}ms ease-out`;
         el.style.opacity = "0";
@@ -690,15 +696,20 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
       }
 
       if (toolRef.current === "laser") {
-        const el = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        const el = document.createElementNS("http://www.w3.org/2000/svg", "g");
         el.setAttribute("fill", "none");
-        el.setAttribute("stroke", ink.laserColor);
         el.setAttribute("stroke-width", String(ink.laserWidth / view().k));
         el.setAttribute("stroke-linecap", "round");
         el.setAttribute("stroke-linejoin", "round");
-        el.style.filter = `drop-shadow(0 0 ${3 / view().k}px ${ink.laserColor})`;
+        el.style.filter = `drop-shadow(0 0 ${3 / view().k}px rgba(255,255,255,0.9))`;
         laserRef.current?.appendChild(el);
-        laser = { pointerId: event.pointerId, pts: [toWorld(event.clientX, event.clientY, rect, view())], el };
+        const p0 = toWorld(event.clientX, event.clientY, rect, view());
+        // 누르기만 해도 빨간 점이 보이게
+        const dot = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        dot.setAttribute("d", `M${p0.x},${p0.y}l0,0`);
+        dot.setAttribute("stroke", laserHue(0));
+        el.appendChild(dot);
+        laser = { pointerId: event.pointerId, last: p0, dist: 0, el };
         capture(event.pointerId);
         return;
       }
@@ -786,8 +797,15 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
       }
       if (laser && laser.pointerId === event.pointerId) {
         if (!rect) return;
-        laser.pts.push(toWorld(event.clientX, event.clientY, rect, view()));
-        laser.el.setAttribute("d", centerlinePath(asPoints(laser.pts)));
+        const p = toWorld(event.clientX, event.clientY, rect, view());
+        const step = Math.hypot(p.x - laser.last.x, p.y - laser.last.y) * view().k;
+        if (step < 1.5) return;
+        laser.dist += step;
+        const seg = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        seg.setAttribute("d", `M${laser.last.x},${laser.last.y}L${p.x},${p.y}`);
+        seg.setAttribute("stroke", laserHue(laser.dist / LASER_CYCLE_PX));
+        laser.el.appendChild(seg);
+        laser.last = p;
         return;
       }
       if (lasso && lasso.pointerId === event.pointerId) {

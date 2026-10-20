@@ -1,7 +1,8 @@
 import katex from "katex";
 import { useMemo, type ReactElement } from "react";
 import type { ObjectItem } from "../ink/types";
-import { vennCircles, vennContains, vennLatex } from "../math/venn";
+import { regionAt, regionMask, simplestExpr, toggleRegion, vennCircles, vennContains, vennLatex } from "../math/venn";
+import { sessionStore } from "../store/session";
 import { isFresh } from "./Shape2DView";
 import { plot, theme } from "./theme";
 
@@ -9,8 +10,9 @@ import { plot, theme } from "./theme";
  * 벤 다이어그램 — 전체집합 사각형 + 원 2·3개, 식의 영역을 칠한다.
  * 칠하기: 작은 칸마다 "이 점이 어느 원에 들었나"로 식을 계산해, 참인 칸을 가로로 이어 붙인다
  * (어떤 식이든 같은 방법). 원 테두리는 그 위에 매끈하게.
+ * 영역을 톡 치면 칠하거나 지우고, 그 모양에 맞는 가장 짧은 식을 아래에 다시 쓴다 (math/venn.ts simplestExpr).
  */
-export function VennObject({ item }: { item: ObjectItem }): ReactElement | null {
+export function VennObject({ item, interactive = false }: { item: ObjectItem; interactive?: boolean }): ReactElement | null {
   const ir = item.ir;
   const W = item.transform.scale;
   const H = W * 0.72;
@@ -59,9 +61,31 @@ export function VennObject({ item }: { item: ObjectItem }): ReactElement | null 
     return { x: (k.cx + side * k.r * 0.72) * W, y: (k.cy - k.r * 0.72) * W - 6 };
   };
 
+  const commit = (expr: string, sets: string[], label: string) => {
+    const now = sessionStore.getState().items.find((i) => i.id === item.id);
+    if (!now || now.kind !== "object" || now.ir.kind !== "venn") return;
+    sessionStore.getState().commitObjectIR(item.id, now.ir, { ...now.ir, data: { ...now.ir.data, sets, expr } }, label);
+  };
+  /** 영역 톡 → 칠하기·지우기 */
+  const tap = (e: React.MouseEvent<SVGSVGElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    const x = (e.clientX - r.left) / r.width;
+    const y = ((e.clientY - r.top) / r.height) * 0.72;
+    commit(toggleRegion({ sets: data.sets, expr: data.expr }, regionAt(data.sets.length, x, y)), data.sets, "벤 영역");
+  };
+  /** 두 집합 ↔ 세 집합 (칠한 영역은 C 밖/안 모두로 옮긴다) */
+  const switchSets = () => {
+    const three = data.sets.length === 2;
+    const sets = three ? ["A", "B", "C"] : ["A", "B"];
+    const old = regionMask({ sets: data.sets, expr: data.expr });
+    let mask = 0;
+    for (let m = 0; m < 1 << sets.length; m++) if ((old >> (m & 3)) & 1) mask |= 1 << m;
+    commit(simplestExpr(sets, mask), sets, "집합 수");
+  };
+
   return (
     <div data-overlay-id={item.id} className={fresh ? "sl-fade-in" : undefined} style={{ position: "absolute", left: item.transform.x, top: item.transform.y, width: W, pointerEvents: "none" }}>
-      <svg width={W} height={H} style={{ display: "block", overflow: "visible" }}>
+      <svg width={W} height={H} style={{ display: "block", overflow: "visible", pointerEvents: interactive ? "auto" : "none", cursor: interactive ? "pointer" : undefined }} onClick={interactive ? tap : undefined}>
         <path d={region} fill={plot.palette[1] ?? theme.color.accent} fillOpacity={0.32} shapeRendering="crispEdges" />
         <rect x={0.5} y={0.5} width={W - 1} height={H - 1} fill="none" stroke={theme.color.ink} strokeWidth={1.4} />
         <text x={10} y={22} fontFamily={font} fontStyle="italic" fontSize={17} fill={theme.color.ink}>
@@ -80,6 +104,17 @@ export function VennObject({ item }: { item: ObjectItem }): ReactElement | null 
         })}
       </svg>
       <div style={{ marginTop: theme.space[2], textAlign: "center", fontSize: 17, color: theme.color.ink }} dangerouslySetInnerHTML={{ __html: caption }} />
+      {interactive && (
+        <div data-export-skip style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", alignItems: "center", gap: 8, marginTop: 4, fontSize: 12, color: theme.color.asymptote }}>
+          <span>영역을 톡 눌러 칠하거나 지워요</span>
+          <button type="button" onClick={switchSets} style={{ pointerEvents: "auto", padding: "4px 10px", border: `1px solid ${theme.color.sub}`, borderRadius: 999, background: theme.color.bg, color: theme.color.ink, fontSize: 12, cursor: "pointer", whiteSpace: "nowrap" }}>
+            {data.sets.length === 2 ? "집합 3개로" : "집합 2개로"}
+          </button>
+          <button type="button" onClick={() => commit("∅", data.sets, "벤 지우기")} style={{ pointerEvents: "auto", padding: "4px 10px", border: `1px solid ${theme.color.sub}`, borderRadius: 999, background: theme.color.bg, color: theme.color.ink, fontSize: 12, cursor: "pointer", whiteSpace: "nowrap" }}>
+            모두 지우기
+          </button>
+        </div>
+      )}
     </div>
   );
 }

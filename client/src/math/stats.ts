@@ -212,6 +212,7 @@ export function buildDist(input: string): SceneIR | null {
         bars,
         barWidth: 0.7,
         caption,
+        dist: distToIR(d, distLatex),
       },
     };
   }
@@ -239,8 +240,11 @@ export function buildDist(input: string): SceneIR | null {
     xmax = 5 / d.lambda;
     top = d.lambda;
   }
-  const lo = q ? Math.max(q.lo, xmin) : 0;
-  const hi = q ? Math.min(q.hi, xmax) : 0;
+  // 질문이 없으면 기본 구간 (정규분포 μ±σ · 균등분포 가운데 절반 · 지수분포 0~평균) — 끝을 끌어 바꾼다
+  const [dlo, dhi] = d.kind === "normal" ? [d.mu - d.sigma, d.mu + d.sigma] : d.kind === "uniform" ? [d.a + (d.b - d.a) / 4, d.b - (d.b - d.a) / 4] : [0, 1 / d.lambda];
+  const lo = q ? Math.max(q.lo, xmin) : dlo;
+  const hi = q ? Math.min(q.hi, xmax) : dhi;
+  const finalCaption = q ? caption : `\\begin{gathered}X\\sim ${distLatex}\\\\ P(${fmt(lo)}<X<${fmt(hi)})\\approx ${probability(d, { lo, hi, loStrict: true, hiStrict: true, latex: "" }).toFixed(4)}\\end{gathered}`;
   return {
     ...base,
     kind: "plot2d",
@@ -250,8 +254,57 @@ export function buildDist(input: string): SceneIR | null {
       grid: false,
       showAxes: true,
       showCaption: true,
-      ...(q && hi > lo ? { shade: [{ fn: 0, from: lo, to: hi, against: "axis" as const, showValue: false }] } : {}),
-      caption,
+      ...(hi > lo ? { shade: [{ fn: 0, from: lo, to: hi, against: "axis" as const, showValue: false }] } : {}),
+      caption: finalCaption,
+      dist: distToIR(d, distLatex),
     },
   };
+}
+
+// ─────────────────────────────────────────────────────────── 직접 고르기 (막대 톡 · 음영 끝 끌기)
+
+type DistIR = { kind: Dist["kind"]; p: number[]; latex: string };
+
+export function distToIR(d: Dist, latex: string): DistIR {
+  const p = d.kind === "normal" ? [d.mu, d.sigma] : d.kind === "binomial" ? [d.n, d.p] : d.kind === "uniform" ? [d.a, d.b] : [d.lambda];
+  return { kind: d.kind, p, latex };
+}
+
+export function distFromIR(x: DistIR): Dist {
+  const [a = 0, b = 1] = x.p;
+  switch (x.kind) {
+    case "normal":
+      return { kind: "normal", mu: a, sigma: b };
+    case "binomial":
+      return { kind: "binomial", n: a, p: b };
+    case "poisson":
+      return { kind: "poisson", lambda: a };
+    case "uniform":
+      return { kind: "uniform", a, b };
+    default:
+      return { kind: "exponential", lambda: a };
+  }
+}
+
+export const pmf = (d: Dist, k: number): number => (d.kind === "binomial" ? binomialPmf(k, d.n, d.p) : d.kind === "poisson" ? poissonPmf(k, d.lambda) : 0);
+
+const num = (v: number) => String(Number(v.toPrecision(4)));
+
+/** 고른 막대들(이산) → "P(2≤X≤4) ≈ …" · "P(X∈{1,3,5}) ≈ …" (하나도 안 골랐으면 분포만) */
+export function discreteCaption(dist: DistIR, chosen: readonly number[]): string {
+  const d = distFromIR(dist);
+  const ks = [...new Set(chosen)].sort((a, b) => a - b);
+  if (ks.length === 0) return `X\\sim ${dist.latex}`;
+  const prob = ks.reduce((s, k) => s + pmf(d, k), 0);
+  const contiguous = ks.every((k, i) => i === 0 || k === (ks[i - 1] as number) + 1);
+  const what = ks.length === 1 ? `P(X=${ks[0]})` : contiguous ? `P(${ks[0]}\\le X\\le ${ks[ks.length - 1]})` : `P(X\\in\\{${ks.join(",")}\\})`;
+  return `\\begin{gathered}X\\sim ${dist.latex}\\\\ ${what}\\approx ${prob.toFixed(4)}\\end{gathered}`;
+}
+
+/** 칠한 구간(연속) → "P(a<X<b) ≈ …" */
+export function rangeCaption(dist: DistIR, lo: number, hi: number): string {
+  const d = distFromIR(dist);
+  const [a, b] = lo <= hi ? [lo, hi] : [hi, lo];
+  const prob = probability(d, { lo: a, hi: b, loStrict: true, hiStrict: true, latex: "" });
+  return `\\begin{gathered}X\\sim ${dist.latex}\\\\ P(${num(a)}<X<${num(b)})\\approx ${prob.toFixed(4)}\\end{gathered}`;
 }

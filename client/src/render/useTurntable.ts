@@ -30,7 +30,10 @@ interface Drag {
   t0: number;
 }
 
-export function useTurntable(item: { id: string }, irView: View3 | undefined, defaultView: View3) {
+/**
+ * onTap: 짧게 톡 친 자리를 먼저 받아 볼 곳 (텐서 칸 고르기·3D 손잡이 등). true를 돌려주면 객체 선택은 하지 않는다.
+ */
+export function useTurntable(item: { id: string }, irView: View3 | undefined, defaultView: View3, onTap?: (clientX: number, clientY: number) => boolean) {
   const [view, setView] = useState<View3>(irView ?? defaultView);
   const viewRef = useRef(view);
   viewRef.current = view;
@@ -156,6 +159,7 @@ export function useTurntable(item: { id: string }, irView: View3 | undefined, de
       drag.current = null;
       if (!d) return;
       if (Math.hypot(d.x - d.sx, d.y - d.sy) < 6 && performance.now() - d.t0 < 350) {
+        if (onTap?.(d.sx, d.sy)) return;
         sessionStore.getState().setSelection([item.id]);
         return;
       }

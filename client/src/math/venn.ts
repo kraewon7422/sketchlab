@@ -97,6 +97,9 @@ function setsOf(n: Node, out: Set<string>): Set<string> {
 
 /** 집합 식이면 그 벤 다이어그램, 아니면 null (∩·∪·−·ᶜ·Δ 중 하나는 있어야 — 그냥 "A"는 아님, "벤 A"는 됨) */
 export function parseVenn(input: string): Venn | null {
+  // "벤 3" · "벤 ABC" → 빈 세 집합 (영역을 톡톡 눌러 칠한다), "벤 2" · "벤 AB" → 빈 두 집합
+  const blank = /^\s*(?:벤\s*다이어그램|벤|venn)\s*:?\s*(3|2|A\s*,?\s*B\s*,?\s*C|A\s*,?\s*B)\s*$/i.exec(input);
+  if (blank) return { sets: /3|C/i.test(blank[1] as string) ? ["A", "B", "C"] : ["A", "B"], expr: "∅" };
   const named = /^\s*(벤|venn)/i.test(input);
   const src = normalize(input);
   if (!src || (!named && !/[∩∪Δᶜ]|\\setminus/.test(src.replace(/−/g, named ? "−" : "")) && !/[A-C]−[A-C]/.test(src))) return null;
@@ -131,6 +134,89 @@ export function vennContains(v: Venn, member: (set: string) => boolean): boolean
     }
   };
   return ev(tree);
+}
+
+// ─────────────────────────────────────────────────────────── 영역 톡 → 식 (직접 칠하기)
+
+/**
+ * 영역 번호 m: i번째 집합 안이면 m의 i번째 비트가 1 (집합 2개면 영역 4개, 3개면 8개 — 바깥 영역은 0).
+ * 식이 칠하는 영역들을 비트 묶음(mask)으로: mask의 m번째 비트 = 영역 m을 칠하는가.
+ */
+export function regionMask(v: Venn): number {
+  let mask = 0;
+  const n = v.sets.length;
+  for (let m = 0; m < 1 << n; m++) if (vennContains(v, (s) => ((m >> v.sets.indexOf(s)) & 1) === 1)) mask |= 1 << m;
+  return mask;
+}
+
+/** 점(단위 좌표: 폭 = 1)이 있는 영역 번호 */
+export function regionAt(n: number, x: number, y: number): number {
+  let m = 0;
+  vennCircles(n).forEach((k, i) => {
+    if ((x - k.cx) ** 2 + (y - k.cy) ** 2 <= k.r ** 2) m |= 1 << i;
+  });
+  return m;
+}
+
+interface Cand {
+  s: string;
+  /** 우선순위: 3 = 하나(집합·여집합·괄호), 2 = ∩, 1 = ∪·− */
+  p: number;
+}
+const simplestCache = new Map<string, Map<number, Cand>>();
+
+/**
+ * 칠한 영역들 → 가장 짧은 집합 식 (교과서 기호 ∩ ∪ − ᶜ 만). 집합 3개면 256가지를 처음 한 번 모두 찾아 둔다.
+ * 짧은 식 둘을 이어 붙이며 넓혀 가고, 같은 영역을 칠하는 식은 가장 짧은 것만 남긴다.
+ */
+export function simplestExpr(sets: readonly string[], mask: number): string {
+  const n = sets.length;
+  const full = (1 << (1 << n)) - 1;
+  const key = sets.join("");
+  let best = simplestCache.get(key);
+  if (!best) {
+    const found = new Map<number, Cand>();
+    // 교과서에서 익숙한 쪽을 고르게: −와 ᶜ는 조금 더 긴 것으로 친다 (∩·∪ > − > ᶜ)
+    const cost = (x: string) => x.length + 1.5 * (x.match(/ᶜ/g)?.length ?? 0) + 1.8 * (x.match(/−/g)?.length ?? 0);
+    const put = (t: number, c: Cand) => {
+      const old = found.get(t);
+      if (!old || cost(c.s) < cost(old.s)) found.set(t, c);
+    };
+    put(full, { s: "U", p: 3 });
+    put(0, { s: "∅", p: 3 });
+    sets.forEach((name, i) => {
+      let t = 0;
+      for (let m = 0; m < 1 << n; m++) if ((m >> i) & 1) t |= 1 << m;
+      put(t, { s: name, p: 3 });
+    });
+    // 괄호: 우선순위가 낮은 식을 안에 넣을 때만 (∩는 ∪·−보다 먼저, ᶜ는 가장 먼저)
+    const wrap = (c: Cand, need: number) => (c.p >= need ? c.s : `(${c.s})`);
+    for (let round = 0; round < 4; round++) {
+      const cur = [...found];
+      for (const [ta, a] of cur) {
+        put(~ta & full, { s: `${wrap(a, 3)}ᶜ`, p: 3 });
+        for (const [tb, b] of cur) {
+          if (a.s.length + b.s.length > 18) continue;
+          put(ta & tb, { s: `${wrap(a, 2)}∩${wrap(b, 2)}`, p: 2 });
+          put(ta | tb, { s: `${wrap(a, 1)}∪${wrap(b, 2)}`, p: 1 });
+          put(ta & ~tb & full, { s: `${wrap(a, 1)}−${wrap(b, 2)}`, p: 1 });
+        }
+      }
+    }
+    simplestCache.set(key, found);
+    best = found;
+  }
+  const hit = best.get(mask & full);
+  if (hit) return hit.s;
+  // 혹시 못 찾으면 칠한 작은 영역들의 합 (늘 맞는 식)
+  const parts: string[] = [];
+  for (let m = 0; m < 1 << n; m++) if ((mask >> m) & 1) parts.push(`(${sets.map((s, i) => ((m >> i) & 1 ? s : `${s}ᶜ`)).join("∩")})`);
+  return parts.join("∪") || "∅";
+}
+
+/** 영역 하나를 칠하거나 지운 새 식 */
+export function toggleRegion(v: Venn, region: number): string {
+  return simplestExpr(v.sets, regionMask(v) ^ (1 << region));
 }
 
 /** 화면 아래에 보일 LaTeX */

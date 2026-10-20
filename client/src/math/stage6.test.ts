@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildFromInput } from "./build";
 import { paramCount, parseNNet, shownNeurons } from "./nnet";
-import { parseTensor, sliceLatex, sliceMatrix } from "./tensor";
+import { parseTensor, resizeTensor, sliceLatex, sliceMatrix } from "./tensor";
 import { renderTopology, shapeAt } from "./topology";
 
 describe("3D 텐서", () => {
@@ -34,6 +34,14 @@ describe("3D 텐서", () => {
       [6, 8],
     ]);
     expect(sliceLatex(t.dims, t.values, 2, 1)).toContain("T_{:,:,2}");
+  });
+
+  it("크기 바꾸기: 남는 칸 값은 그대로, 새 칸은 0, 1~5로 제한", () => {
+    const r = resizeTensor([2, 2, 2], [1, 2, 3, 4, 5, 6, 7, 8], [2, 2, 3]);
+    expect(r.dims).toEqual([2, 2, 3]);
+    expect(r.values).toEqual([1, 2, 0, 3, 4, 0, 5, 6, 0, 7, 8, 0]);
+    expect(resizeTensor([2, 2, 2], [1, 2, 3, 4, 5, 6, 7, 8], [1, 2, 2]).values).toEqual([1, 2, 3, 4]);
+    expect(resizeTensor([5, 1, 1], [1, 2, 3, 4, 5], [9, 0, 1]).dims).toEqual([5, 1, 1]);
   });
 
   it("행렬 [[…]]은 그대로 행렬 (텐서로 가로채지 않는다)", () => {

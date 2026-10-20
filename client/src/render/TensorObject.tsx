@@ -1,9 +1,9 @@
 import type { SceneIR } from "@sketchlab/shared";
 import katex from "katex";
 import "katex/dist/katex.min.css";
-import { memo, useMemo, type ReactElement } from "react";
+import { memo, useMemo, useState, type ReactElement } from "react";
 import type { ObjectItem } from "../ink/types";
-import { cellIndex, formatCell, sliceLatex, type Dims } from "../math/tensor";
+import { cellIndex, formatCell, resizeTensor, sliceLatex, type Dims } from "../math/tensor";
 import { rotate, type View3 } from "../solid/project";
 import { sessionStore } from "../store/session";
 import { isFresh } from "./Shape2DView";
@@ -45,7 +45,18 @@ interface Drawn {
 
 function TensorBox({ item, ir, interactive }: { item: ObjectItem; ir: TensorIR; interactive: boolean }) {
   const S = item.transform.scale;
-  const { view, handlers } = useTurntable(item, ir.data.view, DEFAULT_VIEW);
+  /** 톡 친 칸 (값 고치기) */
+  const [picked, setPicked] = useState<[number, number, number] | null>(null);
+  const [draft, setDraft] = useState<string | null>(null);
+  // 칸을 톡 → 그 칸을 고른다 (객체 선택 대신). 빈 곳을 톡하면 원래대로 객체 선택
+  const { view, handlers } = useTurntable(item, ir.data.view, DEFAULT_VIEW, (x, y) => {
+    const cellEl = document.elementFromPoint(x, y)?.closest("[data-cell]");
+    const key = cellEl?.getAttribute("data-cell");
+    if (!key || !interactive) return false;
+    setPicked(key.split(",").map(Number) as [number, number, number]);
+    setDraft(null);
+    return true;
+  });
   const dims = ir.data.dims as Dims;
   const slice = ir.data.slice;
   const fresh = isFresh(item.id);
@@ -94,6 +105,34 @@ function TensorBox({ item, ir, interactive }: { item: ObjectItem; ir: TensorIR; 
     [dims, ir.data.values, slice],
   );
 
+  const current = (): TensorIR | null => {
+    const now = sessionStore.getState().items.find((x) => x.id === item.id);
+    return now && now.kind === "object" && now.ir.kind === "tensor" ? now.ir : null;
+  };
+  /** 고른 칸에 값 쓰기 */
+  const writeValue = (text: string) => {
+    const now = current();
+    const v = Number(text.replace(/[−–]/g, "-").replace(",", ".").trim());
+    if (!now || !picked || text.trim() === "" || !Number.isFinite(v)) return;
+    const d = now.data.dims as Dims;
+    const values = [...now.data.values];
+    values[cellIndex(d, ...picked)] = v;
+    sessionStore.getState().commitObjectIR(item.id, now, { ...now, data: { ...now.data, values } }, "텐서 값");
+  };
+  /** 축 하나를 늘리거나 줄이기 (값은 그대로, 새 칸은 0) */
+  const resize = (axis: number, delta: number) => {
+    const now = current();
+    if (!now) return;
+    const d = now.data.dims as Dims;
+    const nextDims = d.map((n, i) => (i === axis ? n + delta : n)) as Dims;
+    const r = resizeTensor(d, now.data.values, nextDims);
+    if (r.dims.every((n, i) => n === d[i])) return;
+    const { slice: sl, ...rest } = now.data;
+    const keep = sl && sl.index < r.dims[sl.axis]! ? { slice: sl } : {};
+    sessionStore.getState().commitObjectIR(item.id, now, { ...now, data: { ...rest, ...keep, dims: r.dims, values: r.values } }, "텐서 크기");
+    if (picked && picked.some((v, i) => v >= r.dims[i]!)) setPicked(null);
+  };
+
   const setSlice = (next: TensorIR["data"]["slice"]) => {
     const now = sessionStore.getState().items.find((x) => x.id === item.id);
     if (!now || now.kind !== "object" || now.ir.kind !== "tensor") return;
@@ -126,9 +165,9 @@ function TensorBox({ item, ir, interactive }: { item: ObjectItem; ir: TensorIR; 
       >
         <rect x={0} y={0} width={S} height={S} fill="transparent" />
         {cubes.map((c) => (
-          <g key={c.key} opacity={c.on ? 1 : 0.55}>
+          <g key={c.key} data-cell={c.key} opacity={c.on ? 1 : 0.55}>
             {c.faces.map((f, i) => (
-              <path key={i} d={f.d} fill={f.fill} stroke={c.on ? "#3D5F99" : "#A0A6B0"} strokeWidth={1} strokeLinejoin="round" />
+              <path key={i} d={f.d} fill={picked && picked.join(",") === c.key ? "#FFD08A" : f.fill} stroke={picked && picked.join(",") === c.key ? "#C77700" : c.on ? "#3D5F99" : "#A0A6B0"} strokeWidth={picked && picked.join(",") === c.key ? 2 : 1} strokeLinejoin="round" />
             ))}
             {c.label && (
               <text
@@ -159,9 +198,52 @@ function TensorBox({ item, ir, interactive }: { item: ObjectItem; ir: TensorIR; 
           ))}
         </div>
       )}
+      {interactive && picked && (
+        <div data-export-skip style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", alignItems: "center", gap: 6, pointerEvents: "auto", marginTop: 6, fontSize: 13, color: theme.color.ink }}>
+          <span style={{ fontFamily: "KaTeX_Main, 'Times New Roman', serif" }}>
+            T[{picked.map((v) => v + 1).join(", ")}] =
+          </span>
+          <input
+            aria-label="칸 값"
+            inputMode="decimal"
+            autoFocus
+            value={draft ?? formatCell(ir.data.values[cellIndex(dims, ...picked)] ?? 0)}
+            onFocus={(e) => e.currentTarget.select()}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") e.currentTarget.blur();
+              e.stopPropagation();
+            }}
+            onBlur={() => {
+              if (draft !== null) writeValue(draft);
+              setDraft(null);
+            }}
+            style={{ width: 72, height: 30, padding: "0 8px", border: `1px solid ${theme.color.accent}`, borderRadius: 8, fontSize: 14, textAlign: "center" }}
+          />
+          <button type="button" onClick={() => setPicked(null)} style={{ ...btn(false), minHeight: 30 }}>
+            닫기
+          </button>
+        </div>
+      )}
       {interactive && (
-        <div data-export-skip style={{ textAlign: "center", fontSize: 12, color: theme.color.asymptote, marginTop: 2 }}>
-          드래그해서 돌리기 · 겹·행·열을 누를 때마다 다음 단면
+        <div data-export-skip style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: 10, pointerEvents: "auto", marginTop: 6, fontSize: 12.5, color: theme.color.asymptote }}>
+          {AXES.map((name, axis) => (
+            <span key={name} style={{ display: "inline-flex", alignItems: "center", gap: 4, whiteSpace: "nowrap" }}>
+              {name}
+              <button type="button" aria-label={`${name} 줄이기`} disabled={dims[axis] === 1} onClick={() => resize(axis, -1)} style={{ ...btn(false), minWidth: 28, minHeight: 28, padding: 0, opacity: dims[axis] === 1 ? 0.4 : 1 }}>
+                −
+              </button>
+              <b style={{ color: theme.color.ink, minWidth: 10, textAlign: "center" }}>{dims[axis]}</b>
+              <button type="button" aria-label={`${name} 늘리기`} disabled={dims[axis] === 5} onClick={() => resize(axis, 1)} style={{ ...btn(false), minWidth: 28, minHeight: 28, padding: 0, opacity: dims[axis] === 5 ? 0.4 : 1 }}>
+                +
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+      {interactive && (
+        <div data-export-skip style={{ textAlign: "center", fontSize: 12, color: theme.color.asymptote, marginTop: 4 }}>
+          드래그해서 돌리기 · 칸을 톡 눌러 값 고치기 · 겹·행·열 단추로 단면
         </div>
       )}
     </div>

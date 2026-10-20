@@ -63,3 +63,13 @@ export function sliceLatex(dims: Dims, values: readonly number[], axis: number, 
 }
 
 export const formatCell = num;
+
+/** 크기 바꾸기 — 남는 칸의 값은 그대로, 새 칸은 0 (각 축 1~5) */
+export function resizeTensor(dims: Dims, values: readonly number[], next: Dims): { dims: Dims; values: number[] } {
+  const d = next.map((n) => Math.max(1, Math.min(MAX, Math.round(n)))) as Dims;
+  const out: number[] = [];
+  for (let i = 0; i < d[0]; i++)
+    for (let j = 0; j < d[1]; j++)
+      for (let k = 0; k < d[2]; k++) out.push(i < dims[0] && j < dims[1] && k < dims[2] ? (values[cellIndex(dims, i, j, k)] ?? 0) : 0);
+  return { dims: d, values: out };
+}

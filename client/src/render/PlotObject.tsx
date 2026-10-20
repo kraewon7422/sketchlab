@@ -12,6 +12,7 @@ import { analyze, definiteIntegral, toFunction, type Analysis } from "../math/la
 import { sampleFunction, sampleParametric, type Fn, type Pt, type View } from "../math/sample";
 import { toBox } from "../math/view";
 import { TUPPER_H, TUPPER_W, tupperGrid } from "../math/tupper";
+import { discreteCaption, rangeCaption } from "../math/stats";
 import { sessionStore } from "../store/session";
 import { isFresh } from "./Shape2DView";
 import { plot, stroke, theme } from "./theme";
@@ -53,10 +54,11 @@ function KaTeX({ latex, display = false, size }: { latex: string; display?: bool
   return <span style={{ fontSize: size }} dangerouslySetInnerHTML={{ __html: html }} />;
 }
 
-export default memo(function PlotObject({ item }: { item: ObjectItem }): ReactElement | null {
+/** interactive: 막대 톡·구간 끝 끌기를 받는다 (펜 도구이고 고르지 않았을 때) */
+export default memo(function PlotObject({ item, interactive = false }: { item: ObjectItem; interactive?: boolean }): ReactElement | null {
   if (item.ir.kind === "formula") return <FormulaBox item={item} latex={item.ir.data.latex} fontSize={item.ir.data.fontSize} inline={item.ir.data.inline} />;
   if (item.ir.kind === "chemEq") return <FormulaBox item={item} latex={`\\ce{${item.ir.data.ce}}`} fontSize={item.ir.data.fontSize} inline={item.ir.data.inline} />;
-  if (item.ir.kind === "plot2d") return item.ir.data.tupper ? <TupperBox item={item} k={item.ir.data.tupper.k} caption={item.ir.data.caption} showCaption={item.ir.data.showCaption} /> : <PlotBox item={item} ir={item.ir} />;
+  if (item.ir.kind === "plot2d") return item.ir.data.tupper ? <TupperBox item={item} k={item.ir.data.tupper.k} caption={item.ir.data.caption} showCaption={item.ir.data.showCaption} /> : <PlotBox item={item} ir={item.ir} interactive={interactive} />;
   return null;
 });
 
@@ -148,7 +150,7 @@ function pathFrom(runs: Pt[][], bx: (x: number) => number, by: (y: number) => nu
     .join("");
 }
 
-function PlotBox({ item, ir }: { item: ObjectItem; ir: PlotIR }) {
+function PlotBox({ item, ir, interactive }: { item: ObjectItem; ir: PlotIR; interactive: boolean }) {
   const clipId = useId();
   const W = item.transform.scale;
   const H = W * plot.aspect;
@@ -179,7 +181,67 @@ function PlotBox({ item, ir }: { item: ObjectItem; ir: PlotIR }) {
   const t = plot.tick;
   const a = plot.arrow;
 
-  const captionLatex = data.caption ?? data.functions.map((f) => f.latex).join(",\\quad ");
+  // 확률분포: 고른 막대·칠한 구간으로 확률을 그때그때 다시 계산해 보여 준다
+  const dist = data.dist;
+  const continuous = !!dist && dist.kind !== "binomial" && dist.kind !== "poisson";
+  const range = data.shade?.[0];
+  const captionLatex = dist
+    ? continuous && range
+      ? rangeCaption(dist, range.from, range.to)
+      : !continuous
+        ? discreteCaption(dist, (data.bars ?? []).filter((b) => b.on).map((b) => b.x))
+        : (data.caption ?? "")
+    : (data.caption ?? data.functions.map((f) => f.latex).join(",\\quad "));
+  // 확률분포가 아닌 막대그래프: 고른 막대의 합·평균
+  const picked = !dist ? (data.bars ?? []).filter((b) => b.on) : [];
+  const live = interactive ? "auto" : "none";
+
+  /** 막대 톡 → 고르기·풀기 (Undo 1단계) */
+  const toggleBar = (i: number) => {
+    const now = currentPlot(item.id) ?? ir;
+    const bars = (now.data.bars ?? []).map((b, j) => {
+      if (j !== i) return b;
+      const { on: _on, ...rest } = b;
+      return b.on ? rest : { ...rest, on: true };
+    });
+    sessionStore.getState().commitObjectIR(item.id, now, { ...now, data: { ...now.data, bars } }, "막대 고르기");
+  };
+
+  /** 구간 끝 끌기 — 끄는 동안은 미리보기, 놓으면 한 번 기록 */
+  const dragEdge = (which: 0 | 1) => (e: React.PointerEvent<SVGElement>) => {
+    e.stopPropagation();
+    const svg = (e.currentTarget as SVGElement).ownerSVGElement;
+    if (!svg || !range) return;
+    const start = currentPlot(item.id) ?? ir;
+    const r = svg.getBoundingClientRect();
+    const span = view.xmax - view.xmin;
+    const step = niceStep(span / 200);
+    try {
+      (e.currentTarget as SVGElement).setPointerCapture(e.pointerId);
+    } catch {
+      /* 캡처를 못 해도 끌기는 된다 */
+    }
+    const at = (clientX: number) => Math.round((view.xmin + ((clientX - r.left) / r.width) * span) / step) * step;
+    const apply = (clientX: number) => {
+      const base = currentPlot(item.id) ?? start;
+      const sh = base.data.shade?.[0];
+      if (!sh) return base;
+      const x = Math.min(view.xmax, Math.max(view.xmin, at(clientX)));
+      const next = { ...sh, ...(which === 0 ? { from: x } : { to: x }) };
+      return { ...base, data: { ...base.data, shade: [next, ...(base.data.shade ?? []).slice(1)] } };
+    };
+    const move = (ev: PointerEvent) => sessionStore.getState().previewObjectIR(item.id, apply(ev.clientX));
+    const up = (ev: PointerEvent) => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+      const end = apply(ev.clientX);
+      sessionStore.getState().commitObjectIR(item.id, start, end, "확률 구간");
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+  };
 
   return (
     <div
@@ -215,6 +277,8 @@ function PlotBox({ item, ir }: { item: ObjectItem; ir: PlotIR }) {
                 y={y0}
                 width={Math.max(1, x1 - x0)}
                 height={Math.max(0.5, y1 - y0)}
+                style={{ pointerEvents: live, cursor: interactive ? "pointer" : undefined }}
+                onClick={interactive ? () => toggleBar(i) : undefined}
                 // 구하는 범위가 있으면 그 막대만 진하게 (나머지는 옅은 회색), 없으면 모두 파랗게
                 fill={b.on || !(data.bars ?? []).some((x) => x.on) ? theme.color.accent : plot.palette[0]}
                 fillOpacity={b.on ? 0.55 : (data.bars ?? []).some((x) => x.on) ? 0.12 : 0.42}
@@ -236,6 +300,22 @@ function PlotBox({ item, ir }: { item: ObjectItem; ir: PlotIR }) {
             </g>
           ))}
         </g>
+
+        {/* 확률 구간의 양 끝 손잡이 — 끌어서 "어디부터 어디까지" */}
+        {continuous && range && interactive && (
+          <g>
+            {([0, 1] as const).map((w) => {
+              const x = box.x(w === 0 ? range.from : range.to);
+              return (
+                <g key={w} style={{ pointerEvents: "auto", cursor: "ew-resize", touchAction: "none" }} onPointerDown={dragEdge(w)}>
+                  <rect x={x - 14} y={0} width={28} height={H} fill="transparent" />
+                  <circle cx={x} cy={ay} r={9} fill={theme.color.bg} stroke={theme.color.accent} strokeWidth={2.5} />
+                  <path d={`M${x - 3},${ay - 3}l-3,3l3,3M${x + 3},${ay - 3}l3,3l-3,3`} fill="none" stroke={theme.color.accent} strokeWidth={1.5} />
+                </g>
+              );
+            })}
+          </g>
+        )}
 
         {/* 축 — 끝 화살표, 원점 O, 축 이름은 바깥쪽 */}
         {data.showAxes && (
@@ -343,12 +423,37 @@ function PlotBox({ item, ir }: { item: ObjectItem; ir: PlotIR }) {
       <div style={{ marginTop: theme.space[2], color: theme.color.ink, textAlign: "center" }}>
         {data.showCaption && <KaTeX latex={captionLatex + (drawn.valueLatex ? `=${drawn.valueLatex}` : "")} size={17} />}
         {drawn.error && <div style={{ color: theme.color.danger, fontSize: 13, marginTop: theme.space[1] }}>{drawn.error}</div>}
+        {picked.length > 0 && (
+          <div style={{ fontSize: 13, color: theme.color.accent, marginTop: 2 }}>
+            고른 막대 {picked.length}개 · 합 {fmtSum(picked.reduce((a, b) => a + b.h, 0))} · 평균 {fmtSum(picked.reduce((a, b) => a + b.h, 0) / picked.length)}
+          </div>
+        )}
+        {interactive && (dist || (data.bars ?? []).length > 0) && (
+          <div data-export-skip style={{ fontSize: 12, color: theme.color.asymptote, marginTop: 2 }}>
+            {continuous ? "축 위의 동그라미를 끌어 구간을 바꿔요" : "막대를 톡톡 눌러 고르면 확률(합)을 구해요"}
+          </div>
+        )}
       </div>
 
       {(data.params ?? []).length > 0 && <Sliders item={item} ir={ir} />}
     </div>
   );
 }
+
+/** 스토어의 지금 IR (끄는 동안 매 프레임 바뀐다 — props는 한 박자 늦다) */
+function currentPlot(id: string): PlotIR | null {
+  const it = sessionStore.getState().items.find((i) => i.id === id);
+  return it && it.kind === "object" && it.ir.kind === "plot2d" ? it.ir : null;
+}
+
+/** 1·2·5 × 10ⁿ 꼴의 깔끔한 간격 */
+function niceStep(raw: number): number {
+  const e = 10 ** Math.floor(Math.log10(raw || 1));
+  const m = raw / e;
+  return (m < 1.5 ? 1 : m < 3.5 ? 2 : m < 7.5 ? 5 : 10) * e;
+}
+
+const fmtSum = (v: number) => String(Number(v.toPrecision(5)));
 
 function by(box: ReturnType<typeof toBox>, y: number, H: number): number {
   return Math.min(Math.max(box.y(y), 0), H);

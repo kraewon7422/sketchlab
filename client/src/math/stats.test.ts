@@ -1,7 +1,33 @@
 import { SceneIRSchema } from "@sketchlab/shared";
 import { describe, expect, it } from "vitest";
 import { buildFromInput } from "./build";
-import { binomialPmf, buildDist, normalCdf, parseDist, poissonPmf, probability } from "./stats";
+import { binomialPmf, buildDist, discreteCaption, normalCdf, parseDist, poissonPmf, probability, rangeCaption } from "./stats";
+
+describe("직접 고르기 (막대 톡 · 구간 끌기)", () => {
+  it("분포를 그래프에 함께 저장, 연속분포는 질문이 없어도 μ±σ를 칠해 둔다", () => {
+    const n = buildDist("N(0,1)");
+    if (n?.kind !== "plot2d") throw new Error("그래프 아님");
+    expect(n.data.dist).toEqual({ kind: "normal", p: [0, 1], latex: expect.any(String) });
+    expect(n.data.shade?.[0]).toMatchObject({ from: -1, to: 1 });
+    expect(n.data.caption).toContain("0.6827");
+    expect(SceneIRSchema.safeParse(n).success).toBe(true);
+  });
+
+  it("막대: 하나·이어진 것·떨어진 것", () => {
+    const b = buildDist("B(4,0.5)");
+    if (b?.kind !== "plot2d" || !b.data.dist) throw new Error("그래프 아님");
+    expect(discreteCaption(b.data.dist, [])).not.toContain("P(");
+    expect(discreteCaption(b.data.dist, [2])).toContain("P(X=2)\\approx 0.3750");
+    expect(discreteCaption(b.data.dist, [3, 2, 4])).toContain("P(2\\le X\\le 4)\\approx 0.6875");
+    expect(discreteCaption(b.data.dist, [0, 4])).toContain("P(X\\in\\{0,4\\})\\approx 0.1250");
+  });
+
+  it("구간: 끝을 거꾸로 끌어도 작은 쪽부터", () => {
+    const n = buildDist("N(170,6^2)");
+    if (n?.kind !== "plot2d" || !n.data.dist) throw new Error("그래프 아님");
+    expect(rangeCaption(n.data.dist, 182, 164)).toContain("P(164<X<182)\\approx 0.8186");
+  });
+});
 
 describe("확률분포", () => {
   it("정규분포 확률 (표준정규분포표와 같은 값)", () => {
