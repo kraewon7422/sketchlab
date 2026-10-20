@@ -254,6 +254,11 @@ const Plot2D = z.object({
       latex: z.string(),
     })
     .optional(),
+  /** 코드로 계산하는 유명한 곡선 (제타 임계선·푸리에 사각파·테일러 sin) — 계수 N은 params 슬라이더 */
+  special: z
+    .array(z.object({ name: z.enum(["zetaCritical", "fourierSquare", "taylorSin"]), color: z.string().optional() }))
+    .max(3)
+    .optional(),
 });
 
 // ─────────────────────────────────────────────────────────── 수식·화학
@@ -367,6 +372,23 @@ const NNet = z.object({
   showLabels: z.boolean().default(true),
 });
 
+export const FIGURE_NAMES = ["mobius", "klein", "trefoil", "genus", "mandelbrot", "koch", "sierpinski", "golden", "lorenz", "life", "logistic", "euler"] as const;
+
+/**
+ * 유명한 그림 (수학·과학·컴퓨터) — 이름 하나로 그리고, 그림마다 직접 바꿀 수 있는 값이 있다.
+ *   n: 종수(구멍 수)·프랙탈 단계  · t: 오일러 원의 각 θ  · view: 돌려 본 각도
+ *   zoom: 만델브로 집합의 보는 곳 (가운데 cx + i·cy, 너비 s)  · cells: 라이프 게임의 산 칸 [행, 열]
+ */
+const Figure = z.object({
+  name: z.enum(FIGURE_NAMES),
+  n: z.number().int().min(0).max(12).optional(),
+  t: z.number().optional(),
+  view: z.object({ yaw: z.number(), pitch: z.number() }).optional(),
+  zoom: z.object({ cx: z.number(), cy: z.number(), s: z.number().positive() }).optional(),
+  cells: z.array(z.tuple([z.number().int(), z.number().int()])).max(2500).optional(),
+  gen: z.number().int().min(0).optional(),
+});
+
 /** 코드 셀이 낸 결과 한 조각 — 글(print)·표(table)·그래프(plot) */
 export const CodeOutputItem = z.discriminatedUnion("t", [
   z.object({ t: z.literal("text"), text: z.string().max(20000), error: z.boolean().optional() }),
@@ -425,6 +447,7 @@ export const SceneIRSchema = z.discriminatedUnion("kind", [
   z.object({ ...meta, kind: z.literal("topology"), data: Topology }),
   z.object({ ...meta, kind: z.literal("nnet"), data: NNet }),
   z.object({ ...meta, kind: z.literal("code"), data: Code }),
+  z.object({ ...meta, kind: z.literal("figure"), data: Figure }),
 ]);
 
 /**

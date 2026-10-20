@@ -51,10 +51,55 @@ export function normalizeInput(text: string): string {
     if (end < 0) break;
     s = `${s.slice(0, m.index)}\\sqrt{${s.slice(m.index + m[0].length, end)}}${s.slice(end + 1)}`;
   }
-  s = s.replace(/(?<![\\a-zA-Z])(arcsin|arccos|arctan|sin|cos|tan|sec|csc|cot|ln|log|exp)(?=[^a-zA-Z]|[a-zA-Z]|$)/g, "\\$1 ");
+  s = expandNamedCalls(s);
+  // 긴 이름 먼저 (tanh를 tan·h로 읽지 않게)
+  s = s.replace(/(?<![\\a-zA-Z])(arcsin|arccos|arctan|sinh|cosh|tanh|sin|cos|tan|sec|csc|cot|ln|log|exp)(?=[^a-zA-Z]|[a-zA-Z]|$)/g, "\\$1 ");
   s = s.replace(/(?<![\\a-zA-Z])(pi|theta)(?![a-zA-Z])/g, "\\$1 ");
   // 명령 뒤 공백은 글자가 이어질 때만 필요하다 (\sin x). 그 외(\sin(x), \pi*x)는 지운다.
   return s.replace(/ +/g, " ").replace(/(\\[a-zA-Z]+) (?=[^a-zA-Z ]|$)/g, "$1").trim();
+}
+
+/**
+ * 컴퓨터·해석에서 자주 쓰는 함수 이름 → 식 (y=relu(x), y=sigmoid(2x) …). 괄호 짝을 맞춰 안의 식을 넣는다.
+ * 식 계산(Compute Engine)이 아는 것(\max, \operatorname{erf}, \zeta …)으로 바꾼다.
+ */
+const NAMED: Record<string, (a: string) => string> = {
+  sigmoid: (a) => `\\frac{1}{1+e^{-(${a})}}`,
+  relu: (a) => `\\max(0,${a})`,
+  leakyrelu: (a) => `\\max(0.01(${a}),${a})`,
+  softplus: (a) => `\\ln(1+e^{${a}})`,
+  swish: (a) => `\\frac{${a}}{1+e^{-(${a})}}`,
+  gelu: (a) => `\\frac{${a}}{2}\\left(1+\\operatorname{erf}\\left(\\frac{${a}}{\\sqrt{2}}\\right)\\right)`,
+  step: (a) => `\\operatorname{Heaviside}(${a})`,
+  heaviside: (a) => `\\operatorname{Heaviside}(${a})`,
+  sign: (a) => `\\operatorname{sgn}(${a})`,
+  sgn: (a) => `\\operatorname{sgn}(${a})`,
+  zeta: (a) => `\\zeta(${a})`,
+  gamma: (a) => `\\Gamma(${a})`,
+  erf: (a) => `\\operatorname{erf}(${a})`,
+};
+
+function expandNamedCalls(src: string): string {
+  let s = src;
+  const re = new RegExp(`(?<![\\\\a-zA-Z])(${Object.keys(NAMED).join("|")})\\s*\\(`, "i");
+  for (let guard = 0; guard < 20; guard++) {
+    const m = re.exec(s);
+    if (!m) break;
+    const open = m.index + m[0].length - 1;
+    let depth = 0;
+    let end = -1;
+    for (let i = open; i < s.length; i++) {
+      if (s[i] === "(") depth++;
+      else if (s[i] === ")" && --depth === 0) {
+        end = i;
+        break;
+      }
+    }
+    if (end < 0) break;
+    const make = NAMED[(m[1] as string).toLowerCase()] as (a: string) => string;
+    s = `${s.slice(0, m.index)}${make(s.slice(open + 1, end))}${s.slice(end + 1)}`;
+  }
+  return s;
 }
 
 function freeVars(json: Json): string[] {

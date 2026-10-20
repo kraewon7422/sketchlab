@@ -13,6 +13,7 @@ import { sampleFunction, sampleParametric, type Fn, type Pt, type View } from ".
 import { toBox } from "../math/view";
 import { TUPPER_H, TUPPER_W, tupperGrid } from "../math/tupper";
 import { discreteCaption, rangeCaption } from "../math/stats";
+import { special } from "../math/special";
 import { sessionStore } from "../store/session";
 import { isFresh } from "./Shape2DView";
 import { plot, stroke, theme } from "./theme";
@@ -599,6 +600,16 @@ function renderCurves(data: PlotData, view: View, W: number, H: number, params: 
     } else {
       out.error = "그래프로 그릴 수 없는 식이에요";
     }
+  });
+
+  // 코드로 계산하는 유명한 곡선 (제타 임계선·푸리에·테일러) — 계수 N은 슬라이더
+  (data.special ?? []).forEach((sp, i) => {
+    const color = sp.color ?? (plot.palette[(data.functions.length + i) % plot.palette.length] as string);
+    const g: Fn = (x) => special(sp.name, x, params);
+    const sampled = sampleFunction(g, view, { widthPx: W, heightPx: H });
+    const d = pathFrom(sampled.runs, box.x, box.y);
+    out.curves.push({ d, color });
+    out.trace.push({ d, f: g, color });
   });
 
   for (const sh of data.shade ?? []) {

@@ -90,7 +90,15 @@ const COLOR_MUG: V = [96, 146, 214];
  * 광선마다 최대 64걸음 — 300×300도 수십 ms.
  */
 export function renderTopology(t: number, view: View3, w: number, h: number, half = 1.75): Uint8ClampedArray {
-  const sdf = shapeAt(t);
+  const base: V = [0, 1, 2].map((i) => lerp(COLOR_DONUT[i] as number, COLOR_MUG[i] as number, ease(t))) as V;
+  return renderSdf(shapeAt(t), view, w, h, base, half);
+}
+
+/**
+ * 거리 함수로 정한 모양 하나를 그린다 (도넛↔컵, 종수 그림 등이 같이 쓴다). base = 바탕색 RGB.
+ * 화면 [−half, half]² 를 평행 투영, 배경 투명.
+ */
+export function renderSdf(sdf: (p: V) => number, view: View3, w: number, h: number, base: readonly number[], half = 1.75): Uint8ClampedArray {
   const out = new Uint8ClampedArray(w * h * 4);
   const dir = unrotate([0, 0, -1], view);
   const light = (() => {
@@ -98,7 +106,6 @@ export function renderTopology(t: number, view: View3, w: number, h: number, hal
     const n = Math.hypot(...l);
     return [l[0] / n, l[1] / n, l[2] / n] as V;
   })();
-  const base: V = [0, 1, 2].map((i) => lerp(COLOR_DONUT[i] as number, COLOR_MUG[i] as number, ease(t))) as V;
   const e = 0.002;
   for (let py = 0; py < h; py++) {
     for (let px = 0; px < w; px++) {
@@ -139,9 +146,9 @@ export function renderTopology(t: number, view: View3, w: number, h: number, hal
       const rim = (1 - Math.abs(nx * dir[0] + ny * dir[1] + nz * dir[2])) ** 3 * 0.25;
       const shade = 0.32 + 0.68 * diff;
       const i = (py * w + px) * 4;
-      out[i] = base[0] * shade + 255 * (spec * 0.55 + rim * 0.4);
-      out[i + 1] = base[1] * shade + 255 * (spec * 0.55 + rim * 0.4);
-      out[i + 2] = base[2] * shade + 255 * (spec * 0.55 + rim * 0.4);
+      out[i] = (base[0] as number) * shade + 255 * (spec * 0.55 + rim * 0.4);
+      out[i + 1] = (base[1] as number) * shade + 255 * (spec * 0.55 + rim * 0.4);
+      out[i + 2] = (base[2] as number) * shade + 255 * (spec * 0.55 + rim * 0.4);
       out[i + 3] = 255;
     }
   }

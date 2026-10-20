@@ -13,6 +13,8 @@ import { buildSpace, describeSpace } from "../math/space3d";
 import { parseTensor } from "../math/tensor";
 import { paramCount, parseNNet } from "../math/nnet";
 import { TOPOLOGY } from "../math/build";
+import { FIGURES, parseFigure } from "../math/figures";
+import { parseSpecial, SPECIAL_LATEX } from "../math/special";
 import { measureKatex } from "../math/measure";
 import { SOLID_NAMES } from "../solid/mesh";
 import { CHEM_EXAMPLES, chemFromInput } from "../chem/names";
@@ -55,6 +57,23 @@ const GROUPS: Array<{ title: string; examples: Example[]; solids?: true; chem?: 
     ],
   },
   {
+    title: "컴퓨터·해석 함수",
+    examples: [
+      ["시그모이드", "y=sigmoid(x)"],
+      ["ReLU", "y=relu(x)"],
+      ["Leaky ReLU", "y=leakyrelu(x)"],
+      ["tanh", "y=tanh(x)"],
+      ["softplus", "y=softplus(x)"],
+      ["GELU", "y=gelu(x)"],
+      ["계단 함수", "y=step(x)"],
+      ["리만 제타", "y=zeta(x)"],
+      ["제타 임계선 영점", "리만 제타 임계선"],
+      ["감마 함수", "y=gamma(x)"],
+      ["푸리에 급수", "푸리에 급수"],
+      ["테일러 급수", "테일러 sin"],
+    ],
+  },
+  {
     title: "확률·통계",
     examples: [
       ["정규분포 확률", "N(170,6^2), P(164<X<182)"],
@@ -67,10 +86,35 @@ const GROUPS: Array<{ title: string; examples: Example[]; solids?: true; chem?: 
   {
     title: "집합 (벤 다이어그램)",
     examples: [
+      ["세 집합 직접 칠하기", "벤 3"],
       ["교집합", "A\\cap B"],
       ["차집합", "A-B"],
       ["여집합", "벤 (A\\cup B)^c"],
       ["세 집합", "(A\\cup B)\\cap C"],
+    ],
+  },
+  {
+    title: "위상수학·유명한 모양",
+    examples: [
+      ["뫼비우스 띠", "뫼비우스 띠"],
+      ["클라인 병", "클라인 병"],
+      ["세잎 매듭", "세잎 매듭"],
+      ["구멍 2개 도넛", "종수 2"],
+      ["도넛 ↔ 컵", "도넛 컵"],
+      ["만델브로 집합", "만델브로 집합"],
+      ["코흐 눈송이", "코흐 눈송이"],
+      ["시에르핀스키", "시에르핀스키 삼각형"],
+      ["황금 나선", "황금 나선"],
+    ],
+  },
+  {
+    title: "과학·컴퓨터",
+    examples: [
+      ["로렌츠 끌개 (나비 효과)", "로렌츠 끌개"],
+      ["로지스틱 사상 (혼돈)", "로지스틱 사상"],
+      ["라이프 게임", "라이프 게임"],
+      ["오일러 공식", "오일러 공식"],
+      ["신경망", "신경망 3-4-4-2"],
     ],
   },
   {
@@ -161,6 +205,10 @@ export default function FormulaSheet({ onClose, area, onOpenAiSettings }: Formul
       return { html: "", note: `신경망 ${layers.join("–")} · 층 ${layers.length}개 · 가중치 ${pc.weights}개 + 편향 ${pc.biases}개` };
     }
     if (TOPOLOGY.test(text)) return { html: "", note: "위상수학 · 도넛이 머그잔으로 (구멍 1개는 그대로) — 재생 단추·슬라이더" };
+    const fig = parseFigure(text);
+    if (fig) return { html: "", note: `${FIGURES[fig.name].title} · ${FIGURES[fig.name].note}` };
+    const curve = parseSpecial(text);
+    if (curve) return { html: katex.renderToString(SPECIAL_LATEX[curve], { throwOnError: false, displayMode: true }), note: curve === "zetaCritical" ? "리만 제타 함수의 임계선 · 0에 닿는 곳이 영점 (곡선을 눌러 따라가 보세요)" : "항의 수 N을 슬라이더로 늘려 보세요" };
     if (parseTupper(text)) return { html: katex.renderToString(TUPPER_LATEX, { throwOnError: false, displayMode: true }), note: "투퍼의 자기 참조 공식 · 그래프가 이 식 모양이 돼요" };
     const venn = parseVenn(text);
     if (venn) return { html: katex.renderToString(vennLatex(venn), { throwOnError: false, displayMode: true }), note: `벤 다이어그램 · 집합 ${venn.sets.join(", ")} · 식의 영역을 칠해요` };
@@ -241,10 +289,25 @@ export default function FormulaSheet({ onClose, area, onOpenAiSettings }: Formul
       // 텐서·도넛: 정사각 그림 + 아래(단면 행렬·단추 / 슬라이더), 신경망: 가로로 긴 그림 + 한 줄
       const maxW = area.width - theme.space[6] * 2;
       const w = r.ir.kind === "nnet" ? Math.min(480, maxW) : Math.min(solid.size, maxW);
-      const h = r.ir.kind === "nnet" ? Math.round(w * 0.62) + 28 : r.ir.kind === "tensor" ? w + 110 : w + 72;
+      // 아래 단추 줄(신경망 −/+ · 텐서 크기·단면)까지 포함한 높이
+      const h = r.ir.kind === "nnet" ? Math.round(w * 0.62) + 110 : r.ir.kind === "tensor" ? w + 150 : w + 72;
       const pos = freeSpot(w, h, area);
       const oid = sessionStore.getState().addObject(r.ir, { x: pos.x, y: pos.y, scale: w }, { minX: pos.x, minY: pos.y, maxX: pos.x + w, maxY: pos.y + h });
       markFresh(oid);
+      onClose();
+      return;
+    }
+    if (r.ir.kind === "figure") {
+      // 그림마다 가로세로 비가 다르다 (+ 이름·설명 두 줄 + 단추 줄)
+      const maxW = area.width - theme.space[6] * 2;
+      const name = r.ir.data.name;
+      const wide = name === "life" || name === "mandelbrot" || name === "logistic" || name === "golden";
+      const w = Math.min(wide ? 440 : solid.size + 40, maxW);
+      const ratio: Record<string, number> = { genus: 0.7, mandelbrot: 0.75, logistic: 0.62, sierpinski: 0.92, golden: 0.7, euler: 0.86, life: 26 / 40 };
+      const h = Math.round(w * (ratio[name] ?? 1)) + 96;
+      const pos = freeSpot(w, h, area);
+      const fid = sessionStore.getState().addObject(r.ir, { x: pos.x, y: pos.y, scale: w }, { minX: pos.x, minY: pos.y, maxX: pos.x + w, maxY: pos.y + h });
+      markFresh(fid);
       onClose();
       return;
     }

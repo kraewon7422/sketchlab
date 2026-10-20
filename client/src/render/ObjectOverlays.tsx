@@ -33,7 +33,10 @@ const NNetObject = lazy(() => import("./NNetObject"));
 /** 7단계: 코드 블록 — 실행기(작업자·Pyodide)는 ▶를 누를 때 */
 const CodeObject = lazy(() => import("./CodeObject"));
 
-const OVERLAY_KINDS = new Set(["plot2d", "formula", "chemEq", "solid3d", "space3d", "chem", "text", "venn", "table", "tensor", "topology", "nnet", "code"]);
+/** 유명한 그림 (뫼비우스·만델브로·라이프 게임 …) */
+const FigureObject = lazy(() => import("./FigureObject"));
+
+const OVERLAY_KINDS = new Set(["plot2d", "formula", "chemEq", "solid3d", "space3d", "chem", "text", "venn", "table", "tensor", "topology", "nnet", "code", "figure"]);
 
 /** interactive: 펜 도구일 때만 입체를 돌릴 수 있다 (지우개일 땐 터치가 캔버스로 가야 지워진다) */
 export function ObjectOverlays({ interactive }: { interactive: boolean }): ReactElement {
@@ -79,6 +82,8 @@ export function ObjectOverlays({ interactive }: { interactive: boolean }): React
               <TopologyObject key={item.id} item={item} interactive={interactive && !selection.includes(item.id)} />
             ) : item.ir.kind === "nnet" ? (
               <NNetObject key={item.id} item={item} interactive={interactive && !selection.includes(item.id)} />
+            ) : item.ir.kind === "figure" ? (
+              <FigureObject key={item.id} item={item} interactive={interactive && !selection.includes(item.id)} />
             ) : item.ir.kind === "code" ? (
               <CodeObject key={item.id} item={item} interactive={interactive && !selection.includes(item.id)} />
             ) : (

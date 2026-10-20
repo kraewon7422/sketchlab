@@ -11,6 +11,8 @@ import { parseVenn } from "./venn";
 import { buildSpace } from "./space3d";
 import { parseTensor } from "./tensor";
 import { parseNNet } from "./nnet";
+import { parseSpecial, SPECIAL_LATEX, type SpecialName } from "./special";
+import { parseFigure } from "./figures";
 
 /** 도넛 ↔ 머그잔 (위상수학) */
 export const TOPOLOGY = /^\s*(?:위상수학|위상|토폴로지|topology|도넛\s*(?:↔|<->|-|와|과)?\s*(?:컵|머그잔?)|donut\s*(?:↔|<->|-|and)?\s*(?:cup|mug))\s*$/i;
@@ -34,6 +36,17 @@ function meta(): Pick<SceneIR, "version" | "confidence" | "source"> {
   return { version: IR_VERSION, confidence: 1, source: "manual" };
 }
 
+/** 특수 곡선 그래프 — 보기 좋은 범위와 N 슬라이더 */
+function specialPlot(name: SpecialName): SceneIR {
+  const base = { grid: false, showAxes: true, showCaption: true, caption: SPECIAL_LATEX[name] } as const;
+  if (name === "zetaCritical")
+    return { ...meta(), kind: "plot2d", data: { ...base, functions: [], special: [{ name }], view: { xmin: 0, xmax: 50, ymin: -0.5, ymax: 4, aspect: "auto", xTicks: "auto", xLabel: "t", yLabel: "|\\zeta(\\frac12+it)|" } } };
+  const N = { name: "N", value: name === "fourierSquare" ? 3 : 2, min: 1, max: name === "fourierSquare" ? 40 : 12, step: 1 };
+  if (name === "fourierSquare")
+    return { ...meta(), kind: "plot2d", data: { ...base, functions: [], special: [{ name }], params: [N], view: { xmin: -2 * Math.PI, xmax: 2 * Math.PI, ymin: -1.6, ymax: 1.6, aspect: "auto", xTicks: "pi" } } };
+  return { ...meta(), kind: "plot2d", data: { ...base, functions: [{ latex: "y=\\sin x", kind: "explicit", color: "#9AA3B2" }], special: [{ name }], params: [N], view: { xmin: -2 * Math.PI, xmax: 2 * Math.PI, ymin: -2.5, ymax: 2.5, aspect: "auto", xTicks: "pi" } } };
+}
+
 export function buildFromInput(input: string): BuildResult {
   // 3D 텐서 (3겹 괄호 · "텐서 2x3x4") — 행렬 [[…]]보다 먼저
   const tensor = parseTensor(input);
@@ -41,6 +54,12 @@ export function buildFromInput(input: string): BuildResult {
   const layers = parseNNet(input);
   if (layers) return { ok: true, analysis: { kind: "formula", latex: input }, ir: { ...meta(), kind: "nnet", data: { layers, showLabels: true } } };
   if (TOPOLOGY.test(input)) return { ok: true, analysis: { kind: "formula", latex: input }, ir: { ...meta(), kind: "topology", data: { t: 0 } } };
+  // 유명한 그림 (뫼비우스 띠·만델브로·라이프 게임 …)
+  const fig = parseFigure(input);
+  if (fig) return { ok: true, analysis: { kind: "formula", latex: input }, ir: { ...meta(), kind: "figure", data: fig } };
+  // 유명한 곡선 (제타 임계선·푸리에 사각파·테일러 sin)
+  const sp = parseSpecial(input);
+  if (sp) return { ok: true, analysis: { kind: "formula", latex: SPECIAL_LATEX[sp] }, ir: specialPlot(sp) };
 
   // 좌표공간 속 곡면·입체 (z가 든 식, 평행육면체) — 평면만 여러 개면 null이라 연립방정식으로 간다
   const space = buildSpace(input);

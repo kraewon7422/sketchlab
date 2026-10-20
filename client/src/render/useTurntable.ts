@@ -68,6 +68,9 @@ export function useTurntable(item: { id: string }, irView: View3 | undefined, de
     } else if (current.ir.kind === "tensor") {
       before = { ...current.ir, data: { ...current.ir.data, view: start } };
       after = { ...current.ir, data: { ...current.ir.data, view: { ...now } } };
+    } else if (current.ir.kind === "figure") {
+      before = { ...current.ir, data: { ...current.ir.data, view: start } };
+      after = { ...current.ir, data: { ...current.ir.data, view: { ...now } } };
     } else if (current.ir.kind === "topology") {
       before = { ...current.ir, data: { ...current.ir.data, view: start } };
       after = { ...current.ir, data: { ...current.ir.data, view: { ...now } } };
