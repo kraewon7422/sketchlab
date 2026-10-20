@@ -40,6 +40,7 @@ import {
 } from "../store/library";
 import { createFolder, createNote, deleteFolder, deleteNotesForever, moveNotes, openNote, renameNote, restoreNotes, setFavorite, trashNotes, updateFolder } from "../store/noteActions";
 import { useLayoutMode } from "./layoutMode";
+import { backupNow, backupOverdue, chooseBackupFolder, downloadFullBackup, folderBackupSupported, useBackup } from "../store/autoBackup";
 
 /**
  * 노트 보관함 — 삼성노트 PC 폴더 화면처럼.
@@ -124,17 +125,17 @@ export function Library(): ReactElement {
   const importFile = (file: File) =>
     void run("노트를 가져오는 중…", async () => {
       const { importNoteFile } = await import("../store/noteFile");
-      await importNoteFile(await file.text(), file.name.replace(/\.(sketchlab|json)$/i, ""), currentFolderId);
+      await importNoteFile(file, file.name.replace(/\.(sketchlab|json|zip)$/i, ""), currentFolderId);
       setToast(`"${file.name}"을(를) 새 노트로 가져왔어요`);
     });
 
   const exportNotes = (ids: readonly string[]) =>
     void run("내보내는 중…", async () => {
-      const { buildNoteFile, noteFileName } = await import("../store/noteFile");
+      const { buildNoteZip, noteFileName } = await import("../store/noteFile");
       for (const id of ids) {
-        const f = await buildNoteFile(id);
+        const f = await buildNoteZip(id);
         const a = document.createElement("a");
-        a.href = URL.createObjectURL(new Blob([JSON.stringify(f)], { type: "application/json" }));
+        a.href = URL.createObjectURL(f.blob);
         a.download = noteFileName(f.title);
         document.body.appendChild(a);
         a.click();
@@ -221,10 +222,11 @@ export function Library(): ReactElement {
             onClick={() => libraryStore.getState().setData({ view: data.view === "grid" ? "list" : "grid" })}
           />
           <input ref={pdfRef} type="file" accept="application/pdf,.pdf" hidden onChange={(e) => (e.target.files?.[0] && importPdf(e.target.files[0]), (e.target.value = ""))} />
-          <input ref={fileRef} type="file" accept=".sketchlab,.json,application/json" hidden onChange={(e) => (e.target.files?.[0] && importFile(e.target.files[0]), (e.target.value = ""))} />
+          <input ref={fileRef} type="file" accept=".sketchlab,.zip,.json,application/json,application/zip" hidden onChange={(e) => (e.target.files?.[0] && importFile(e.target.files[0]), (e.target.value = ""))} />
         </div>
 
         <div style={{ flex: 1, overflowY: "auto", padding: `${theme.space[2]}px ${theme.space[4]}px calc(${theme.space[6] * 2}px + env(safe-area-inset-bottom))`, borderTop: `1px solid ${theme.color.sub}` }}>
+          <BackupReminder hasNotes={live.length > 0} />
           {/* 폴더 경로 */}
           {folderNow && (
             <nav aria-label="폴더 경로" style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 2, fontSize: 13, color: theme.color.asymptote, margin: `${theme.space[1]}px 0 ${theme.space[3]}px` }}>
@@ -491,6 +493,7 @@ function Sidebar({ section, onGo, onNewFolder, counts }: { section: Section; onG
         <FolderPlus size={16} /> 새 폴더
       </button>
       <span style={{ flex: 1 }} />
+      <BackupBox />
       {storage && (
         <div style={{ margin: "12px 8px 0", padding: 12, borderRadius: 12, background: "#EEF0F4", fontSize: 12.5, lineHeight: 1.5, color: theme.color.asymptote, wordBreak: "keep-all" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6, color: theme.color.ink, fontWeight: 600 }}>
@@ -808,3 +811,97 @@ const crumb: CSSProperties = { border: "none", background: "transparent", paddin
 const field: CSSProperties = { width: "100%", height: 42, boxSizing: "border-box", padding: "0 12px", border: `1px solid ${theme.color.sub}`, borderRadius: 10, fontSize: 15, outline: "none" };
 const pickRow: CSSProperties = { display: "flex", alignItems: "center", gap: 10, height: 40, padding: "0 12px", border: "none", borderRadius: 10, background: "transparent", fontSize: 14, color: theme.color.ink, textAlign: "left", cursor: "pointer" };
 const pill = (primary: boolean): CSSProperties => ({ height: 38, padding: "0 16px", border: primary ? "none" : `1px solid ${theme.color.sub}`, borderRadius: 999, background: primary ? theme.color.accent : theme.color.bg, color: primary ? "#fff" : theme.color.ink, fontSize: 14, fontWeight: 600, cursor: "pointer" });
+
+// ─────────────────────────────────────────────────────────── 자동 백업
+
+const agoText = (t: number) => {
+  if (!t) return "아직 없음";
+  const m = Math.round((Date.now() - t) / 60000);
+  return m < 1 ? "방금" : m < 60 ? `${m}분 전` : m < 1440 ? `${Math.round(m / 60)}시간 전` : `${Math.round(m / 1440)}일 전`;
+};
+
+/** 왼쪽 목록 아래: 백업 폴더(된다면) 또는 전체 백업 받기 */
+function BackupBox(): ReactElement {
+  const lastAt = useBackup((s) => s.lastAt);
+  const folder = useBackup((s) => s.folderName);
+  const needsPermission = useBackup((s) => s.needsPermission);
+  const status = useBackup((s) => s.status);
+  const [busy, setBusy] = useState(false);
+  const go = async (fn: () => Promise<unknown>) => {
+    setBusy(true);
+    try {
+      await fn();
+    } finally {
+      setBusy(false);
+    }
+  };
+  const small = { marginTop: 6, marginRight: 6, padding: "6px 10px", border: `1px solid ${theme.color.accent}`, borderRadius: 8, background: theme.color.bg, color: theme.color.accent, fontSize: 12.5, cursor: busy ? "default" : "pointer", opacity: busy ? 0.5 : 1 } as const;
+  return (
+    <div style={{ margin: "12px 8px 0", padding: 12, borderRadius: 12, background: "#EEF0F4", fontSize: 12.5, lineHeight: 1.5, color: theme.color.asymptote, wordBreak: "keep-all" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, color: theme.color.ink, fontWeight: 600 }}>
+        <Download size={15} /> 자동 백업
+      </div>
+      {folderBackupSupported() ? (
+        folder ? (
+          <>
+            <div style={{ overflowWrap: "anywhere" }}>
+              폴더 "{folder}" · 마지막 {agoText(lastAt)}
+            </div>
+            <div>노트를 닫을 때마다 바뀐 노트를 저절로 저장해요</div>
+            {needsPermission ? (
+              <button type="button" disabled={busy} onClick={() => void go(() => backupNow(true))} style={small}>
+                백업 폴더 다시 허락
+              </button>
+            ) : (
+              <button type="button" disabled={busy} onClick={() => void go(() => backupNow(true))} style={small}>
+                지금 백업
+              </button>
+            )}
+            <button type="button" disabled={busy} onClick={() => void go(chooseBackupFolder)} style={small}>
+              폴더 바꾸기
+            </button>
+          </>
+        ) : (
+          <>
+            <div>폴더를 골라 두면 노트를 닫을 때마다 저절로 백업해요 (드라이브 폴더를 고르면 클라우드까지)</div>
+            <button type="button" disabled={busy} onClick={() => void go(chooseBackupFolder)} style={small}>
+              백업 폴더 고르기
+            </button>
+          </>
+        )
+      ) : (
+        <>
+          <div>마지막 백업 {agoText(lastAt)} · 받은 파일을 드라이브·클라우드에 두세요</div>
+          <button type="button" disabled={busy} onClick={() => void go(downloadFullBackup)} style={small}>
+            모든 노트 백업 받기
+          </button>
+        </>
+      )}
+      {status && <div style={{ marginTop: 4, color: theme.color.accent }}>{status}</div>}
+    </div>
+  );
+}
+
+/** 마지막 백업이 7일 넘었으면 보관함 위에 한 줄 (이번에 닫으면 다시 열 때까지 안 보임) */
+function BackupReminder({ hasNotes }: { hasNotes: boolean }): ReactElement | null {
+  const lastAt = useBackup((s) => s.lastAt);
+  const folder = useBackup((s) => s.folderName);
+  const needsPermission = useBackup((s) => s.needsPermission);
+  const [hidden, setHidden] = useState(false);
+  if (hidden || !backupOverdue(lastAt, hasNotes) || (folder && !needsPermission)) return null;
+  return (
+    <div role="status" className="sl-pop" style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, margin: `0 0 ${theme.space[3]}px`, padding: "10px 12px", borderRadius: 12, background: "#FFF6E0", color: "#7A5200", fontSize: 13.5, wordBreak: "keep-all" }}>
+      <span style={{ flex: "1 1 200px" }}>{lastAt ? `마지막 백업이 ${agoText(lastAt)}이에요.` : "아직 백업한 적이 없어요."} 기기 저장소만 믿지 말고 백업해 두세요.</span>
+      <button
+        type="button"
+        onClick={() => void (folder ? backupNow(true) : folderBackupSupported() ? chooseBackupFolder() : downloadFullBackup())}
+        style={{ padding: "6px 12px", border: "none", borderRadius: 999, background: "#7A5200", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}
+      >
+        지금 백업
+      </button>
+      <button type="button" aria-label="닫기" onClick={() => setHidden(true)} style={{ border: "none", background: "transparent", color: "#7A5200", cursor: "pointer", display: "grid" }}>
+        <X size={16} />
+      </button>
+    </div>
+  );
+}

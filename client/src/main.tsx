@@ -44,9 +44,11 @@ createRoot(container).render(
 // 복원이 늦어도 화면은 이미 떠 있다. 실패해도 앱은 계속 쓸 수 있어야 하므로
 // 던지지 않고 로그만 남긴다 (규약 §2-6 — 대신 조용히 넘어가지도 않는다).
 // 앱은 노트 보관함에서 시작한다 — 노트를 열 때 그 노트의 쪽을 불러온다 (noteActions.openNote)
-void startPersistence().catch((error: unknown) => {
-  debugLog.error("persistence", "저장소 초기화에 실패했습니다", error);
-});
+void startPersistence()
+  .then(() => import("./store/autoBackup").then((m) => m.loadBackupState()))
+  .catch((error: unknown) => {
+    debugLog.error("persistence", "저장소 초기화에 실패했습니다", error);
+  });
 // 종이 모드: 마지막 장에 쓰기 시작하면 빈 장을 하나 더
 startPaperAutoExtend();
 

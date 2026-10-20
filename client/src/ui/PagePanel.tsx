@@ -7,6 +7,7 @@ import { LAYOUTS, type Layout } from "../store/paper";
 import { usePages, type Background } from "../store/pages";
 import { commitTextEdit } from "./TextEditor";
 import { penStore, usePen, TOOL_KEYS, type ToolKey } from "../store/pen";
+import { libraryStore } from "../store/library";
 import { TOOL_META } from "./ToolRail";
 
 /**
@@ -46,11 +47,14 @@ export function PagePanel({ onMessage }: { onMessage: (m: string) => void }): Re
   const wide = { height: 40, border: `1px solid ${theme.color.sub}`, borderRadius: theme.radius.s, background: theme.color.bg, fontSize: 14, color: theme.color.ink } as const;
   const backup = async (how: "save" | "share") => {
     commitTextEdit();
-    const { buildBackup, backupFileName } = await import("../store/backup");
-    const blob = new Blob([JSON.stringify(await buildBackup())], { type: "application/json" });
-    const name = backupFileName();
+    // 노트 파일(.sketchlab — 쪽·사진이 든 꾸러미)로. 보관함의 "파일로 내보내기"와 같은 파일
+    const noteId = libraryStore.getState().openNoteId;
+    if (!noteId) return;
+    const { buildNoteZip, noteFileName } = await import("../store/noteFile");
+    const { blob, title } = await buildNoteZip(noteId);
+    const name = noteFileName(title);
     if (how === "share") {
-      const file = new File([blob], name, { type: "application/json" });
+      const file = new File([blob], name, { type: "application/zip" });
       if (navigator.canShare?.({ files: [file] })) {
         try {
           await navigator.share({ files: [file] });
@@ -69,14 +73,14 @@ export function PagePanel({ onMessage }: { onMessage: (m: string) => void }): Re
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
-    onMessage("노트 전체를 백업 파일로 저장했어요");
+    onMessage("이 노트를 파일로 저장했어요 · 다른 기기의 보관함에서 '노트 파일 가져오기'로 열어요");
   };
   const restore = async (file: File) => {
     commitTextEdit();
     try {
-      const { importBackup } = await import("../store/backup");
-      const n = await importBackup(await file.text());
-      onMessage(`${n}쪽을 불러왔어요 · 쪽 목록 맨 아래에 있어요`);
+      const { importNoteFile } = await import("../store/noteFile");
+      await importNoteFile(file, file.name.replace(/\.(sketchlab|json)$/i, ""), null);
+      onMessage("새 노트로 가져왔어요 · 노트 보관함에 있어요");
     } catch (e) {
       onMessage(e instanceof Error ? e.message : "불러오지 못했어요");
     }
@@ -222,7 +226,7 @@ export function PagePanel({ onMessage }: { onMessage: (m: string) => void }): Re
         <FilePlus size={16} /> 새 쪽
       </button>
 
-      {section("노트 백업 (다른 기기로 옮기기)")}
+      {section("이 노트를 파일로 (다른 기기로 옮기기·보관)")}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
         <button type="button" onClick={() => void backup("save")} style={wide}>
           파일로 백업
@@ -232,10 +236,10 @@ export function PagePanel({ onMessage }: { onMessage: (m: string) => void }): Re
         </button>
       </div>
       <label style={{ ...wide, display: "grid", placeItems: "center", cursor: "pointer" }}>
-        백업 불러오기 (쪽을 덧붙여요)
+        노트 파일 가져오기 (새 노트로)
         <input
           type="file"
-          accept="application/json,.json"
+          accept=".sketchlab,.json,application/zip,application/json"
           style={{ display: "none" }}
           onChange={(e) => {
             const f = e.target.files?.[0];

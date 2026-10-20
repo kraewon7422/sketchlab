@@ -3,7 +3,8 @@ import type { ObjectItem } from "../ink/types";
 import { addPageWith } from "../store/pageActions";
 import { A4, sheetRect, type Paper } from "../store/paper";
 import { newId } from "../store/session";
-import { rasterToData } from "./insertMedia";
+import { rasterToBlob } from "./insertMedia";
+import { putMedia } from "../store/media";
 
 /**
  * PDF 가져오기 — PDF 한 권 = 새 쪽 하나 (세로로 넘기는 종이 모드), PDF 한 쪽 = 종이 한 장.
@@ -43,7 +44,8 @@ export async function buildPdfPage(
     canvas.width = Math.round(viewport.width);
     canvas.height = Math.round(viewport.height);
     await page.render({ canvas, viewport, background: "#FFFFFF" }).promise;
-    const { src, w, h } = await rasterToData(canvas, RENDER_W, 0.82);
+    const { blob, w, h } = await rasterToBlob(canvas, RENDER_W, 0.82);
+    const mediaId = await putMedia(blob, w, h);
     page.cleanup();
     // 장 안에 맞춰 (비율이 다른 쪽은 가운데)
     const r = sheetRect(paper, n - 1);
@@ -53,7 +55,7 @@ export async function buildPdfPage(
     items.push({
       id: newId("obj"),
       kind: "object",
-      ir: { version: IR_VERSION, confidence: 1, source: "manual", kind: "image", data: { src, w, h, name: `${file.name} ${n}쪽` } },
+      ir: { version: IR_VERSION, confidence: 1, source: "manual", kind: "image", data: { mediaId, w, h, name: `${file.name} ${n}쪽` } },
       transform: { x, y, scale },
       bbox: { minX: x, minY: y, maxX: x + w * scale, maxY: y + h * scale },
       sourceStrokes: [],

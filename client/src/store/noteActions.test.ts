@@ -3,11 +3,13 @@ import type { Point } from "../ink/types";
 
 // 저장소를 메모리 지도로 (테스트에 IndexedDB가 없다) — 키 이름 규칙은 진짜와 같게
 const db = new Map<string, unknown>();
+vi.mock("./media", () => ({ sweepMedia: async () => 0 }));
 vi.mock("./persistence", () => ({
   saveItems: async (items: unknown, key: string) => void db.set(key, structuredClone(items)),
   loadItems: async (key: string) => (db.has(key) ? structuredClone(db.get(key)) : null),
   deleteItems: async (key: string) => void db.delete(key),
   deleteKey: async (key: string) => void db.delete(key),
+  allUsedMediaIds: async () => new Set<string>(),
   flushSaves: async () => {},
   pagesKey: (id: string) => (id === "n0" ? "pages" : `pages:${id}`),
   loadPages: async (id: string) => (db.get(id === "n0" ? "pages" : `pages:${id}`) as never) ?? null,

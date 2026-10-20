@@ -1,3 +1,4 @@
+import { inlineBlobImages } from "../store/media";
 import katexCss from "katex/dist/katex.min.css?inline";
 import type { CanvasItem } from "../ink/types";
 import { exportOpts } from "../render/theme";
@@ -94,9 +95,14 @@ export async function objectToSvg(item: CanvasItem): Promise<Rendered> {
   const pad = Math.max(8, Math.round(Math.max(item.bbox.maxX - item.bbox.minX, item.bbox.maxY - item.bbox.minY) * exportOpts.padding));
 
   // 1) 평면도형·잉크: 캔버스 SVG 안의 <g>
-  const g = document.querySelector<SVGGElement>(`g[data-object-id="${item.id}"]`) ?? document.querySelector<SVGGElement>(`g[data-ink-id="${item.id}"]`);
+  // (사진은 <g>가 아니라 <image> 하나)
+  const g =
+    document.querySelector<SVGGElement>(`g[data-object-id="${item.id}"]`) ??
+    document.querySelector<SVGElement>(`image[data-object-id="${item.id}"]`) ??
+    document.querySelector<SVGGElement>(`g[data-ink-id="${item.id}"]`);
   if (g) {
-    const clone = g.cloneNode(true) as SVGGElement;
+    const clone = g.cloneNode(true) as SVGElement;
+    await inlineBlobImages(clone);
     clone.querySelectorAll(".sl-fade-out").forEach((n) => n.remove()); // 교체 애니메이션의 옛 잉크
     clone.querySelectorAll("[class]").forEach((n) => n.removeAttribute("class"));
     const { minX, minY, maxX, maxY } = item.bbox;

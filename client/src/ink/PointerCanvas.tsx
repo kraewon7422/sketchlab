@@ -5,6 +5,7 @@ import { ink, penOpts, theme, viewport } from "../render/theme";
 import { createStroke, sessionStore, useSession } from "../store/session";
 import { viewportStore } from "../store/viewport";
 import { paperOf, usePages } from "../store/pages";
+import { inView, useVisibleRect } from "../store/culling";
 import { PageBackground } from "../render/PageBackground";
 import { currentStrokeStyle, penStore } from "../store/pen";
 import { createStabilizer } from "./stabilize";
@@ -82,6 +83,8 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
   const hoverRef = useRef<SVGCircleElement>(null);
 
   const items = useSession((s) => s.items);
+  // 화면 둘레만 그린다 (긴 PDF·큰 노트도 부드럽게) — 내보낼 때는 전부
+  const visible = useVisibleRect();
   const activeGroupId = useSession((s) => s.activeGroupId);
   const background = usePages((s) => s.pages.find((p) => p.id === s.currentId)?.background ?? "blank");
   // 종이 모드 (세로·가로·2쪽·끊김 없이) — 장 수가 바뀔 때만 다시 그린다
@@ -1033,10 +1036,10 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
       }}
     >
       <g ref={worldRef}>
-      <PageBackground kind={background} paper={paper} />
+      <PageBackground kind={background} paper={paper} visible={visible} />
       {activeGroup && <GroupHint item={activeGroup} />}
 
-      {items.map((item) =>
+      {items.filter((item) => inView(item.bbox, visible)).map((item) =>
         item.kind === "ink" ? (
           <InkItemView key={item.id} item={item} />
         ) : (

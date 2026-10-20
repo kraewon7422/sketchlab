@@ -1,6 +1,7 @@
 import { lazy, Suspense, useLayoutEffect, useRef, type ReactElement } from "react";
 import type { ObjectItem } from "../ink/types";
 import { useSession } from "../store/session";
+import { inView, useVisibleRect } from "../store/culling";
 import { viewportStore } from "../store/viewport";
 import { ErrorBoundary } from "../ErrorBoundary";
 import { TapeObject } from "./TapeObject";
@@ -29,8 +30,10 @@ const OVERLAY_KINDS = new Set(["plot2d", "formula", "chemEq", "solid3d", "space3
 /** interactive: 펜 도구일 때만 입체를 돌릴 수 있다 (지우개일 땐 터치가 캔버스로 가야 지워진다) */
 export function ObjectOverlays({ interactive }: { interactive: boolean }): ReactElement {
   const items = useSession((s) => s.items);
-  const overlays = items.filter((i): i is ObjectItem => i.kind === "object" && OVERLAY_KINDS.has(i.ir.kind));
-  const tapes = items.filter((i): i is ObjectItem => i.kind === "object" && i.ir.kind === "tape");
+  // 화면 둘레만 그린다 — 내보낼 때는 전부 (withAllRendered)
+  const visible = useVisibleRect();
+  const overlays = items.filter((i): i is ObjectItem => i.kind === "object" && OVERLAY_KINDS.has(i.ir.kind) && inView(i.bbox, visible));
+  const tapes = items.filter((i): i is ObjectItem => i.kind === "object" && i.ir.kind === "tape" && inView(i.bbox, visible));
   // 고른 입체는 돌리지 않고 끌어서 옮긴다 (돌리기는 고르지 않았을 때)
   const selection = useSession((s) => s.selection);
   // 이동·확대는 React를 거치지 않고 transform만 바꾼다 (그래프 수십 개가 있어도 핀치가 매끄럽게)

@@ -1,7 +1,8 @@
 import { debugLog } from "../debug";
 import { forgetHistories, fitPaper, newPageId, switchPage } from "./pageActions";
 import { itemsKey, pagesStore, paperOf, type PageMeta } from "./pages";
-import { deleteKey, flushSaves, loadItems, loadPages, pagesKey, saveItems, savePages } from "./persistence";
+import { allUsedMediaIds, deleteItems, deleteKey, flushSaves, loadItems, loadPages, pagesKey, saveItems, savePages } from "./persistence";
+import { sweepMedia } from "./media";
 import { FOLDER_COLORS, LEGACY_NOTE_ID, libraryStore, newFolderId, newNoteId, removeFolder, canMoveFolder, type NoteMeta } from "./library";
 import { sessionStore } from "./session";
 import { viewportStore } from "./viewport";
@@ -62,6 +63,8 @@ export async function closeNote(capture?: () => Promise<string | undefined>): Pr
   await savePages(pages, currentId, id);
   sessionStore.getState().hydrate([]);
   patchNote(id, { pageCount: pages.length, ...(capture ? { cover } : {}) });
+  // 백업 폴더를 골라 두었으면 바뀐 노트를 저절로 백업 (권한이 없으면 조용히 넘어간다)
+  if (typeof window !== "undefined") void import("./autoBackup").then((m) => m.backupNow()).catch(() => undefined);
 }
 
 /** 새 노트 (첫 쪽이 하나 있는). 쪽·그림을 주면 그것으로 (PDF·노트 파일 가져오기) */
@@ -113,10 +116,17 @@ export async function deleteNotesForever(ids: readonly string[]): Promise<void> 
   for (const id of ids) {
     if (lib().openNoteId === id) await closeNote();
     const index = await loadPages(id);
-    for (const p of index?.pages ?? []) await deleteKey(itemsKey(p.id));
+    for (const p of index?.pages ?? []) await deleteItems(itemsKey(p.id));
     await deleteKey(pagesKey(id));
   }
   lib().setData({ notes: lib().notes.filter((n) => !ids.includes(n.id)) });
+  // 이제 아무 쪽도 안 쓰는 사진·PDF 파일 정리
+  try {
+    const n = await sweepMedia(await allUsedMediaIds());
+    if (n) debugLog.info("library", `안 쓰는 사진 파일 ${n}개를 지웠습니다`);
+  } catch (e) {
+    debugLog.warn("library", "사진 파일을 정리하지 못했습니다", e);
+  }
 }
 
 // ─────────────────────────────────────────────────────────── 폴더

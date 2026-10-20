@@ -1,6 +1,7 @@
 import type { Shape2DData, Shape2DMark, Shape2DPrimitive } from "@sketchlab/shared";
 import { memo } from "react";
 import { InkStrokes } from "../ink/InkLayer";
+import { useMediaUrl } from "./useMediaUrl";
 import type { ObjectItem } from "../ink/types";
 import { catmullRomBeziers, localToWorld, type ObjectTransform } from "./shape2dGeometry";
 import { penOpts, shape, stroke, theme } from "./theme";
@@ -181,26 +182,25 @@ export function isFresh(id: string): boolean {
   return true;
 }
 
+/** 사진·PDF 쪽: 캔버스(SVG) 안에 그려서 그 위에 손글씨가 얹힌다. 파일은 media 저장소에서 (예전 쪽은 data URL) */
+function ImageItem({ item, fresh }: { item: ObjectItem; fresh: boolean }) {
+  const data = item.ir.kind === "image" ? item.ir.data : null;
+  const url = useMediaUrl(data?.mediaId);
+  if (!data) return null;
+  const s = item.transform.scale;
+  const href = url ?? data.src;
+  return href ? (
+    <image data-object-id={item.id} className={fresh ? "sl-fade-in" : undefined} href={href} x={item.transform.x} y={item.transform.y} width={data.w * s} height={data.h * s} preserveAspectRatio="none" />
+  ) : (
+    // 파일을 불러오는 동안 자리만 (옅은 사각형)
+    <rect data-object-id={item.id} x={item.transform.x} y={item.transform.y} width={data.w * s} height={data.h * s} fill="#F1F3F6" />
+  );
+}
+
 export const ObjectItemView = memo(function ObjectItemView({ item }: { item: ObjectItem }) {
   const fresh = isFresh(item.id);
 
-  if (item.ir.kind === "image") {
-    // 사진·PDF 쪽: 캔버스(SVG) 안에 그려서 그 위에 손글씨가 얹힌다
-    const { src, w, h } = item.ir.data;
-    const s = item.transform.scale;
-    return (
-      <image
-        data-object-id={item.id}
-        className={fresh ? "sl-fade-in" : undefined}
-        href={src}
-        x={item.transform.x}
-        y={item.transform.y}
-        width={w * s}
-        height={h * s}
-        preserveAspectRatio="none"
-      />
-    );
-  }
+  if (item.ir.kind === "image") return <ImageItem item={item} fresh={fresh} />;
 
   if (item.ir.kind !== "shape2d") {
     // 그래프·수식은 HTML 층(ObjectOverlays)이 그린다. 손그림에서 온 객체면 원본 잉크도 남긴다.

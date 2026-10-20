@@ -1,4 +1,6 @@
 import { themeCssVars } from "../render/theme";
+import { inlineBlobImages } from "../store/media";
+import { withAllRendered } from "../store/culling";
 import { currentPage, paperOf } from "../store/pages";
 import { sheetIndexAt, sheetRect, type Rect } from "../store/paper";
 import { sessionStore } from "../store/session";
@@ -39,6 +41,11 @@ function richCss(): string {
  * region을 주면 그 사각형(월드)만 — 종이 모드의 종이 한 장.
  */
 export async function pageToSvg(region?: Rect): Promise<Rendered | null> {
+  // 화면 밖이라 그리지 않던 것까지 전부 그려 놓고 찍는다
+  return withAllRendered(() => pageToSvgNow(region));
+}
+
+async function pageToSvgNow(region?: Rect): Promise<Rendered | null> {
   const items = sessionStore.getState().items;
   if (items.length === 0 && !region) return null;
   const main = document.querySelector("main")?.getBoundingClientRect();
@@ -81,6 +88,7 @@ export async function pageToSvg(region?: Rect): Promise<Rendered | null> {
     g.removeAttribute("transform");
     g.querySelectorAll("path:not([d]), path[d=''], circle[visibility='hidden']").forEach((n) => n.remove());
     g.querySelectorAll(".sl-fade-out, [data-export-skip]").forEach((n) => n.remove());
+    await inlineBlobImages(g);
     canvasPart = `<g transform="translate(${ox} ${oy})">${new XMLSerializer().serializeToString(g)}</g>`;
   }
 

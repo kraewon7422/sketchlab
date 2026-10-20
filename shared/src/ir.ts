@@ -294,7 +294,9 @@ const Tape = z.object({
  * 크기 = w·h × transform.scale (px). 손글씨 아래에 그린다 — 그 위에 필기할 수 있게.
  */
 const Image = z.object({
-  src: z.string().regex(/^data:image\/(png|jpeg|webp);base64,/),
+  /** 그림 파일 id (media 저장소) — 새 형식. 예전 쪽은 src(data URL)였다가 처음 열 때 옮겨진다 */
+  mediaId: z.string().min(1).max(80).optional(),
+  src: z.string().regex(/^data:image\/(png|jpeg|webp);base64,/).optional(),
   w: z.number().positive(),
   h: z.number().positive(),
   /** 원래 파일 이름 (보여 주기·검색용) */

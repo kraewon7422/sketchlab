@@ -1,56 +1,69 @@
 import { parseStoredIR } from "@sketchlab/shared";
-import { openDB, type IDBPDatabase } from "idb";
 import { debugLog } from "../debug";
 import type { CanvasItem } from "../ink/types";
-import { sessionStore } from "./session";
-import { itemsKey, pagesStore, type PageMeta } from "./pages";
+import { getDB, ITEM, itemRange, ORDER, SESSION } from "./db";
 import { LEGACY_NOTE_ID, libraryStore, type LibraryData } from "./library";
+import { migrateItemMedia } from "./media";
+import { itemsKey, pagesStore, type PageMeta } from "./pages";
+import { sessionStore } from "./session";
 
 /**
  * 세션 영속화 — 새로고침해도 그린 내용이 남게 한다.
  *
  * 설계 규칙 (§5.3, D6)
- * - **스토어 → DB 단방향.** DB가 스토어를 갱신하는 건 부팅 시 1회 복원뿐이다.
- *   양방향으로 만들면 어느 쪽이 진실인지 알 수 없어진다.
- * - **쓰기는 items가 실제로 바뀔 때만.** pointermove 중에는 절대 쓰지 않는다.
- *   immer가 변경이 있을 때만 새 참조를 주므로, 참조 비교만으로 정확히 걸러진다.
+ * - **스토어 → DB 단방향.** DB가 스토어를 갱신하는 건 불러올 때뿐이다.
+ * - **쓰기는 items가 실제로 바뀔 때만, 바뀐 항목만.** 쪽 그림은 항목 하나하나가 따로 된 기록이다
+ *   (db.ts의 item 저장소). immer는 바뀐 항목에만 새 참조를 주므로, 지난번 저장한 참조와 비교하면
+ *   바뀐 것만 정확히 골라 쓴다 — 획 하나를 그어도 쪽 전체·사진을 다시 쓰지 않는다 (굿노트·삼성노트처럼).
+ * - 쪽마다 순서 기록(order)에 판 번호(version)·고친 시각을 둔다 — 나중에 기기 간 동기화(9단계)의 바탕.
+ * - 예전 형식(쪽 그림 전체를 배열 하나로, 사진은 data URL)은 처음 불러올 때 새 형식으로 옮긴다.
+ *   새 형식으로 다 쓴 뒤에만 예전 기록을 지운다 — 도중에 꺼져도 잃지 않는다.
  * - localStorage를 쓰지 않는다 (함정 #13 — 용량 한계).
  *
  * 실패해도 앱은 계속 돈다. 다만 조용히 넘어가지 않고 디버그 로그에 남긴다 (규약 §2-6).
  */
 
-const DB_NAME = "sketchlab";
-const DB_VERSION = 1;
-const STORE_NAME = "session";
 const ITEMS_KEY = "items";
 
-let dbPromise: Promise<IDBPDatabase> | null = null;
-
-function getDB(): Promise<IDBPDatabase> | null {
-  if (typeof indexedDB === "undefined") {
-    debugLog.warn("persistence", "IndexedDB를 쓸 수 없는 환경입니다. 저장이 비활성화됩니다.");
-    return null;
-  }
-
-  dbPromise ??= openDB(DB_NAME, DB_VERSION, {
-    upgrade(db) {
-      if (!db.objectStoreNames.contains(STORE_NAME)) {
-        db.createObjectStore(STORE_NAME);
-      }
-    },
-  });
-
-  return dbPromise;
+interface OrderRecord {
+  ids: string[];
+  version: number;
+  updatedAt: number;
 }
+
+/** 쪽마다 지난번 저장한 모습 (항목 id → 그때의 객체) — 바뀐 것만 쓰려고 */
+const saved = new Map<string, { byId: Map<string, CanvasItem>; version: number }>();
 
 export async function loadItems(key: string = ITEMS_KEY): Promise<CanvasItem[] | null> {
   const db = getDB();
   if (!db) return null;
-
   try {
-    const stored: unknown = await (await db).get(STORE_NAME, key);
-    if (!Array.isArray(stored)) return null;
-    return reviveItems(stored as CanvasItem[]);
+    const d = await db;
+    const order = (await d.get(ORDER, key)) as OrderRecord | undefined;
+    let raw: CanvasItem[];
+    let legacy = false;
+    if (order) {
+      const recs = (await d.getAll(ITEM, itemRange(key))) as CanvasItem[];
+      const byId = new Map(recs.map((r) => [r.id, r]));
+      raw = order.ids.map((id) => byId.get(id)).filter((x): x is CanvasItem => !!x);
+    } else {
+      const old: unknown = await d.get(SESSION, key);
+      if (!Array.isArray(old)) return null;
+      raw = old as CanvasItem[];
+      legacy = true;
+    }
+    const migrated = await migrateItemMedia(reviveItems(raw));
+    const items = migrated.items;
+    if (legacy || migrated.changed) {
+      // 예전 형식 → 새 형식으로 통째로 한 번 쓰고, 다 쓴 뒤에 예전 기록을 지운다
+      saved.delete(key);
+      await writeNow(items, key);
+      if (legacy) await d.delete(SESSION, key);
+      debugLog.info("persistence", `쪽 ${key}: 새 저장 형식으로 옮김 (항목 ${items.length}개)`);
+    } else {
+      saved.set(key, { byId: new Map(items.map((i) => [i.id, i])), version: order?.version ?? 0 });
+    }
+    return items;
   } catch (error) {
     debugLog.error("persistence", "저장된 내용을 불러오지 못했습니다", error);
     return null;
@@ -72,6 +85,32 @@ export function reviveItems(items: readonly CanvasItem[]): CanvasItem[] {
   });
 }
 
+/** 바뀐 항목만 쓰고, 없어진 항목은 지우고, 순서·판 번호를 갱신한다 (한 트랜잭션 — 반쯤 쓰인 쪽이 남지 않게) */
+async function writeNow(items: readonly CanvasItem[], key: string): Promise<void> {
+  const db = getDB();
+  if (!db) return;
+  const d = await db;
+  const prev = saved.get(key);
+  const tx = d.transaction([ITEM, ORDER], "readwrite");
+  const store = tx.objectStore(ITEM);
+  const orders = tx.objectStore(ORDER);
+  const before = prev ? prev.version : (((await orders.get(key)) as OrderRecord | undefined)?.version ?? 0);
+  const ops: Array<Promise<unknown>> = [];
+  if (!prev) {
+    // 이 세션에서 처음 쓰는 쪽: 남아 있을지 모르는 옛 항목을 지우고 전부 쓴다
+    ops.push(store.delete(itemRange(key)));
+    for (const it of items) ops.push(store.put(it, `${key}|${it.id}`));
+  } else {
+    for (const it of items) if (prev.byId.get(it.id) !== it) ops.push(store.put(it, `${key}|${it.id}`));
+    const now = new Set(items.map((i) => i.id));
+    for (const id of prev.byId.keys()) if (!now.has(id)) ops.push(store.delete(`${key}|${id}`));
+  }
+  const version = before + 1;
+  ops.push(orders.put({ ids: items.map((i) => i.id), version, updatedAt: Date.now() } satisfies OrderRecord, key));
+  await Promise.all([...ops, tx.done]);
+  saved.set(key, { byId: new Map(items.map((i) => [i.id, i])), version });
+}
+
 /**
  * 저장 중에 또 저장 요청이 오면 마지막 것만 남긴다.
  *
@@ -83,18 +122,17 @@ let writing = false;
 const pending = new Map<string, CanvasItem[]>();
 
 export async function saveItems(items: CanvasItem[], key: string = ITEMS_KEY): Promise<void> {
-  const db = getDB();
-  if (!db) return;
-
+  if (!getDB()) return;
   if (writing) {
     pending.set(key, items);
     return;
   }
-
   writing = true;
   try {
-    await (await db).put(STORE_NAME, items, key);
+    await writeNow(items, key);
   } catch (error) {
+    // 실패하면 다음 저장 때 전부 다시 쓰게 (어디까지 쓰였는지 모르므로)
+    saved.delete(key);
     debugLog.error("persistence", "저장에 실패했습니다", error);
   } finally {
     writing = false;
@@ -109,17 +147,48 @@ export async function saveItems(items: CanvasItem[], key: string = ITEMS_KEY): P
 
 /** 기다리는 저장까지 모두 끝날 때까지 (쪽을 바꾸기 전에) */
 export async function flushSaves(): Promise<void> {
-  for (let i = 0; i < 50 && (writing || pending.size > 0); i++) await new Promise((r) => setTimeout(r, 20));
+  for (let i = 0; i < 100 && (writing || pending.size > 0); i++) await new Promise((r) => setTimeout(r, 20));
 }
 
+/** 쪽 그림 지우기 — 새 형식(항목·순서)과 예전 형식 모두 */
 export async function deleteItems(key: string): Promise<void> {
   const db = getDB();
   if (!db) return;
   try {
-    await (await db).delete(STORE_NAME, key);
+    const d = await db;
+    const tx = d.transaction([ITEM, ORDER, SESSION], "readwrite");
+    await Promise.all([tx.objectStore(ITEM).delete(itemRange(key)), tx.objectStore(ORDER).delete(key), tx.objectStore(SESSION).delete(key), tx.done]);
+    saved.delete(key);
   } catch (error) {
     debugLog.error("persistence", "쪽을 지우지 못했습니다", error);
   }
+}
+
+/** 쪽의 판 번호·고친 시각 (동기화 대비) — 아직 저장한 적 없으면 null */
+export async function pageVersion(key: string): Promise<{ version: number; updatedAt: number } | null> {
+  const db = getDB();
+  if (!db) return null;
+  const o = (await (await db).get(ORDER, key)) as OrderRecord | undefined;
+  return o ? { version: o.version, updatedAt: o.updatedAt } : null;
+}
+
+/** 모든 쪽이 쓰는 사진 id (안 쓰는 사진 파일 정리용) */
+export async function allUsedMediaIds(): Promise<Set<string>> {
+  const used = new Set<string>();
+  const db = getDB();
+  if (!db) return used;
+  const d = await db;
+  for (const it of (await d.getAll(ITEM)) as CanvasItem[]) {
+    if (it.kind === "object" && it.ir.kind === "image" && it.ir.data.mediaId) used.add(it.ir.data.mediaId);
+  }
+  // 아직 예전 형식인 쪽 (data URL이라 media를 쓰지 않지만, 혹시 섞여 있으면)
+  for (const v of (await d.getAll(SESSION)) as unknown[]) {
+    if (!Array.isArray(v)) continue;
+    for (const it of v as CanvasItem[]) if (it?.kind === "object" && it.ir?.kind === "image" && it.ir.data.mediaId) used.add(it.ir.data.mediaId);
+  }
+  // 지금 화면의 쪽 (되돌리기로 돌아올 수 있는 사진도 지키려고 — 기록 속 항목까지)
+  for (const it of sessionStore.getState().items) if (it.kind === "object" && it.ir.kind === "image" && it.ir.data.mediaId) used.add(it.ir.data.mediaId);
+  return used;
 }
 
 /** 노트의 쪽 목록 저장 키 — 예전 한 권짜리 노트는 예전 키 그대로 */
@@ -131,7 +200,7 @@ export async function loadPages(noteId: string = LEGACY_NOTE_ID): Promise<{ page
   const db = getDB();
   if (!db) return null;
   try {
-    const v = (await (await db).get(STORE_NAME, pagesKey(noteId))) as { pages?: PageMeta[]; currentId?: string } | undefined;
+    const v = (await (await db).get(SESSION, pagesKey(noteId))) as { pages?: PageMeta[]; currentId?: string } | undefined;
     if (!v || !Array.isArray(v.pages) || v.pages.length === 0) return null;
     return { pages: v.pages, currentId: v.currentId ?? (v.pages[0] as PageMeta).id };
   } catch (error) {
@@ -144,28 +213,18 @@ export async function savePages(pages: PageMeta[], currentId: string, noteId: st
   const db = getDB();
   if (!db) return;
   try {
-    await (await db).put(STORE_NAME, { pages, currentId }, pagesKey(noteId));
+    await (await db).put(SESSION, { pages, currentId }, pagesKey(noteId));
   } catch (error) {
     debugLog.error("persistence", "쪽 목록을 저장하지 못했습니다", error);
   }
 }
 
-export async function clearPersisted(): Promise<void> {
-  const db = getDB();
-  if (!db) return;
-  try {
-    await (await db).delete(STORE_NAME, ITEMS_KEY);
-  } catch (error) {
-    debugLog.error("persistence", "저장 내용을 지우지 못했습니다", error);
-  }
-}
-
-/** 쪽 하나와 노트 쪽 목록을 통째로 지운다 (휴지통에서 영구 삭제) */
+/** session 저장소의 기록 하나 지우기 (노트 쪽 목록) */
 export async function deleteKey(key: string): Promise<void> {
   const db = getDB();
   if (!db) return;
   try {
-    await (await db).delete(STORE_NAME, key);
+    await (await db).delete(SESSION, key);
   } catch (error) {
     debugLog.error("persistence", "지우지 못했습니다", error);
   }
@@ -179,7 +238,7 @@ export async function loadLibrary(): Promise<LibraryData | null> {
   const db = getDB();
   if (!db) return null;
   try {
-    const v = (await (await db).get(STORE_NAME, LIBRARY_KEY)) as Partial<LibraryData> | undefined;
+    const v = (await (await db).get(SESSION, LIBRARY_KEY)) as Partial<LibraryData> | undefined;
     if (!v || !Array.isArray(v.notes)) return null;
     return {
       notes: v.notes,
@@ -202,7 +261,7 @@ function saveLibrarySoon(data: LibraryData): void {
     const db = getDB();
     if (!db) return;
     void db
-      .then((d) => d.put(STORE_NAME, data, LIBRARY_KEY))
+      .then((d) => d.put(SESSION, data, LIBRARY_KEY))
       .catch((error: unknown) => debugLog.error("persistence", "노트 목록을 저장하지 못했습니다", error));
   }, 250);
 }
@@ -265,4 +324,9 @@ function touchNote(noteId: string): void {
   lastTouch = now;
   const lib = libraryStore.getState();
   lib.setData({ notes: lib.notes.map((n) => (n.id === noteId ? { ...n, updatedAt: now } : n)) });
+}
+
+/** 테스트 전용 — 지난번 저장 기억을 비운다 (새로 고친 것처럼) */
+export function __forgetSaved(): void {
+  saved.clear();
 }

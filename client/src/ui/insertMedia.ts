@@ -1,5 +1,6 @@
 import { IR_VERSION } from "@sketchlab/shared";
 import { markFresh } from "../render/Shape2DView";
+import { putMedia } from "../store/media";
 import { sessionStore } from "../store/session";
 import { viewportStore } from "../store/viewport";
 import type { Area } from "./placement";
@@ -21,7 +22,26 @@ export function visibleArea(): Area {
   return { x: -tx / k, y: (top - ty) / k, width: w / k, height: (h - top) / k };
 }
 
-/** 그림 → (줄인) data URL + 크기 */
+/** 그림 → (줄인) 그림 파일(WebP, 안 되면 PNG) + 크기 */
+export async function rasterToBlob(source: CanvasImageSource & { width: number; height: number }, maxSide = MAX_SIDE, quality = 0.86): Promise<{ blob: Blob; w: number; h: number }> {
+  const k = Math.min(1, maxSide / Math.max(source.width, source.height));
+  const w = Math.max(1, Math.round(source.width * k));
+  const h = Math.max(1, Math.round(source.height * k));
+  const c = document.createElement("canvas");
+  c.width = w;
+  c.height = h;
+  const ctx = c.getContext("2d");
+  if (!ctx) throw new Error("그림을 준비하지 못했어요");
+  ctx.drawImage(source, 0, 0, w, h);
+  const toBlob = (type: string) => new Promise<Blob | null>((res) => c.toBlob(res, type, quality));
+  const webp = await toBlob("image/webp");
+  // WebP를 못 만드는 브라우저(예전 사파리)는 PNG를 돌려준다 — 그때는 PNG로
+  const out = webp && webp.type === "image/webp" ? webp : await toBlob("image/png");
+  if (!out) throw new Error("그림을 준비하지 못했어요");
+  return { blob: out, w, h };
+}
+
+/** 그림 → (줄인) data URL + 크기 (작은 표지 등 — 노트 그림은 rasterToBlob) */
 export async function rasterToData(source: CanvasImageSource & { width: number; height: number }, maxSide = MAX_SIDE, quality = 0.86): Promise<{ src: string; w: number; h: number }> {
   const k = Math.min(1, maxSide / Math.max(source.width, source.height));
   const w = Math.max(1, Math.round(source.width * k));
@@ -37,10 +57,12 @@ export async function rasterToData(source: CanvasImageSource & { width: number; 
   return { src, w, h };
 }
 
-export async function imageFileToData(file: Blob): Promise<{ src: string; w: number; h: number }> {
+/** 사진 파일 → 줄여서 media 저장소에 → 그 id와 크기 */
+export async function imageFileToMedia(file: Blob): Promise<{ mediaId: string; w: number; h: number }> {
   const bmp = await createImageBitmap(file);
   try {
-    return await rasterToData(bmp);
+    const { blob, w, h } = await rasterToBlob(bmp);
+    return { mediaId: await putMedia(blob, w, h), w, h };
   } finally {
     bmp.close();
   }
@@ -48,7 +70,7 @@ export async function imageFileToData(file: Blob): Promise<{ src: string; w: num
 
 /** 사진 한 장을 화면 가운데에 (보이는 폭의 60%를 넘지 않게) 맨 뒤로 넣는다. 새 객체 id */
 export async function insertImageFile(file: File, at?: { x: number; y: number }): Promise<string> {
-  const { src, w, h } = await imageFileToData(file);
+  const { mediaId, w, h } = await imageFileToMedia(file);
   const area = visibleArea();
   const scale = Math.min(1, (area.width * 0.6) / w, (area.height * 0.7) / h);
   const W = w * scale;
@@ -56,7 +78,7 @@ export async function insertImageFile(file: File, at?: { x: number; y: number })
   const x = at ? at.x - W / 2 : area.x + (area.width - W) / 2;
   const y = at ? at.y - H / 2 : area.y + (area.height - H) / 2;
   const id = sessionStore.getState().addObject(
-    { version: IR_VERSION, confidence: 1, source: "manual", kind: "image", data: { src, w, h, ...(file.name ? { name: file.name } : {}) } },
+    { version: IR_VERSION, confidence: 1, source: "manual", kind: "image", data: { mediaId, w, h, ...(file.name ? { name: file.name } : {}) } },
     { x, y, scale },
     { minX: x, minY: y, maxX: x + W, maxY: y + H },
     { atBack: true },

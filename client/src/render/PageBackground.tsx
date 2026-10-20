@@ -1,6 +1,8 @@
 import type { ReactElement } from "react";
 import type { Background } from "../store/pages";
 import { paperBounds, sheetRect, type Paper } from "../store/paper";
+import { inView } from "../store/culling";
+import type { BBox } from "../ink/types";
 import { pageBg } from "./theme";
 
 /**
@@ -9,7 +11,7 @@ import { pageBg } from "./theme";
  */
 const SPAN = 40000;
 
-export function PageBackground({ kind, paper = null }: { kind: Background; paper?: Paper | null }): ReactElement | null {
+export function PageBackground({ kind, paper = null, visible = null }: { kind: Background; paper?: Paper | null; visible?: BBox | null }): ReactElement | null {
   if (kind === "blank" && !paper) return null;
   const id = `sl-bg-${kind}`;
   let pattern: ReactElement | null = null;
@@ -56,7 +58,10 @@ export function PageBackground({ kind, paper = null }: { kind: Background; paper
   }
   if (paper) {
     // 종이 모드: 회색 책상 위에 흰 종이들 (속지 무늬는 종이 안에만)
-    const sheets = paper.layout === "continuous" ? [paperBounds(paper)] : Array.from({ length: paper.sheets }, (_, i) => sheetRect(paper, i));
+    // 보이는 장만 (PDF 수백 장도 몇 장만 그린다)
+    const sheets = (paper.layout === "continuous" ? [paperBounds(paper)] : Array.from({ length: paper.sheets }, (_, i) => sheetRect(paper, i))).filter((r) =>
+      inView({ minX: r.x, minY: r.y, maxX: r.x + r.w, maxY: r.y + r.h }, visible),
+    );
     return (
       <g pointerEvents="none" data-page-bg>
         {pattern && <defs>{pattern}</defs>}
