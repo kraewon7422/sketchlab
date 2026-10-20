@@ -1,5 +1,6 @@
 import { useStore } from "zustand";
 import { createStore } from "zustand/vanilla";
+import { A4, type Layout, type Paper } from "./paper";
 
 /**
  * 페이지 목록 (노트 앱의 여러 쪽). 각 쪽의 그림은 IndexedDB에 따로 저장된다 (persistence.ts).
@@ -12,6 +13,11 @@ export interface PageMeta {
   title: string;
   background: Background;
   createdAt: number;
+  /** 쪽 모양 (없으면 캔버스 — 예전 쪽) · 종이 장 수 · 종이 크기 (PDF는 그 PDF의 비율) */
+  layout?: Layout;
+  sheets?: number;
+  sheetW?: number;
+  sheetH?: number;
 }
 
 export interface PagesState {
@@ -39,6 +45,12 @@ export function usePages<T>(selector: (s: PagesState) => T): T {
 export function currentPage(): PageMeta {
   const s = pagesStore.getState();
   return s.pages.find((p) => p.id === s.currentId) ?? (s.pages[0] as PageMeta);
+}
+
+/** 이 쪽의 종이 (캔버스면 null) */
+export function paperOf(p: PageMeta | undefined): Paper | null {
+  if (!p?.layout || p.layout === "canvas") return null;
+  return { layout: p.layout, sheets: Math.max(1, p.sheets ?? 1), w: p.sheetW ?? A4.w, h: p.sheetH ?? A4.h };
 }
 
 /** 쪽 그림의 저장 키 — 1쪽은 예전 버전과 같은 "items" */

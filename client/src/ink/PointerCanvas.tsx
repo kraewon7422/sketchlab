@@ -1,10 +1,10 @@
-import { useEffect, useLayoutEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { debugLog } from "../debug";
 import { ObjectItemView } from "../render/Shape2DView";
 import { ink, penOpts, theme, viewport } from "../render/theme";
 import { createStroke, sessionStore, useSession } from "../store/session";
 import { viewportStore } from "../store/viewport";
-import { usePages } from "../store/pages";
+import { paperOf, usePages } from "../store/pages";
 import { PageBackground } from "../render/PageBackground";
 import { currentStrokeStyle, penStore } from "../store/pen";
 import { createStabilizer } from "./stabilize";
@@ -84,6 +84,9 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
   const items = useSession((s) => s.items);
   const activeGroupId = useSession((s) => s.activeGroupId);
   const background = usePages((s) => s.pages.find((p) => p.id === s.currentId)?.background ?? "blank");
+  // 종이 모드 (세로·가로·2쪽·끊김 없이) — 장 수가 바뀔 때만 다시 그린다
+  const paperKey = usePages((s) => JSON.stringify(paperOf(s.pages.find((p) => p.id === s.currentId))));
+  const paper = useMemo(() => JSON.parse(paperKey) as ReturnType<typeof paperOf>, [paperKey]);
   /** 월드 좌표 그룹 — 이동·확대는 React를 거치지 않고 이 요소의 transform만 바꾼다 (핀치가 매끄럽게) */
   const worldRef = useRef<SVGGElement>(null);
   useLayoutEffect(() => {
@@ -278,7 +281,8 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
         state.previewObjectIR(tape.id, { ...tape.ir, data: { ...tape.ir.data, revealed: !tape.ir.data.revealed } });
         return true;
       }
-      const hit = hitItem(objects.filter((i) => i.ir.kind !== "tape"), w.x, w.y, ink.tapSlop / v.k);
+      // 사진·PDF 쪽은 톡으로 고르지 않는다 (그 위에 점을 찍을 수 있게) — 올가미로 고른다
+      const hit = hitItem(objects.filter((i) => i.ir.kind !== "tape" && i.ir.kind !== "image"), w.x, w.y, ink.tapSlop / v.k);
       const prev = lastTap;
       const double = !!prev && t - prev.t < DOUBLE_TAP_MS && distance(prev.x, prev.y, clientX, clientY) < DOUBLE_TAP_PX;
       lastTap = double ? null : { x: clientX, y: clientY, t };
@@ -1029,7 +1033,7 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
       }}
     >
       <g ref={worldRef}>
-      <PageBackground kind={background} />
+      <PageBackground kind={background} paper={paper} />
       {activeGroup && <GroupHint item={activeGroup} />}
 
       {items.map((item) =>

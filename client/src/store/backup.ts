@@ -1,4 +1,5 @@
 import type { CanvasItem } from "../ink/types";
+import type { Layout } from "./paper";
 import { flushSaves, loadItems, reviveItems, saveItems } from "./persistence";
 import { itemsKey, pagesStore, type Background, type PageMeta } from "./pages";
 import { sessionStore } from "./session";
@@ -16,10 +17,11 @@ interface BackupFile {
   format: typeof FORMAT;
   version: number;
   exportedAt: string;
-  pages: Array<{ title: string; background: Background; items: CanvasItem[] }>;
+  pages: Array<{ title: string; background: Background; items: CanvasItem[]; layout?: Layout; sheets?: number; sheetW?: number; sheetH?: number }>;
 }
 
 const BACKGROUNDS: readonly Background[] = ["blank", "ruled", "grid", "graph", "dots"];
+const LAYOUT_KEYS: readonly Layout[] = ["canvas", "vertical", "horizontal", "two", "continuous"];
 
 /** 모든 쪽을 백업 파일 내용으로 */
 export async function buildBackup(): Promise<BackupFile> {
@@ -29,7 +31,13 @@ export async function buildBackup(): Promise<BackupFile> {
   const out: BackupFile["pages"] = [];
   for (const p of pages) {
     const items = p.id === currentId ? sessionStore.getState().items : ((await loadItems(itemsKey(p.id))) ?? []);
-    out.push({ title: p.title, background: p.background, items: [...items] });
+    out.push({
+      title: p.title,
+      background: p.background,
+      items: [...items],
+      ...(p.layout ? { layout: p.layout, sheets: p.sheets ?? 1 } : {}),
+      ...(p.sheetW && p.sheetH ? { sheetW: p.sheetW, sheetH: p.sheetH } : {}),
+    });
   }
   return { format: FORMAT, version: VERSION, exportedAt: new Date().toISOString(), pages: out };
 }
@@ -65,6 +73,8 @@ export async function importBackup(text: string): Promise<number> {
       title: `${(typeof raw.title === "string" && raw.title.trim()) || `${n}쪽`} (불러옴)`.slice(0, 60),
       background: BACKGROUNDS.includes(raw.background as Background) ? (raw.background as Background) : "blank",
       createdAt: Date.now(),
+      ...(LAYOUT_KEYS.includes(raw.layout as Layout) ? { layout: raw.layout as Layout, sheets: Math.max(1, Math.min(2000, Math.floor(Number(raw.sheets) || 1))) } : {}),
+      ...(Number(raw.sheetW) > 0 && Number(raw.sheetH) > 0 ? { sheetW: Number(raw.sheetW), sheetH: Number(raw.sheetH) } : {}),
     };
     await saveItems(items, itemsKey(page.id));
     added.push(page);

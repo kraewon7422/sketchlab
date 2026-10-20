@@ -184,6 +184,24 @@ export function isFresh(id: string): boolean {
 export const ObjectItemView = memo(function ObjectItemView({ item }: { item: ObjectItem }) {
   const fresh = isFresh(item.id);
 
+  if (item.ir.kind === "image") {
+    // 사진·PDF 쪽: 캔버스(SVG) 안에 그려서 그 위에 손글씨가 얹힌다
+    const { src, w, h } = item.ir.data;
+    const s = item.transform.scale;
+    return (
+      <image
+        data-object-id={item.id}
+        className={fresh ? "sl-fade-in" : undefined}
+        href={src}
+        x={item.transform.x}
+        y={item.transform.y}
+        width={w * s}
+        height={h * s}
+        preserveAspectRatio="none"
+      />
+    );
+  }
+
   if (item.ir.kind !== "shape2d") {
     // 그래프·수식은 HTML 층(ObjectOverlays)이 그린다. 손그림에서 온 객체면 원본 잉크도 남긴다.
     return item.sourceStrokes.length > 0 && !["plot2d", "formula", "chemEq", "solid3d", "space3d"].includes(item.ir.kind) ? (

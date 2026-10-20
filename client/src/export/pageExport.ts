@@ -1,5 +1,6 @@
 import { themeCssVars } from "../render/theme";
-import { currentPage } from "../store/pages";
+import { currentPage, paperOf } from "../store/pages";
+import { sheetIndexAt, sheetRect, type Rect } from "../store/paper";
 import { sessionStore } from "../store/session";
 import { viewportStore } from "../store/viewport";
 import { blobToDataUrl, embeddedKatexCss, embeddedPageFontsCss, toPng, type ExportResult, type Rendered } from "./exportImage";
@@ -33,10 +34,13 @@ function richCss(): string {
   return `:root,div{${vars}}${out.join("")}`;
 }
 
-/** 쪽 전체를 SVG 한 장으로. 빈 쪽이면 null */
-export async function pageToSvg(): Promise<Rendered | null> {
+/**
+ * 쪽 전체를 SVG 한 장으로. 빈 쪽이면 null.
+ * region을 주면 그 사각형(월드)만 — 종이 모드의 종이 한 장.
+ */
+export async function pageToSvg(region?: Rect): Promise<Rendered | null> {
   const items = sessionStore.getState().items;
-  if (items.length === 0) return null;
+  if (items.length === 0 && !region) return null;
   const main = document.querySelector("main")?.getBoundingClientRect();
   const { tx, ty, k } = viewportStore.getState();
 
@@ -57,7 +61,13 @@ export async function pageToSvg(): Promise<Rendered | null> {
     maxX = Math.max(maxX, b.maxX);
     maxY = Math.max(maxY, b.maxY);
   }
-  const pad = 32;
+  const pad = region ? 0 : 32;
+  if (region) {
+    minX = region.x;
+    minY = region.y;
+    maxX = region.x + region.w;
+    maxY = region.y + region.h;
+  }
   const W = Math.ceil(maxX - minX + pad * 2);
   const H = Math.ceil(maxY - minY + pad * 2);
   const ox = -minX + pad;
@@ -94,11 +104,22 @@ export async function pageToSvg(): Promise<Rendered | null> {
   return { svg, width: W, height: H };
 }
 
+/** 종이 모드: 지금 화면 가운데에 있는 장 (캔버스면 null) */
+function sheetInView(): Rect | null {
+  const paper = paperOf(currentPage());
+  if (!paper) return null;
+  const r = document.querySelector("main")?.getBoundingClientRect();
+  const { tx, ty, k } = viewportStore.getState();
+  const cx = ((r?.width ?? window.innerWidth) / 2 - tx) / k;
+  const cy = ((r?.height ?? window.innerHeight) / 2 - ty) / k;
+  return sheetRect(paper, sheetIndexAt(paper, cx, cy));
+}
+
 const fileName = (ext: string) => `${currentPage().title.replace(/[\\/:*?"<>|]/g, "_")}-${new Date().toISOString().slice(0, 10)}.${ext}`;
 
 export async function downloadPagePng(): Promise<ExportResult> {
   try {
-    const r = await pageToSvg();
+    const r = await pageToSvg(sheetInView() ?? undefined);
     if (!r) return { ok: false, message: "빈 쪽이에요" };
     const png = await toPng(r, "white", 2);
     const a = document.createElement("a");
@@ -116,7 +137,7 @@ export async function downloadPagePng(): Promise<ExportResult> {
 
 export async function sharePage(): Promise<ExportResult> {
   try {
-    const r = await pageToSvg();
+    const r = await pageToSvg(sheetInView() ?? undefined);
     if (!r) return { ok: false, message: "빈 쪽이에요" };
     const file = new File([await toPng(r, "white", 2)], fileName("png"), { type: "image/png" });
     if (!navigator.canShare?.({ files: [file] })) return { ok: false, message: "이 기기는 공유 시트를 지원하지 않아요 · 이미지 저장을 써 주세요" };
@@ -136,26 +157,32 @@ export async function printPagePdf(): Promise<ExportResult> {
   const w = window.open("", "_blank");
   if (!w) return { ok: false, message: "새 창이 막혔어요 · 이미지 저장을 써 주세요" };
   try {
-    const r = await pageToSvg();
-    if (!r) {
+    // 종이 모드: 장마다 PDF 한 쪽 (여백 없이 종이 그대로) · 캔버스: 내용 전체를 한 장
+    const paper = paperOf(currentPage());
+    const regions: Array<Rect | undefined> = paper ? Array.from({ length: paper.sheets }, (_, i) => sheetRect(paper, i)) : [undefined];
+    const urls: string[] = [];
+    for (const region of regions) {
+      const r = await pageToSvg(region);
+      if (r) urls.push(await blobToDataUrl(await toPng(r, "white", 2)));
+    }
+    if (urls.length === 0) {
       w.close();
       return { ok: false, message: "빈 쪽이에요" };
     }
-    const url = await blobToDataUrl(await toPng(r, "white", 2));
     const title = currentPage().title.replace(/</g, "&lt;");
+    const pageCss = paper ? `@page{size:${paper.w}px ${paper.h}px;margin:0}` : "@page{margin:12mm}";
     w.document.write(
       `<!doctype html><html><head><meta charset="utf-8"><title>${title}</title>` +
-        `<style>@page{margin:12mm}html,body{margin:0}img{width:100%;height:auto;display:block}</style></head>` +
-        `<body><img src="${url}" alt=""></body></html>`,
+        `<style>${pageCss}html,body{margin:0}img{width:100%;height:auto;display:block;break-after:page}img:last-child{break-after:auto}</style></head>` +
+        `<body>${urls.map((u) => `<img src="${u}" alt="">`).join("")}</body></html>`,
     );
     w.document.close();
-    const img = w.document.querySelector("img");
+    const imgs = [...w.document.querySelectorAll("img")];
     const go = () => {
       w.focus();
       w.print();
     };
-    if (img && !img.complete) img.onload = go;
-    else go();
+    void Promise.all(imgs.map((im) => (im.complete ? Promise.resolve() : new Promise((res) => (im.onload = res))))).then(go);
     return { ok: true, message: "인쇄 창에서 'PDF로 저장'을 고르세요" };
   } catch (e) {
     w.close();

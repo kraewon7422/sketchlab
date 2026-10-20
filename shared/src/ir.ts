@@ -277,6 +277,18 @@ const Tape = z.object({
   revealed: z.boolean().default(false),
 });
 
+/**
+ * 사진·그림 (이미지 올리기, PDF 쪽 배경). src = 앱이 줄여 넣은 data URL (기기 안에만 저장).
+ * 크기 = w·h × transform.scale (px). 손글씨 아래에 그린다 — 그 위에 필기할 수 있게.
+ */
+const Image = z.object({
+  src: z.string().regex(/^data:image\/(png|jpeg|webp);base64,/),
+  w: z.number().positive(),
+  h: z.number().positive(),
+  /** 원래 파일 이름 (보여 주기·검색용) */
+  name: z.string().optional(),
+});
+
 // ─────────────────────────────────────────────────────────── 조립
 
 const meta = {
@@ -296,6 +308,7 @@ export const SceneIRSchema = z.discriminatedUnion("kind", [
   z.object({ ...meta, kind: z.literal("chemEq"), data: ChemEquation }),
   z.object({ ...meta, kind: z.literal("text"), data: Text }),
   z.object({ ...meta, kind: z.literal("tape"), data: Tape }),
+  z.object({ ...meta, kind: z.literal("image"), data: Image }),
 ]);
 
 /**

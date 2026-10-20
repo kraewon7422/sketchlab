@@ -2,14 +2,17 @@ import { ChevronDown, ChevronUp, FilePlus, Pencil, Trash2 } from "lucide-react";
 import { useState, type ReactElement } from "react";
 import { PageBackground } from "../render/PageBackground";
 import { theme } from "../render/theme";
-import { addPage, deletePage, movePage, renamePage, setBackground, switchPage } from "../store/pageActions";
+import { addPage, addSheet, deletePage, movePage, renamePage, setBackground, setLayout, switchPage } from "../store/pageActions";
+import { LAYOUTS, type Layout } from "../store/paper";
 import { usePages, type Background } from "../store/pages";
 import { commitTextEdit } from "./TextEditor";
-import { penStore, usePen } from "../store/pen";
+import { penStore, usePen, TOOL_KEYS, type ToolKey } from "../store/pen";
+import { TOOL_META } from "./ToolRail";
 
 /**
  * 쪽 패널 (레일의 [쪽] 단추) — 노트 앱의 페이지 목록.
  *   속지: 빈 종이 · 줄 · 모눈 · 그래프 용지 · 점
+ *   쪽 모양: 캔버스 · 세로로 넘기기 · 가로로 넘기기 · 2쪽 보기 · 끊김 없이 (+ 종이 한 장 더)
  *   쪽:   목록(누르면 넘기기) · 새 쪽 · 이름 바꾸기 · 순서 · 지우기
  *   내보내기: 쪽 전체 이미지 · PDF(인쇄) · 공유
  */
@@ -119,6 +122,37 @@ export function PagePanel({ onMessage }: { onMessage: (m: string) => void }): Re
         ))}
       </div>
 
+      {section("쪽 모양")}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 4 }}>
+        {LAYOUTS.map(([k, label]) => {
+          const on = (current?.layout ?? "canvas") === k;
+          return (
+            <button
+              key={k}
+              type="button"
+              aria-label={`쪽 모양 ${label}`}
+              aria-pressed={on}
+              onClick={() => {
+                commitTextEdit();
+                setLayout(k);
+              }}
+              style={{ display: "grid", justifyItems: "center", gap: 2, padding: "4px 0", border: "none", borderRadius: theme.radius.s, background: on ? theme.color.selection : "transparent", cursor: "pointer" }}
+            >
+              <LayoutIcon kind={k} on={on} />
+              <span style={{ fontSize: 10.5, lineHeight: 1.2, color: on ? theme.color.accent : theme.color.ink, textAlign: "center" }}>{label}</span>
+            </button>
+          );
+        })}
+      </div>
+      {current?.layout && current.layout !== "canvas" && (
+        <div style={{ display: "flex", alignItems: "center", gap: theme.space[2], fontSize: 13 }}>
+          <span style={{ flex: 1, color: theme.color.asymptote }}>종이 {Math.max(1, current.sheets ?? 1)}장 · 마지막 장에 쓰면 저절로 한 장 더</span>
+          <button type="button" onClick={addSheet} style={{ ...wide, height: 32, padding: "0 10px", fontSize: 13, cursor: "pointer" }}>
+            + 한 장
+          </button>
+        </div>
+      )}
+
       {section(`쪽 (${pages.length})`)}
       <div style={{ display: "grid", gap: 2, maxHeight: 260, overflowY: "auto" }}>
         {pages.map((p, i) => {
@@ -214,6 +248,9 @@ export function PagePanel({ onMessage }: { onMessage: (m: string) => void }): Re
         백업 파일을 구글 드라이브·삼성 클라우드·카카오톡 등으로 옮겨 다른 기기에서 불러오세요
       </span>
 
+      {section("도구 막대 (순서 바꾸기 · 숨기기)")}
+      <ToolbarEditor />
+
       {section("화면")}
       <label style={{ display: "flex", alignItems: "center", gap: theme.space[2], fontSize: 14 }}>
         <input type="checkbox" checked={dark} onChange={(e) => penStore.getState().set({ dark: e.target.checked })} style={{ width: 18, height: 18, accentColor: theme.color.accent }} />
@@ -239,6 +276,104 @@ export function PagePanel({ onMessage }: { onMessage: (m: string) => void }): Re
           </button>
         ))}
       </div>
+    </div>
+  );
+}
+
+/** 쪽 모양 그림 (작은 종이 배치도) */
+function LayoutIcon({ kind, on }: { kind: Layout; on: boolean }): ReactElement {
+  const c = on ? theme.color.accent : theme.color.asymptote;
+  const sheet = (x: number, y: number, w = 10, h = 13) => <rect key={`${x},${y}`} x={x} y={y} width={w} height={h} rx={1.5} fill="#fff" stroke={c} strokeWidth={1.2} />;
+  const arrow = (d: string) => <path d={d} fill="none" stroke={c} strokeWidth={1.2} strokeLinecap="round" strokeLinejoin="round" />;
+  return (
+    <svg width={34} height={34} viewBox="0 0 34 34" aria-hidden>
+      {kind === "canvas" && (
+        <>
+          <rect x={5} y={5} width={24} height={24} rx={3} fill="#fff" stroke={c} strokeWidth={1.2} strokeDasharray="3 2" />
+          {arrow("M17 9v16M9 17h16")}
+        </>
+      )}
+      {kind === "vertical" && (
+        <>
+          {sheet(9, 2)}
+          {sheet(9, 18)}
+          {arrow("M26 10v14M23.5 21.5 26 24l2.5-2.5")}
+        </>
+      )}
+      {kind === "horizontal" && (
+        <>
+          {sheet(2, 8)}
+          {sheet(15, 8)}
+          {arrow("M8 27h18M23.5 24.5 26 27l-2.5 2.5")}
+        </>
+      )}
+      {kind === "two" && (
+        <>
+          {sheet(5, 3)}
+          {sheet(16, 3)}
+          {sheet(5, 18)}
+          {sheet(16, 18)}
+        </>
+      )}
+      {kind === "continuous" && (
+        <>
+          <rect x={9} y={2} width={14} height={30} rx={1.5} fill="#fff" stroke={c} strokeWidth={1.2} />
+          {arrow("M16 10v14M13.5 21.5 16 24l2.5-2.5")}
+        </>
+      )}
+    </svg>
+  );
+}
+
+/** 도구 막대 편집 — ▲▼로 순서, 눈으로 보이기/숨기기 (펜은 늘 보인다) · 처음대로 */
+function ToolbarEditor(): ReactElement {
+  const order = usePen((s) => s.toolOrder);
+  const hidden = usePen((s) => s.hiddenTools);
+  const move = (t: ToolKey, d: -1 | 1) => {
+    const i = order.indexOf(t);
+    const j = i + d;
+    if (i < 0 || j < 0 || j >= order.length) return;
+    const next = [...order];
+    [next[i], next[j]] = [next[j] as ToolKey, next[i] as ToolKey];
+    penStore.getState().set({ toolOrder: next });
+  };
+  const btn = { width: 30, height: 30, display: "grid", placeItems: "center", border: "none", borderRadius: theme.radius.s, background: "transparent", color: theme.color.ink, cursor: "pointer" } as const;
+  return (
+    <div style={{ display: "grid", gap: 2 }}>
+      {order.map((t, i) => {
+        const [label, Icon] = TOOL_META[t];
+        const shown = !hidden.includes(t);
+        return (
+          <div key={t} style={{ display: "flex", alignItems: "center", gap: 4, opacity: shown ? 1 : 0.45 }}>
+            <Icon size={17} strokeWidth={1.6} />
+            <span style={{ flex: 1, fontSize: 13 }}>{label}</span>
+            <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, color: theme.color.asymptote }}>
+              <input
+                type="checkbox"
+                aria-label={`${label} 보이기`}
+                checked={shown}
+                disabled={t === "pen"}
+                onChange={(e) => penStore.getState().set({ hiddenTools: e.target.checked ? hidden.filter((h) => h !== t) : [...hidden, t] })}
+                style={{ width: 16, height: 16, accentColor: theme.color.accent }}
+              />
+              보이기
+            </label>
+            <button type="button" aria-label={`${label} 위로`} disabled={i === 0} onClick={() => move(t, -1)} style={{ ...btn, opacity: i === 0 ? 0.3 : 1 }}>
+              <ChevronUp size={16} />
+            </button>
+            <button type="button" aria-label={`${label} 아래로`} disabled={i === order.length - 1} onClick={() => move(t, 1)} style={{ ...btn, opacity: i === order.length - 1 ? 0.3 : 1 }}>
+              <ChevronDown size={16} />
+            </button>
+          </div>
+        );
+      })}
+      <button
+        type="button"
+        onClick={() => penStore.getState().set({ toolOrder: [...TOOL_KEYS], hiddenTools: [] })}
+        style={{ justifySelf: "start", marginTop: 2, padding: "4px 8px", border: `1px solid ${theme.color.sub}`, borderRadius: theme.radius.s, background: theme.color.bg, fontSize: 12, color: theme.color.ink, cursor: "pointer" }}
+      >
+        처음대로
+      </button>
     </div>
   );
 }

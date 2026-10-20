@@ -145,6 +145,10 @@ export const pageBg = {
   graphMajorLine: "#C7D5E8",
   dotGap: 24,
   dot: "#C5CFDB",
+  /** 종이 모드: 책상(종이 바깥) 색 · 종이 테두리 · 그림자 */
+  desk: "#E7EAEF",
+  sheetEdge: "#D6DBE2",
+  sheetShadow: "rgba(26,26,26,0.07)",
 } as const;
 
 /** 캔버스 이동·확대 (v4 §12.2) — 두 손가락 핀치, 마우스 휠, Ctrl+휠. */

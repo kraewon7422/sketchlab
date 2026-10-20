@@ -107,7 +107,62 @@ export function App(): ReactElement {
 
   useKeyboardShortcuts(() => recognize(sessionStore.getState().activeGroupId), showToast);
 
-  const toolbar = <ToolRail tool={tool} onTool={setTool} mode={mode} onFormula={openSheet} onAi={() => {
+  /** 사진·PDF 넣기 (단추·붙여넣기·끌어다 놓기 공통) */
+  const insertFiles = useCallback(
+    async (files: File[], at?: { x: number; y: number }) => {
+      const m = await import("./ui/insertMedia");
+      for (const f of files) {
+        try {
+          if (m.isPdfFile(f)) {
+            const { importPdf } = await import("./ui/importPdf");
+            showToast("PDF를 여는 중…", 120_000);
+            const r = await importPdf(f, (done, total) => showToast(`PDF 쪽 넣는 중… ${done}/${total}`, 120_000));
+            showToast(r);
+          } else if (m.isImageFile(f)) {
+            await m.insertImageFile(f, at);
+            showToast("사진을 넣었어요 · 끌어서 옮기고 모서리로 크기를 바꿔요");
+          } else {
+            showToast(`${f.name}: 사진이나 PDF만 넣을 수 있어요`);
+          }
+        } catch (e) {
+          showToast(e instanceof Error ? e.message : "파일을 넣지 못했어요");
+        }
+      }
+    },
+    [showToast],
+  );
+  // 붙여넣기(Ctrl+V)·끌어다 놓기로도 사진·PDF를 넣는다 (글 상자에 붙여넣는 글자는 그대로)
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      if ((e.target as Element | null)?.closest?.("input, textarea, [contenteditable='true']")) return;
+      const files = [...(e.clipboardData?.files ?? [])];
+      if (files.length) {
+        e.preventDefault();
+        void insertFiles(files);
+      }
+    };
+    const onDragOver = (e: DragEvent) => {
+      if (e.dataTransfer?.types.includes("Files")) e.preventDefault();
+    };
+    const onDrop = (e: DragEvent) => {
+      const files = [...(e.dataTransfer?.files ?? [])];
+      if (!files.length) return;
+      e.preventDefault();
+      const r = document.querySelector("main")?.getBoundingClientRect();
+      const { tx, ty, k } = viewportStore.getState();
+      void insertFiles(files, r ? { x: (e.clientX - r.left - tx) / k, y: (e.clientY - r.top - ty) / k } : undefined);
+    };
+    window.addEventListener("paste", onPaste);
+    window.addEventListener("dragover", onDragOver);
+    window.addEventListener("drop", onDrop);
+    return () => {
+      window.removeEventListener("paste", onPaste);
+      window.removeEventListener("dragover", onDragOver);
+      window.removeEventListener("drop", onDrop);
+    };
+  }, [insertFiles]);
+
+  const toolbar = <ToolRail tool={tool} onTool={setTool} mode={mode} onFormula={openSheet} onFiles={(f) => void insertFiles(f)} onAi={() => {
         setSheetArea(null); // ƒ 시트가 열려 있으면 닫고 AI 설정을 연다
         setAiOpen(true);
       }} panels={{ eraser: () => <EraserOptions />, text: () => <TextPanel />, shape: () => <ShapeOptions />, lasso: () => <LassoOptions />, tape: () => <TapeOptions />, page: () => <PagePanel onMessage={showToast} /> }} forcePanel={editingText && tool === "text" ? "text" : null} />;

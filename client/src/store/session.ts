@@ -60,7 +60,8 @@ export interface SessionState extends Doc {
   /** bbox: 바뀐 객체가 차지할 자리 (없으면 원래 잉크 자리) */
   replaceWithObject(inkId: string, ir: SceneIR, transform: ObjectTransform, bbox?: BBox): string | null;
   /** 손그림 없이 만든 객체(수식 입력 등)를 추가한다. Undo 1단위 "객체 추가". */
-  addObject(ir: SceneIR, transform: ObjectTransform, bbox: BBox): string;
+  /** atBack: 맨 뒤(손글씨 아래)에 — 사진·PDF 배경. locked: 잠근 채로 (PDF 쪽 배경) */
+  addObject(ir: SceneIR, transform: ObjectTransform, bbox: BBox, options?: { atBack?: boolean; locked?: boolean }): string;
   /**
    * 객체 IR을 이력 없이 바꾼다 — 슬라이더를 끄는 동안 매 프레임 호출된다.
    * 끝나면 commitObjectIR로 한 번에 기록한다 (Undo가 슬라이더 틱마다 쌓이지 않게).
@@ -229,10 +230,11 @@ export const sessionStore: StoreApi<SessionState> = createStore<SessionState>((s
       return object.id;
     },
 
-    addObject(ir, transform, bbox) {
-      const object: ObjectItem = { id: newId("obj"), kind: "object", ir, bbox, sourceStrokes: [], transform };
+    addObject(ir, transform, bbox, options = {}) {
+      const object: ObjectItem = { id: newId("obj"), kind: "object", ir, bbox, sourceStrokes: [], transform, ...(options.locked ? { locked: true } : {}) };
       commit("객체 추가", (draft) => {
-        draft.items.push(object);
+        if (options.atBack) draft.items.unshift(object);
+        else draft.items.push(object);
         draft.activeGroupId = null;
       });
       return object.id;

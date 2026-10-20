@@ -1,5 +1,6 @@
 import type { ReactElement } from "react";
 import type { Background } from "../store/pages";
+import { paperBounds, sheetRect, type Paper } from "../store/paper";
 import { pageBg } from "./theme";
 
 /**
@@ -8,11 +9,13 @@ import { pageBg } from "./theme";
  */
 const SPAN = 40000;
 
-export function PageBackground({ kind }: { kind: Background }): ReactElement | null {
-  if (kind === "blank") return null;
+export function PageBackground({ kind, paper = null }: { kind: Background; paper?: Paper | null }): ReactElement | null {
+  if (kind === "blank" && !paper) return null;
   const id = `sl-bg-${kind}`;
-  let pattern: ReactElement;
+  let pattern: ReactElement | null = null;
   switch (kind) {
+    case "blank":
+      break;
     case "ruled":
       pattern = (
         <pattern id={id} width={SPAN} height={pageBg.ruledGap} patternUnits="userSpaceOnUse">
@@ -51,6 +54,25 @@ export function PageBackground({ kind }: { kind: Background }): ReactElement | n
       );
       break;
   }
+  if (paper) {
+    // 종이 모드: 회색 책상 위에 흰 종이들 (속지 무늬는 종이 안에만)
+    const sheets = paper.layout === "continuous" ? [paperBounds(paper)] : Array.from({ length: paper.sheets }, (_, i) => sheetRect(paper, i));
+    return (
+      <g pointerEvents="none" data-page-bg>
+        {pattern && <defs>{pattern}</defs>}
+        <rect x={-SPAN / 2} y={-SPAN / 2} width={SPAN} height={SPAN} fill={pageBg.desk} data-desk />
+        {sheets.map((r, i) => (
+          <g key={i} data-sheet={i}>
+            <rect x={r.x + 1} y={r.y + 3} width={r.w} height={r.h} fill={pageBg.sheetShadow} />
+            <rect x={r.x} y={r.y} width={r.w} height={r.h} fill="#FFFFFF" stroke={pageBg.sheetEdge} strokeWidth={1} />
+            {pattern && <rect x={r.x} y={r.y} width={r.w} height={r.h} fill={`url(#${id})`} />}
+            {kind === "ruled" && <line x1={r.x + pageBg.marginX} y1={r.y} x2={r.x + pageBg.marginX} y2={r.y + r.h} stroke={pageBg.marginLine} strokeWidth={1} />}
+          </g>
+        ))}
+      </g>
+    );
+  }
+  if (!pattern) return null;
   return (
     <g pointerEvents="none" data-page-bg>
       <defs>{pattern}</defs>

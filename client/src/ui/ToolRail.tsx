@@ -1,7 +1,7 @@
-import { Bandage, Bot, WandSparkles, Eraser, Highlighter, Keyboard, Lasso, NotebookText, Pen, Redo2, Shapes, SquareFunction, Undo2 } from "lucide-react";
+import { Bandage, Bot, ImagePlus, WandSparkles, Eraser, Highlighter, Keyboard, Lasso, NotebookText, Pen, Redo2, Shapes, SquareFunction, Undo2 } from "lucide-react";
 import { useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
 import { theme } from "../render/theme";
-import { penStore, usePen } from "../store/pen";
+import { penStore, usePen, type ToolKey } from "../store/pen";
 import { sessionStore, useSession } from "../store/session";
 import type { LayoutMode } from "./layoutMode";
 import { eyedropperStore } from "./eyedropper";
@@ -16,7 +16,19 @@ import { PenOptions } from "./PenPalette";
  *   [텍스트] [펜] [형광펜] [지우개] [올가미] [도형] [테이프] │ [되돌리기] [다시] │ [ƒ 입력] [AI]
  */
 
-export type RailTool = "text" | "pen" | "highlighter" | "eraser" | "lasso" | "shape" | "tape" | "laser";
+export type RailTool = ToolKey;
+
+/** 도구 이름·아이콘 (도구 막대와 도구 막대 편집이 같이 쓴다) */
+export const TOOL_META: Record<ToolKey, [string, typeof Pen]> = {
+  text: ["텍스트", Keyboard],
+  pen: ["펜", Pen],
+  highlighter: ["형광펜", Highlighter],
+  eraser: ["지우개", Eraser],
+  lasso: ["올가미", Lasso],
+  shape: ["도형", Shapes],
+  tape: ["마스킹 테이프", Bandage],
+  laser: ["레이저 포인터", WandSparkles],
+};
 
 /** 패널 이름 — 도구마다 하나 + 쪽(속지·쪽 목록·내보내기) */
 export type PanelKey = RailTool | "page";
@@ -29,6 +41,8 @@ interface ToolRailProps {
   mode: LayoutMode;
   onFormula: () => void;
   onAi: () => void;
+  /** 사진·PDF 파일을 골랐다 */
+  onFiles?: (files: File[]) => void;
   /** 아직 쓸 수 없는 도구 (다음 단계) */
   disabled?: readonly RailTool[];
   /** 펜·형광펜 외의 도구 패널 (지우개·텍스트 등) */
@@ -37,7 +51,8 @@ interface ToolRailProps {
   forcePanel?: PanelKey | null;
 }
 
-export function ToolRail({ tool, onTool, mode, onFormula, onAi, disabled = [], panels = {}, forcePanel = null }: ToolRailProps): ReactElement {
+export function ToolRail({ tool, onTool, mode, onFormula, onAi, onFiles, disabled = [], panels = {}, forcePanel = null }: ToolRailProps): ReactElement {
+  const fileRef = useRef<HTMLInputElement>(null);
   const vertical = mode !== "compact";
   const [panel, setPanel] = useState<PanelKey | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -45,6 +60,8 @@ export function ToolRail({ tool, onTool, mode, onFormula, onAi, disabled = [], p
   const canRedo = useSession((s) => s.history.redo.length > 0);
   const penColor = usePen((s) => s.penColor);
   const highlightColor = usePen((s) => s.highlightColor);
+  const toolOrder = usePen((s) => s.toolOrder);
+  const hiddenTools = usePen((s) => s.hiddenTools);
 
   const allPanels: ToolPanels = { pen: () => <PenOptions />, highlighter: () => <PenOptions />, ...panels };
 
@@ -112,14 +129,11 @@ export function ToolRail({ tool, onTool, mode, onFormula, onAi, disabled = [], p
           boxSizing: "border-box",
         }}
       >
-        {btn("text", "텍스트", Keyboard)}
-        {btn("pen", "펜", Pen, penColor)}
-        {btn("highlighter", "형광펜", Highlighter, highlightColor)}
-        {btn("eraser", "지우개", Eraser)}
-        {btn("lasso", "올가미", Lasso)}
-        {btn("shape", "도형", Shapes)}
-        {btn("tape", "마스킹 테이프", Bandage)}
-        {btn("laser", "레이저 포인터", WandSparkles)}
+        {/* 그리기 도구 — 순서·숨기기는 쪽 패널의 "도구 막대"에서 (고른 도구는 숨겨도 보인다) */}
+        {toolOrder.filter((t) => t === tool || !hiddenTools.includes(t)).map((t) => {
+          const [label, Icon] = TOOL_META[t];
+          return btn(t, label, Icon, t === "pen" ? penColor : t === "highlighter" ? highlightColor : undefined);
+        })}
         {divider}
         <RailButton label="실행 취소" disabled={!canUndo} onClick={() => sessionStore.getState().undo()}>
           <Undo2 size={21} strokeWidth={1.6} />
@@ -131,6 +145,21 @@ export function ToolRail({ tool, onTool, mode, onFormula, onAi, disabled = [], p
         <RailButton label="쪽" hint="속지·쪽 목록·쪽 전체 내보내기" active={panel === "page"} onClick={() => setPanel((p) => (p === "page" ? null : "page"))}>
           <NotebookText size={21} strokeWidth={1.6} />
         </RailButton>
+        <RailButton label="사진·PDF 넣기" hint="사진은 옮길 수 있는 그림으로, PDF는 새 쪽으로" onClick={() => fileRef.current?.click()}>
+          <ImagePlus size={21} strokeWidth={1.6} />
+        </RailButton>
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*,application/pdf,.pdf"
+          multiple
+          hidden
+          onChange={(e) => {
+            const files = [...(e.target.files ?? [])];
+            e.target.value = "";
+            if (files.length) onFiles?.(files);
+          }}
+        />
         <RailButton label="수식·그래프 입력" hint="식·그래프·화학·AI에게 부탁" onClick={onFormula}>
           <SquareFunction size={21} strokeWidth={1.6} />
         </RailButton>
