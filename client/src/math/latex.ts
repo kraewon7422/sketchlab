@@ -181,6 +181,21 @@ export function equationResidual(input: string): { vars: string[]; F: (names: re
   return { vars, F: (names) => toFunction(F, names), latex };
 }
 
+/**
+ * 등호 없는 식 하나 → 계산 함수와 그 안의 변수들 (검산용 — math/stepCheck.ts).
+ * 변수가 없어도 된다 (2+3 같은 계산 줄). 해석이 안 되거나 관계식(=, <)이면 null.
+ */
+export function expressionFunction(input: string): { vars: string[]; f: (names: readonly string[]) => (...v: number[]) => number } | null {
+  const latex = normalizeInput(input);
+  if (!latex) return null;
+  const expr = ce.parse(latex);
+  if (!expr.isValid) return null;
+  const json = expr.json as Json;
+  if (Array.isArray(json) && ["Equal", "Less", "LessEqual", "Greater", "GreaterEqual", "NotEqual"].includes(json[0] as string)) return null;
+  const vars = freeVars(json).filter((v) => /^[a-zA-Z]$/.test(v) && v !== "e" && v !== "i");
+  return { vars, f: (names) => toFunction(json, names) };
+}
+
 /** MathJSON → JS 함수. 변수 이름 목록 순서대로 인자를 받는다. */
 export function toFunction(json: Json, varNames: readonly string[]): (...args: number[]) => number {
   const result = compile(ce.box(json as never), { mode: "strict" });

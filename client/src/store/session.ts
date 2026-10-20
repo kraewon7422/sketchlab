@@ -72,6 +72,8 @@ export interface SessionState extends Doc {
    * 선택·올가미·빈자리 찾기가 실제 크기를 쓰게. 커지면서 바로 아래의 것을 덮으면 그 아래를 함께 내린다.
    */
   fitObjectBox(id: string, bbox: BBox): void;
+  /** 객체 여러 개를 한 번에 (검산 표시·연습 문제) — Undo 1단위 */
+  addObjects(list: ReadonlyArray<{ ir: SceneIR; transform: ObjectTransform; bbox: BBox }>, label: string): string[];
   /** 항목 삭제 (선택 메뉴의 "삭제"). Undo 1단위 */
   removeItems(ids: readonly string[]): void;
   /**
@@ -243,6 +245,16 @@ export const sessionStore: StoreApi<SessionState> = createStore<SessionState>((s
         draft.activeGroupId = null;
       });
       return object.id;
+    },
+
+    addObjects(list, label) {
+      const objects: ObjectItem[] = list.map((o) => ({ id: newId("obj"), kind: "object", ir: o.ir, bbox: o.bbox, sourceStrokes: [], transform: o.transform }));
+      if (objects.length === 0) return [];
+      commit(label, (draft) => {
+        draft.items.push(...objects);
+        draft.activeGroupId = null;
+      });
+      return objects.map((o) => o.id);
     },
 
     removeItems(ids) {

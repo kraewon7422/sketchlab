@@ -1,4 +1,5 @@
-import { ChevronLeft, Sparkles } from "lucide-react";
+import { ChevronLeft, Search, Sparkles } from "lucide-react";
+import { SearchSheet } from "./ui/SearchSheet";
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactElement } from "react";
 import { DebugPanel } from "./DebugPanel";
 import { ErrorBoundary } from "./ErrorBoundary";
@@ -444,6 +445,7 @@ function NoteBar(): ReactElement | null {
   const title = useLibrary((s) => s.notes.find((n) => n.id === s.openNoteId)?.title ?? "");
   const [renaming, setRenaming] = useState(false);
   const [leaving, setLeaving] = useState(false);
+  const [searching, setSearching] = useState(false);
   if (!id) return null;
   const back = async () => {
     if (leaving) return;
@@ -453,6 +455,7 @@ function NoteBar(): ReactElement | null {
     await closeNote(captureCover);
   };
   return (
+    <>
     <div
       className="sl-pop"
       style={{
@@ -507,6 +510,17 @@ function NoteBar(): ReactElement | null {
           {leaving ? "저장하는 중…" : title}
         </button>
       )}
+      <button
+        type="button"
+        aria-label="노트에서 찾기"
+        title="노트에서 찾기"
+        onClick={() => setSearching((s) => !s)}
+        style={{ width: 32, height: 32, flex: "0 0 auto", display: "grid", placeItems: "center", border: "none", borderRadius: "50%", background: searching ? theme.color.selection : "transparent", color: searching ? theme.color.accent : theme.color.ink, cursor: "pointer" }}
+      >
+        <Search size={17} />
+      </button>
     </div>
+    {searching && <SearchSheet onClose={() => setSearching(false)} />}
+    </>
   );
 }

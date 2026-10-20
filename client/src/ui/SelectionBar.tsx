@@ -1,4 +1,5 @@
-import { Atom, BringToFront, ChartSpline, Circle, Copy, CopyPlus, Download, Lock, LockOpen, Palette, Pencil, SendToBack, Share2, Sigma, Trash2 } from "lucide-react";
+import { Atom, BringToFront, ChartSpline, Circle, Copy, CopyPlus, Dices, Download, ListChecks, Lock, LockOpen, Palette, Pencil, SendToBack, Share2, Sigma, Trash2 } from "lucide-react";
+import { aiConfigured } from "../ai/settings";
 import { canRecolor, canTransformFreely, rotationAbout, scaleAbout, selectionBox, type Affine } from "../ink/editing";
 import { rainbow } from "../ink/color";
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactElement } from "react";
@@ -19,7 +20,7 @@ import { useViewport, viewportStore } from "../store/viewport";
  * 내보내기 코드는 누를 때 불러온다 (lazy).
  */
 
-type Action = "copy" | "save" | "share";
+type Action = "copy" | "save" | "share" | "check" | "practice";
 
 export async function runExport(action: Action, item: CanvasItem): Promise<string> {
   const m = await import("../export/exportImage");
@@ -126,6 +127,27 @@ export function SelectionBar({ onMessage, onEditText }: { onMessage: (message: s
   const knob = chosen.every(canTransformFreely) && !chosen.some((i) => i.locked) ? 44 : 0;
   const above = box.top - pad - barH - theme.space[2] - knob > 0;
   const canShare = typeof navigator.share === "function";
+
+  // 8단계: 풀이 검산 · 비슷한 문제 — 손글씨·수식·글 상자가 있을 때
+  const checkable = chosen.some((i) => i.kind === "ink" || i.ir.kind === "formula" || i.ir.kind === "text");
+  const study = async (what: "check" | "practice") => {
+    setBusy(what);
+    try {
+      if (what === "check") {
+        const { checkSelection } = await import("../ai/steps");
+        const r = await checkSelection(ids);
+        onMessage(r.ok ? r.summary : r.message);
+      } else {
+        const { makePractice } = await import("../ai/practice");
+        const r = await makePractice(ids);
+        onMessage(r.ok ? r.summary : r.message);
+      }
+    } catch (e) {
+      onMessage(e instanceof Error ? e.message : "하지 못했어요");
+    } finally {
+      setBusy(null);
+    }
+  };
 
   const act = async (action: Action) => {
     if (!item) return;
@@ -380,6 +402,8 @@ export function SelectionBar({ onMessage, onEditText }: { onMessage: (message: s
         {chemData && button("원", Circle, () => chemToggle("circle"), false, chemData.aromaticCircle)}
         {chemData && button("모든 원자", Atom, () => chemToggle("full"), false, chemData.style === "full")}
         {!locked && item?.kind === "object" && item.ir.kind === "text" && onEditText && button("편집", Pencil, () => onEditText(item.id))}
+        {checkable && button(busy === "check" ? "검산 중…" : "검산", ListChecks, () => void study("check"))}
+        {checkable && aiConfigured() && button(busy === "practice" ? "만드는 중…" : "비슷한 문제", Dices, () => void study("practice"))}
         {item && button("복사", Copy, () => void act("copy"))}
         {item && button("저장", Download, () => void act("save"))}
         {item && canShare && button("공유", Share2, () => void act("share"))}
