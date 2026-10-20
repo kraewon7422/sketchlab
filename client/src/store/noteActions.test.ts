@@ -14,6 +14,8 @@ vi.mock("./persistence", () => ({
   pagesKey: (id: string) => (id === "n0" ? "pages" : `pages:${id}`),
   loadPages: async (id: string) => (db.get(id === "n0" ? "pages" : `pages:${id}`) as never) ?? null,
   savePages: async (pages: unknown, currentId: string, id: string) => void db.set(id === "n0" ? "pages" : `pages:${id}`, structuredClone({ pages, currentId })),
+  resetTouch: () => {},
+  setLoadingPages: () => {},
 }));
 
 const { closeNote, createNote, deleteNotesForever, openNote, trashNotes, restoreNotes } = await import("./noteActions");

@@ -4,6 +4,7 @@ import {
   CheckSquare,
   ChevronDown,
   ChevronRight,
+  Cloud,
   Download,
   FilePlus2,
   FileText,
@@ -41,6 +42,8 @@ import {
 import { createFolder, createNote, deleteFolder, deleteNotesForever, moveNotes, openNote, renameNote, restoreNotes, setFavorite, trashNotes, updateFolder } from "../store/noteActions";
 import { useLayoutMode } from "./layoutMode";
 import { backupNow, backupOverdue, chooseBackupFolder, downloadFullBackup, folderBackupSupported, useBackup } from "../store/autoBackup";
+import { driveAvailable } from "../sync/drive";
+import { connect, disconnect, syncNow, syncSoon, useSync } from "../sync/sync";
 
 /**
  * 노트 보관함 — 삼성노트 PC 폴더 화면처럼.
@@ -83,6 +86,11 @@ export function Library(): ReactElement {
     const t = setTimeout(() => setToast(null), 3200);
     return () => clearTimeout(t);
   }, [toast]);
+  // 보관함을 열 때 (로그인해 두었으면) 클라우드와 맞춘다
+  const ready = data.ready;
+  useEffect(() => {
+    if (ready) syncSoon(400);
+  }, [ready]);
   // 칸을 바꾸면 고르기 풀기
   useEffect(() => {
     setPicked(new Set());
@@ -493,6 +501,7 @@ function Sidebar({ section, onGo, onNewFolder, counts }: { section: Section; onG
         <FolderPlus size={16} /> 새 폴더
       </button>
       <span style={{ flex: 1 }} />
+      <SyncBox />
       <BackupBox />
       {storage && (
         <div style={{ margin: "12px 8px 0", padding: 12, borderRadius: 12, background: "#EEF0F4", fontSize: 12.5, lineHeight: 1.5, color: theme.color.asymptote, wordBreak: "keep-all" }}>
@@ -902,6 +911,86 @@ function BackupReminder({ hasNotes }: { hasNotes: boolean }): ReactElement | nul
       <button type="button" aria-label="닫기" onClick={() => setHidden(true)} style={{ border: "none", background: "transparent", color: "#7A5200", cursor: "pointer", display: "grid" }}>
         <X size={16} />
       </button>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────── 동기화 (사용자 자신의 Google Drive)
+
+/** 왼쪽 목록 아래: 여러 기기에서 같은 노트 — Google Drive에 연결 → 상태·지금 동기화·연결 끊기 */
+function SyncBox(): ReactElement | null {
+  const name = useSync((s) => s.name);
+  const status = useSync((s) => s.status);
+  const message = useSync((s) => s.message);
+  const lastAt = useSync((s) => s.lastAt);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  // 이 빌드에 Google 앱 ID가 없으면 (개발 중 등) 칸을 보이지 않는다
+  if (!driveAvailable()) return null;
+  const small = { marginTop: 6, marginRight: 6, padding: "6px 10px", border: `1px solid ${theme.color.accent}`, borderRadius: 8, background: theme.color.bg, color: theme.color.accent, fontSize: 12.5, cursor: busy ? "default" : "pointer", opacity: busy ? 0.5 : 1, whiteSpace: "nowrap" } as const;
+  const go = async (fn: () => Promise<string | null | void>) => {
+    setBusy(true);
+    setNote(null);
+    try {
+      const r = await fn();
+      if (r) setNote(r);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  let body: ReactNode;
+  if (status === "off") {
+    body = (
+      <>
+        <div>내 Google Drive에 노트를 보관하면 태블릿·PC 어디서나 같은 노트를 써요. 노트는 Drive의 앱 전용 폴더에만 저장되고, 다른 사람(앱 만든 사람 포함)은 볼 수 없어요</div>
+        <button type="button" disabled={busy} onClick={() => void go(connect)} style={{ ...small, background: theme.color.accent, color: "#fff" }}>
+          Google Drive에 연결
+        </button>
+      </>
+    );
+  } else if (status === "reconnect") {
+    body = (
+      <>
+        {name && <div style={{ overflowWrap: "anywhere" }}>{name}</div>}
+        <div>동기화하려면 한 번 눌러 주세요 (Google 연결은 한 시간마다 새로 받아요)</div>
+        <div style={{ display: "flex", flexWrap: "wrap" }}>
+          <button type="button" disabled={busy} onClick={() => void go(connect)} style={{ ...small, background: theme.color.accent, color: "#fff" }}>
+            다시 연결
+          </button>
+          <button type="button" disabled={busy} onClick={() => void go(disconnect)} style={{ ...small, borderColor: theme.color.sub, color: theme.color.asymptote }}>
+            연결 끊기
+          </button>
+        </div>
+      </>
+    );
+  } else {
+    body = (
+      <>
+        {name && <div style={{ overflowWrap: "anywhere" }}>{name}의 Google Drive</div>}
+        <div>
+          {status === "syncing" ? "동기화하는 중…" : status === "error" ? "" : `마지막 동기화 ${agoText(lastAt)}`}
+          {message && status !== "syncing" && status !== "error" ? ` · ${message}` : ""}
+        </div>
+        <div style={{ display: "flex", flexWrap: "wrap" }}>
+          <button type="button" disabled={busy || status === "syncing"} onClick={() => void go(syncNow)} style={small}>
+            지금 동기화
+          </button>
+          <button type="button" disabled={busy} onClick={() => void go(disconnect)} style={{ ...small, borderColor: theme.color.sub, color: theme.color.asymptote }}>
+            연결 끊기
+          </button>
+        </div>
+      </>
+    );
+  }
+
+  return (
+    <div style={{ margin: "12px 8px 0", padding: 12, borderRadius: 12, background: "#EEF0F4", fontSize: 12.5, lineHeight: 1.5, color: theme.color.asymptote, wordBreak: "keep-all" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, color: theme.color.ink, fontWeight: 600 }}>
+        <Cloud size={15} /> 동기화
+      </div>
+      {body}
+      {(note || status === "error") && <div style={{ marginTop: 4, color: status === "error" && !note ? theme.color.danger : theme.color.accent, overflowWrap: "anywhere" }}>{note ?? message}</div>}
     </div>
   );
 }

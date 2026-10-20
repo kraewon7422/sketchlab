@@ -292,18 +292,23 @@ export async function startPersistence(): Promise<() => void> {
   saveLibrarySoon(data);
 
   let lastItems = sessionStore.getState().items;
-  const stopItems = sessionStore.subscribe((state) => {
+  const stopItems = sessionStore.subscribe((state, prev) => {
     // 참조가 그대로면 items는 바뀌지 않은 것이다 (선택·활성 그룹만 변한 경우).
     if (state.items === lastItems) return;
     lastItems = state.items;
     const noteId = libraryStore.getState().openNoteId;
     if (!noteId) return;
     void saveItems(state.items, itemsKey(pagesStore.getState().currentId));
-    touchNote(noteId);
+    // 고친 것만 "수정"으로 — 쪽을 불러오기(hydrate)는 되돌리기 기록을 비우므로 여기서 걸러진다.
+    // (보기만 해도 수정한 것처럼 되면 동기화가 다른 기기의 새 판과 부딪혔다고 잘못 본다)
+    if (state.history !== prev.history && (state.history.undo.length > 0 || state.history.redo.length > 0)) touchNote(noteId);
   });
-  const stopPages = pagesStore.subscribe((s) => {
+  const stopPages = pagesStore.subscribe((s, prevPages) => {
     const noteId = libraryStore.getState().openNoteId;
-    if (noteId) void savePages(s.pages, s.currentId, noteId);
+    if (!noteId) return;
+    void savePages(s.pages, s.currentId, noteId);
+    // 쪽을 더하거나 이름·배경을 바꾼 것도 고친 것 (쪽만 넘긴 것은 아니다)
+    if (s.pages !== prevPages.pages && !loadingPages) touchNote(noteId);
   });
   const stopLibrary = libraryStore.subscribe((s, prev) => {
     if (s.notes === prev.notes && s.folders === prev.folders && s.sort === prev.sort && s.sortDesc === prev.sortDesc && s.view === prev.view) return;
@@ -324,6 +329,17 @@ function touchNote(noteId: string): void {
   lastTouch = now;
   const lib = libraryStore.getState();
   lib.setData({ notes: lib.notes.map((n) => (n.id === noteId ? { ...n, updatedAt: now } : n)) });
+}
+
+/** 노트를 닫을 때 — 다음에 고치면 바로 "수정한 날짜"가 바뀌게 (동기화가 놓치지 않게) */
+export function resetTouch(): void {
+  lastTouch = 0;
+}
+
+/** 노트를 여는 중 (쪽 목록 불러오기는 고친 것이 아니다) */
+let loadingPages = false;
+export function setLoadingPages(v: boolean): void {
+  loadingPages = v;
 }
 
 /** 테스트 전용 — 지난번 저장 기억을 비운다 (새로 고친 것처럼) */

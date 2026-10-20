@@ -2,6 +2,7 @@ name: Deploy demo to GitHub Pages
 
 # The live demo is the client only. Shape recognition (Tier 0) runs entirely in the
 # browser, so no server or API key is involved — nothing secret can end up in this build.
+# Optional sync goes straight from each user's browser to their own Google Drive.
 
 on:
   push:
@@ -39,6 +40,9 @@ jobs:
         run: npm run build
         env:
           SKETCHLAB_BASE: /sketchlab/
+          # Google Drive sync: the public OAuth client ID (identifies the app, not a user).
+          # Set it as a repository variable; without it the sync box is simply hidden.
+          VITE_GOOGLE_CLIENT_ID: ${{ vars.VITE_GOOGLE_CLIENT_ID }}
 
       - uses: actions/configure-pages@v5
 

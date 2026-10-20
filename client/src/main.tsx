@@ -46,6 +46,8 @@ createRoot(container).render(
 // 앱은 노트 보관함에서 시작한다 — 노트를 열 때 그 노트의 쪽을 불러온다 (noteActions.openNote)
 void startPersistence()
   .then(() => import("./store/autoBackup").then((m) => m.loadBackupState()))
+  // 동기화 연결 상태 (Google Drive — 연결하지 않았으면 아무것도 내려받지 않는다)
+  .then(() => import("./sync/sync").then((m) => m.loadSyncState()))
   .catch((error: unknown) => {
     debugLog.error("persistence", "저장소 초기화에 실패했습니다", error);
   });

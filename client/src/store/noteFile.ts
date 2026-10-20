@@ -122,6 +122,13 @@ async function importZip(file: Blob, fallbackTitle: string, folderId: string | n
     }
     return first;
   }
+  const { title, content } = await readNoteZip(zip, mf);
+  // 쪽이 없는 노트(한 번도 열지 않은 빈 노트)는 빈 쪽 하나로
+  return createNote(title || fallbackTitle, folderId, content);
+}
+
+/** 노트 하나짜리 zip → 제목과 쪽들 (사진 파일은 저장소에 넣는다) */
+async function readNoteZip(zip: import("jszip"), mf: import("jszip").JSZipObject): Promise<{ title: string; content: Array<{ meta: PageMetaOut; items: CanvasItem[] }> }> {
   const m = JSON.parse(await mf.async("string")) as Partial<Manifest>;
   if (m.format !== FORMAT || !Array.isArray(m.pages)) throw new Error("SketchLab 노트 파일이 아니에요");
   if ((m.version ?? 0) > VERSION) throw new Error("더 새 버전의 SketchLab에서 만든 파일이에요 · 앱을 새로 고쳐 주세요");
@@ -138,8 +145,28 @@ async function importZip(file: Blob, fallbackTitle: string, folderId: string | n
     const items = f ? cleanItems((JSON.parse(await f.async("string")) as { items?: unknown }).items) : [];
     content.push({ meta: cleanMeta(p as unknown as Record<string, unknown>, i), items: (await migrateItemMedia(items)).items });
   }
-  // 쪽이 없는 노트(한 번도 열지 않은 빈 노트)는 빈 쪽 하나로
-  return createNote(typeof m.title === "string" && m.title.trim() ? m.title : fallbackTitle, folderId, content);
+  return { title: typeof m.title === "string" ? m.title.trim() : "", content };
+}
+
+/**
+ * 동기화: 받은 노트 파일로 이 기기의 노트 내용을 바꾼다 (같은 노트 id 그대로 — 새 노트를 만들지 않는다).
+ * 예전 쪽들은 지우고, 받은 쪽들을 새로 쓴다. 쪽 수를 돌려준다. 열려 있는 노트에는 쓰지 않는다 (부르는 쪽이 막는다).
+ */
+export async function restoreNoteZip(noteId: string, file: Blob): Promise<number> {
+  const { default: JSZip } = await import("jszip");
+  const zip = await JSZip.loadAsync(file);
+  const mf = zip.file("manifest.json");
+  if (!mf) throw new Error("노트 파일이 아니에요");
+  const { content } = await readNoteZip(zip, mf);
+  const [{ newPageId }, { deleteItems, flushSaves, saveItems, savePages }] = await Promise.all([import("./pageActions"), import("./persistence")]);
+  const old = await loadPages(noteId);
+  for (const p of old?.pages ?? []) await deleteItems(itemsKey(p.id));
+  const now = Date.now();
+  const pages: PageMeta[] = (content.length ? content : [{ meta: { title: "1쪽", background: "blank" as const }, items: [] }]).map((c) => ({ ...c.meta, id: newPageId(), createdAt: now }));
+  for (const [i, c] of content.entries()) if (c.items.length) await saveItems(c.items, itemsKey((pages[i] as PageMeta).id));
+  await flushSaves();
+  await savePages(pages, (pages[0] as PageMeta).id, noteId);
+  return pages.length;
 }
 
 /** 예전 형식: JSON 하나 (판 1 노트 파일 · 노트 백업) */

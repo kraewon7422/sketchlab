@@ -1,7 +1,7 @@
 import { debugLog } from "../debug";
 import { forgetHistories, fitPaper, newPageId, switchPage } from "./pageActions";
 import { itemsKey, pagesStore, paperOf, type PageMeta } from "./pages";
-import { allUsedMediaIds, deleteItems, deleteKey, flushSaves, loadItems, loadPages, pagesKey, saveItems, savePages } from "./persistence";
+import { allUsedMediaIds, deleteItems, deleteKey, flushSaves, loadItems, loadPages, pagesKey, resetTouch, saveItems, savePages, setLoadingPages } from "./persistence";
 import { sweepMedia } from "./media";
 import { FOLDER_COLORS, LEGACY_NOTE_ID, libraryStore, newFolderId, newNoteId, removeFolder, canMoveFolder, type NoteMeta } from "./library";
 import { sessionStore } from "./session";
@@ -27,7 +27,10 @@ export async function openNote(id: string): Promise<void> {
   const pages: PageMeta[] = index?.pages.length ? index.pages : id === LEGACY_NOTE_ID ? [{ id: "p1", title: "1쪽", background: "blank", createdAt: 0 }] : [{ id: newPageId(), title: "1쪽", background: "blank", createdAt: Date.now() }];
   const currentId = index && pages.some((p) => p.id === index.currentId) ? index.currentId : (pages[0] as PageMeta).id;
   lib().setOpen(id);
+  // 쪽 목록을 불러오는 것은 고친 것이 아니다 (동기화가 "수정됨"으로 보지 않게)
+  setLoadingPages(true);
   pagesStore.getState().load(pages, currentId);
+  setLoadingPages(false);
   forgetHistories();
   const items = (await loadItems(itemsKey(currentId))) ?? [];
   sessionStore.getState().hydrate(items);
@@ -63,8 +66,11 @@ export async function closeNote(capture?: () => Promise<string | undefined>): Pr
   await savePages(pages, currentId, id);
   sessionStore.getState().hydrate([]);
   patchNote(id, { pageCount: pages.length, ...(capture ? { cover } : {}) });
+  resetTouch();
   // 백업 폴더를 골라 두었으면 바뀐 노트를 저절로 백업 (권한이 없으면 조용히 넘어간다)
   if (typeof window !== "undefined") void import("./autoBackup").then((m) => m.backupNow()).catch(() => undefined);
+  // 로그인해 두었으면 클라우드와 동기화
+  if (typeof window !== "undefined") void import("../sync/sync").then((m) => m.syncSoon()).catch(() => undefined);
 }
 
 /** 새 노트 (첫 쪽이 하나 있는). 쪽·그림을 주면 그것으로 (PDF·노트 파일 가져오기) */
