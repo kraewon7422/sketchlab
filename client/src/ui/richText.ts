@@ -7,7 +7,9 @@
  */
 
 const ALLOWED_TAGS = new Set(["DIV", "P", "BR", "SPAN", "B", "STRONG", "I", "EM", "U", "S", "STRIKE", "UL", "OL", "LI", "FONT"]);
-const ALLOWED_STYLES = new Set(["color", "background-color", "font-size", "font-weight", "font-style", "text-decoration", "text-decoration-line", "text-align", "margin-left", "padding-left"]);
+const ALLOWED_STYLES = new Set(["color", "background-color", "font-size", "font-family", "font-weight", "font-style", "text-decoration", "text-decoration-line", "text-align", "margin-left", "padding-left"]);
+/** 글씨체 이름으로 허용하는 글자 (이름·따옴표·쉼표·공백뿐) */
+const FONT_FAMILY = /^[\w\s"',-]+$/;
 /** 스타일 값에 들어가면 안 되는 것 (url(), expression() 등) */
 const BAD_VALUE = /url\s*\(|expression|javascript:|@import|[<>]/i;
 
@@ -40,11 +42,13 @@ export function sanitizeHtml(html: string): string {
       const style: string[] = [];
       for (const prop of ALLOWED_STYLES) {
         const v = c.style.getPropertyValue(prop);
-        if (v && !BAD_VALUE.test(v)) style.push(`${prop}:${v}`);
+        if (v && !BAD_VALUE.test(v) && (prop !== "font-family" || FONT_FAMILY.test(v))) style.push(`${prop}:${v}`);
       }
       if (c.tagName === "FONT") {
         const color = c.getAttribute("color");
         if (color && /^#?[0-9a-z(),.\s%]+$/i.test(color)) style.push(`color:${color}`);
+        const face = c.getAttribute("face");
+        if (face && FONT_FAMILY.test(face)) style.push(`font-family:${face}`);
       }
       if (style.length) n.setAttribute("style", style.join(";"));
       if (tag === "UL" && c.getAttribute("data-check") === "1") n.setAttribute("data-check", "1");
@@ -139,6 +143,15 @@ export function setHighlight(color: string): void {
   if (!restore()) return;
   document.execCommand("styleWithCSS", false, "true");
   document.execCommand("hiliteColor", false, color);
+  rememberSelection();
+  notify();
+}
+
+/** 글씨체 — 고른 글자에 (고른 게 없으면 이제부터 칠 글자에) */
+export function setFontFamily(css: string): void {
+  if (!restore()) return;
+  document.execCommand("styleWithCSS", false, "true");
+  document.execCommand("fontName", false, css);
   rememberSelection();
   notify();
 }

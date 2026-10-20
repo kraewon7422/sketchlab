@@ -17,11 +17,11 @@ import {
 import { useEffect, useState, type ReactElement, type ReactNode } from "react";
 import { theme } from "../render/theme";
 import { useTextEdit } from "../store/textEdit";
-import { activeFormats, onFormatChange, run, setColor, setFontSize, setHighlight, toggleChecklist, type Cmd } from "./richText";
+import { activeFormats, onFormatChange, run, setColor, setFontFamily, setFontSize, setHighlight, toggleChecklist, type Cmd } from "./richText";
 
 /**
  * 글 상자 서식 패널 — 삼성노트의 텍스트 패널처럼.
- *   크기 · B I U S · 글자 색 · 형광 · 체크/글머리/번호 목록 · 정렬 · 들여쓰기
+ *   글씨체 · 크기 · B I U S · 글자 색 · 형광 · 체크/글머리/번호 목록 · 정렬 · 들여쓰기
  * 단추는 누르는 순간 편집기의 포커스를 뺏지 않는다 (onPointerDown preventDefault) — 고른 글자가 그대로 남도록.
  */
 
@@ -40,6 +40,7 @@ export function TextPanel(): ReactElement {
   const editing = useTextEdit((s) => s.session !== null);
   const [fmt, setFmt] = useState(activeFormats);
   const [size, setSize] = useState(20);
+  const [font, setFont] = useState<string>("gothic");
   useEffect(() => onFormatChange(() => setFmt(activeFormats())), []);
 
   const keep = (e: { preventDefault: () => void }) => e.preventDefault();
@@ -109,6 +110,40 @@ export function TextPanel(): ReactElement {
     <div style={{ display: "grid", gap: theme.space[2] }}>
       <strong style={{ fontSize: 14 }}>글 상자</strong>
       {!editing && <p style={{ margin: 0, fontSize: 13, color: theme.color.asymptote, lineHeight: 1.6 }}>페이지를 누르면 글 상자가 생겨요. 이미 있는 글 상자를 누르면 고칠 수 있어요.</p>}
+
+      {section("글씨체")}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6 }}>
+        {theme.textFonts.map((f) => (
+          <button
+            key={f.key}
+            type="button"
+            aria-label={`글씨체 ${f.label}`}
+            aria-pressed={font === f.key}
+            onPointerDown={keep}
+            onMouseDown={keep}
+            disabled={!editing}
+            onClick={() => {
+              setFont(f.key);
+              setFontFamily(f.css);
+            }}
+            style={{
+              display: "grid",
+              justifyItems: "center",
+              gap: 1,
+              padding: "6px 2px",
+              border: `1px solid ${font === f.key ? theme.color.accent : theme.color.sub}`,
+              borderRadius: theme.radius.s,
+              background: font === f.key ? theme.color.selection : theme.color.bg,
+              color: font === f.key ? theme.color.accent : theme.color.ink,
+              opacity: editing ? 1 : 0.4,
+              cursor: editing ? "pointer" : "not-allowed",
+            }}
+          >
+            <span style={{ fontFamily: f.css, fontSize: f.key === "pen" ? 22 : 17, lineHeight: 1.2 }}>가 Aa</span>
+            <span style={{ fontSize: 11 }}>{f.label}</span>
+          </button>
+        ))}
+      </div>
 
       {section("글자 크기")}
       <div style={{ display: "flex", alignItems: "center", gap: theme.space[2] }}>

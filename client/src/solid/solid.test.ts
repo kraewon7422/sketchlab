@@ -110,4 +110,15 @@ describe("공간좌표 — 점과 수선", () => {
     const d = drawSpace({ view: { range: 5 }, points: [{ at: [2, 3, 0] }], showProjections: true }, iso, 30, 0, 0);
     expect(d.dashed.length).toBe(2);
   });
+
+  it("축마다 범위를 따로 주면: 축 그림 길이는 같고, 범위가 넓은 축의 점은 원점 쪽으로 붙는다", async () => {
+    const { drawSpace } = await import("./space");
+    const dist = (a: readonly number[], b: readonly number[]) => Math.hypot((a[0] as number) - (b[0] as number), (a[1] as number) - (b[1] as number));
+    const same = drawSpace({ view: { range: 5 }, points: [{ at: [0, 0, 4] }], showProjections: false }, iso, 30, 0, 0);
+    const wideZ = drawSpace({ view: { range: 5, axes: { x: 5, y: 5, z: 10 } }, points: [{ at: [0, 0, 4] }], showProjections: false }, iso, 30, 0, 0);
+    const zAxis = (d: typeof same) => d.axes.find((a) => a.name === "z") as (typeof same.axes)[number];
+    expect(dist(zAxis(wideZ).from, zAxis(wideZ).to)).toBeCloseTo(dist(zAxis(same).from, zAxis(same).to));
+    expect(dist(wideZ.origin, (wideZ.points[0] as (typeof same.points)[number]).at)).toBeCloseTo(dist(same.origin, (same.points[0] as (typeof same.points)[number]).at) / 2);
+    expect(wideZ.points[0]?.label).toBe("(0, 0, 4)"); // 이름표는 실제 좌표
+  });
 });

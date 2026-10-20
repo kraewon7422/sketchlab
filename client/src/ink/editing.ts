@@ -300,7 +300,7 @@ export function itemsInLasso(items: readonly CanvasItem[], poly: readonly Point[
 }
 
 /**
- * 삼성노트식 올가미 — 끝을 시작점으로 잇지 않는다. 그은 선이 닿은 것 + 선이 감싼 것.
+ * 자유형 올가미 (삼성노트 방식) — 끝을 시작점으로 잇지 않는다. 그은 선이 닿은 것 + 선이 감싼 것.
  *   잉크: 획이 그은 선에서 reach 이내로 지나가거나, 고리 안에 절반 이상
  *   객체: 그은 선이 상자를 지나가거나, 상자 중심이 고리 안
  */

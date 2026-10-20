@@ -6,6 +6,10 @@ import { debugLog, installGlobalHandlers } from "./debug";
 import { applyThemeVars } from "./render/theme";
 import { startPersistence } from "./store/persistence";
 import "./index.css";
+// 글 상자 글씨체 (명조·손글씨) — @font-face만 등록, 글꼴 조각은 그 글씨체로 쓴 글자가 있을 때만 받는다
+import "@fontsource/nanum-myeongjo/400.css";
+import "@fontsource/nanum-myeongjo/700.css";
+import "@fontsource/nanum-pen-script/400.css";
 
 /**
  * 부팅 순서 — 각 줄에 이유가 있다.

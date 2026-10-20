@@ -1,9 +1,10 @@
 import { Atom, BringToFront, ChartSpline, Circle, Copy, CopyPlus, Download, Lock, LockOpen, Palette, Pencil, SendToBack, Share2, Sigma, Trash2 } from "lucide-react";
 import { canRecolor, canTransformFreely, rotationAbout, scaleAbout, selectionBox, type Affine } from "../ink/editing";
 import { rainbow } from "../ink/color";
-import { useEffect, useLayoutEffect, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactElement } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactElement } from "react";
 import type { CanvasItem } from "../ink/types";
 import { penOpts, theme } from "../render/theme";
+import { AxisPanel } from "./AxisPanel";
 import { sessionStore, useSession } from "../store/session";
 import { useViewport, viewportStore } from "../store/viewport";
 
@@ -14,7 +15,7 @@ import { useViewport, viewportStore } from "../store/viewport";
  *   [공유] 안드로이드·iPad 공유 시트 → 노트 앱 선택
  *   [복제] [삭제]
  * 여러 개를 골랐으면(올가미) [복제] [삭제]만. 고른 것은 끌어서 옮긴다 (PointerCanvas).
- * 그래프는 [축] [이름], 화학 구조식은 [원] [모든 원자] 켜고 끄기가 앞에 붙는다.
+ * 그래프는 [축] [이름] ([축] 두 번 톡 = 축별 확대·축소 패널, 공간좌표는 [축] 한 번), 화학 구조식은 [원] [모든 원자] 켜고 끄기가 앞에 붙는다.
  * 내보내기 코드는 누를 때 불러온다 (lazy).
  */
 
@@ -57,6 +58,10 @@ export function SelectionBar({ onMessage, onEditText }: { onMessage: (message: s
   const [paintKey, setPaintKey] = useState("");
   const selKey = selection.join(",");
   useEffect(() => setPaintOpen(false), [selKey]);
+  /** 축 패널 (축별 확대·축소) */
+  const [axisOpen, setAxisOpen] = useState(false);
+  useEffect(() => setAxisOpen(false), [selKey]);
+  const lastAxisTap = useRef(0);
   const viewKey = useViewport((s) => `${s.tx},${s.ty},${s.k}`);
 
   useLayoutEffect(() => {
@@ -360,7 +365,16 @@ export function SelectionBar({ onMessage, onEditText }: { onMessage: (message: s
             } as CSSProperties}
           />
         )}
-        {plotData && button("축", ChartSpline, () => toggle("showAxes", "축 표시"), false, plotData.showAxes)}
+        {plotData &&
+          button("축", ChartSpline, () => {
+            // 한 번 = 축 보이기/숨기기, 두 번 톡 = 축 패널 (두 번째 톡이 첫 번째를 되돌려 표시는 그대로)
+            const now = performance.now();
+            const double = now - lastAxisTap.current < 400;
+            lastAxisTap.current = double ? 0 : now;
+            toggle("showAxes", "축 표시");
+            if (double) setAxisOpen(true);
+          }, false, plotData.showAxes)}
+        {item?.kind === "object" && item.ir.kind === "space3d" && button("축", ChartSpline, () => setAxisOpen((o) => !o), false, axisOpen || undefined)}
         {plotData && button("이름", Sigma, () => toggle("showCaption", "식 표시"), false, plotData.showCaption)}
         {chemData && button("원", Circle, () => chemToggle("circle"), false, chemData.aromaticCircle)}
         {chemData && button("모든 원자", Atom, () => chemToggle("full"), false, chemData.style === "full")}
@@ -378,6 +392,11 @@ export function SelectionBar({ onMessage, onEditText }: { onMessage: (message: s
         {!locked && button("맨 뒤", SendToBack, () => sessionStore.getState().reorder(ids, "back"))}
         {button("복제", CopyPlus, () => sessionStore.getState().duplicateItems(ids))}
         {!locked && button("삭제", Trash2, () => sessionStore.getState().removeItems(ids), true)}
+        {axisOpen && item?.kind === "object" && (
+          <div style={{ flexBasis: "100%", padding: theme.space[2], borderTop: `1px solid ${theme.color.sub}` }}>
+            <AxisPanel item={item} />
+          </div>
+        )}
         {paintOpen && (
           <div style={{ flexBasis: "100%", display: "grid", gap: theme.space[2], padding: theme.space[2], borderTop: `1px solid ${theme.color.sub}` }}>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>

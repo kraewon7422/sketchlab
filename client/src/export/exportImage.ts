@@ -39,6 +39,41 @@ export function embeddedKatexCss(): Promise<string> {
   return fontCss;
 }
 
+/**
+ * 그림 안에 넣을 글꼴 — 화면에서 이미 내려받은 글꼴 조각(woff2)만 골라 @font-face로 넣는다.
+ * (KaTeX 말고 글 상자 글씨체: Pretendard·나눔명조·나눔손글씨 펜.) 내보낸 그림이 화면과 같은 글씨체가 된다.
+ */
+export async function embeddedPageFontsCss(): Promise<string> {
+  const loaded = new Set(
+    performance
+      .getEntriesByType("resource")
+      .map((e) => e.name)
+      .filter((n) => n.endsWith(".woff2")),
+  );
+  const rules: string[] = [];
+  for (const sheet of [...document.styleSheets]) {
+    let list: CSSRuleList;
+    try {
+      list = sheet.cssRules;
+    } catch {
+      continue;
+    }
+    for (const r of [...list]) {
+      if (!(r instanceof CSSFontFaceRule) || /KaTeX/i.test(r.style.getPropertyValue("font-family"))) continue;
+      const m = /url\(["']?([^"')]+\.woff2)["']?\)/.exec(r.style.getPropertyValue("src"));
+      const url = m?.[1] ? new URL(m[1], sheet.href ?? document.baseURI).href : null;
+      if (!url || !loaded.has(url)) continue;
+      try {
+        const data = await blobToDataUrl(await (await fetch(url)).blob());
+        rules.push(r.cssText.replace(/src:[^;]+;/, `src: url(${data}) format("woff2");`));
+      } catch {
+        /* 글꼴 하나 실패해도 내보내기는 계속 (대체 글꼴로) */
+      }
+    }
+  }
+  return rules.join("");
+}
+
 export function blobToDataUrl(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const r = new FileReader();
@@ -86,7 +121,7 @@ export async function objectToSvg(item: CanvasItem): Promise<Rendered> {
   clone.setAttribute("xmlns", XHTML);
   const w = Math.ceil(rect.width + pad * 2);
   const h = Math.ceil(rect.height + pad * 2);
-  const css = await embeddedKatexCss();
+  const css = (await embeddedKatexCss()) + (await embeddedPageFontsCss());
   const font = getComputedStyle(document.body).fontFamily;
   const html = new XMLSerializer().serializeToString(clone);
   const svg =

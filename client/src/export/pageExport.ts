@@ -2,7 +2,7 @@ import { themeCssVars } from "../render/theme";
 import { currentPage } from "../store/pages";
 import { sessionStore } from "../store/session";
 import { viewportStore } from "../store/viewport";
-import { blobToDataUrl, embeddedKatexCss, toPng, type ExportResult, type Rendered } from "./exportImage";
+import { blobToDataUrl, embeddedKatexCss, embeddedPageFontsCss, toPng, type ExportResult, type Rendered } from "./exportImage";
 
 /**
  * 쪽 전체 내보내기 (제안 #6) — 그 쪽의 손글씨·도형·배경·그래프·구조식·글 상자를 이미지 한 장으로.
@@ -83,7 +83,7 @@ export async function pageToSvg(): Promise<Rendered | null> {
     clone.querySelectorAll("[class*='sl-fade']").forEach((n) => n.classList.remove("sl-fade-in"));
     clone.style.cssText = `position:absolute;left:${ox}px;top:${oy}px`;
     clone.setAttribute("xmlns", XHTML);
-    const css = await embeddedKatexCss();
+    const css = (await embeddedKatexCss()) + (await embeddedPageFontsCss());
     htmlPart =
       `<foreignObject x="0" y="0" width="${W}" height="${H}">` +
       `<div xmlns="${XHTML}" style="position:relative;width:${W}px;height:${H}px;font-family:${getComputedStyle(document.body).fontFamily.replace(/"/g, "'")};color:#1A1A1A">` +

@@ -129,7 +129,11 @@ const Solid3D = z.object({
 
 const Space3D = z.object({
   /** 각 축 [-range, range] */
-  view: z.object({ range: z.number().positive().default(5) }),
+  view: z.object({
+    range: z.number().positive().default(5),
+    /** 축마다 따로 정한 범위 [−a, a] (축 패널). 없으면 셋 다 range */
+    axes: z.object({ x: z.number().positive(), y: z.number().positive(), z: z.number().positive() }).optional(),
+  }),
   points: z.array(z.object({ at: Vec3, label: z.string().optional() })).optional(),
   vectors: z
     .array(z.object({ from: Vec3, to: Vec3, label: z.string().optional() }))

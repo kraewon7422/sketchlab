@@ -29,6 +29,13 @@ export const theme = {
   radius: { s: 8, m: 12, sheet: 20 },
   /** 수식 폰트는 KaTeX가 관리한다. 여기서 다루지 않는다. */
   font: { ui: "'Pretendard Variable', Pretendard, system-ui, sans-serif" },
+  /** 글 상자 글씨체 — 명조·손글씨는 앱에 넣은 웹 글꼴 (쓰는 글자 조각만 내려받는다) */
+  textFonts: [
+    { key: "gothic", label: "고딕", css: "'Pretendard Variable', Pretendard, system-ui, sans-serif" },
+    { key: "myeongjo", label: "명조", css: "'Nanum Myeongjo', serif" },
+    { key: "pen", label: "손글씨", css: "'Nanum Pen Script', cursive" },
+    { key: "mono", label: "고정폭", css: "ui-monospace, Consolas, monospace" },
+  ],
   motion: {
     fast: 150,
     base: 250,
@@ -139,8 +146,8 @@ export const pageBg = {
 
 /** 캔버스 이동·확대 (v4 §12.2) — 두 손가락 핀치, 마우스 휠, Ctrl+휠. */
 export const viewport = {
-  minZoom: 0.5,
-  maxZoom: 6,
+  minZoom: 0.1,
+  maxZoom: 10,
   /** 손을 뗄 때 이 안쪽이면 100%로 맞춘다 (노트 앱처럼) */
   snapToOne: 0.07,
   /** 휠 한 단위(deltaY 1)당 확대 비율 지수 */

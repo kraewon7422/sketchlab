@@ -32,16 +32,21 @@ export interface SpaceDrawing {
 const fmt = (v: number) => (Number.isInteger(v) ? String(v) : v.toFixed(1)).replace("-", "−");
 
 export function drawSpace(data: SpaceData, view: View3, scale: number, cx: number, cy: number): SpaceDrawing {
+  const range = data.view.range;
+  // 축마다 범위가 다르면 그 축만 늘이고 줄인다 (그림 크기는 range 기준 그대로, 눈금 글자는 실제 값)
+  const ax = data.view.axes;
+  const k = ax ? [range / ax.x, range / ax.y, range / ax.z] : [1, 1, 1];
   const S = (p: readonly [number, number, number]): P2 => {
-    const r = rotate(toRender(p), view);
+    const r = rotate(toRender([p[0] * (k[0] as number), p[1] * (k[1] as number), p[2] * (k[2] as number)]), view);
     return [cx + r[0] * scale, cy - r[1] * scale];
   };
-  const range = data.view.range;
   const axes = (["x", "y", "z"] as const).map((name, i) => {
     const pos: [number, number, number] = [0, 0, 0];
     const neg: [number, number, number] = [0, 0, 0];
-    pos[i] = range;
-    neg[i] = -range * 0.35;
+    // 축 끝은 그 축의 실제 범위 (S가 range 길이로 맞춘다)
+    const a = ax ? ax[name] : range;
+    pos[i] = a;
+    neg[i] = -a * 0.35;
     return { name, from: S([0, 0, 0]), to: S(pos), neg: S(neg) };
   });
 

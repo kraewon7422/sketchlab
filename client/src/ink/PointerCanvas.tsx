@@ -327,7 +327,7 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
         state.setSelection(hit ? [hit.id] : []);
         return;
       }
-      // 애플식: 두른 고리 안 / 삼성식: 그은 선이 닿은 것 + 감싼 것
+      // 고정형: 두른 고리 안 / 자유형: 그은 선이 닿은 것 + 감싼 것
       state.setSelection(
         penStore.getState().lassoStyle === "samsung" ? itemsTouchedByLasso(state.items, l.pts, 8 / view().k) : itemsInLasso(state.items, l.pts),
       );
@@ -644,7 +644,7 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
         lasso = { pointerId: event.pointerId, pts: [{ x: w.x, y: w.y, p: 0.5, t: 0 }] };
         capture(event.pointerId);
         lassoRef.current?.setAttribute("d", "");
-        // 삼성식은 그은 선만 (안쪽 칠·시작점으로 잇는 선 없음)
+        // 자유형은 그은 선만 (안쪽 칠·시작점으로 잇는 선 없음)
         lassoRef.current?.setAttribute("fill", penStore.getState().lassoStyle === "samsung" ? "none" : theme.color.groupHint);
         return;
       }
