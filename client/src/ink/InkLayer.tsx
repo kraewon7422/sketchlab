@@ -1,6 +1,6 @@
 import { memo } from "react";
-import { ink, penOpts, theme } from "../render/theme";
-import { smoothStrokePath } from "./smoothOutline";
+import { ink, theme } from "../render/theme";
+import { strokeAttrs, strokeD } from "./brushes";
 import type { InkItem, Stroke } from "./types";
 
 /**
@@ -32,18 +32,16 @@ export function InkStrokes({ strokes }: { strokes: readonly Stroke[] }) {
 }
 
 const StrokeView = memo(function StrokeView({ stroke }: { stroke: Stroke }) {
-  // 외곽선 하나짜리 매끈한 획 (smoothOutline.ts — v1의 조각 겹치기는 고해상도에서 흐려 보였다)
-  const d = smoothStrokePath(stroke.points, { baseWidth: stroke.width ?? ink.width });
-  const highlighter = stroke.tool === "highlighter";
-
+  // 외곽선 하나짜리 매끈한 획 (smoothOutline.ts) — 펜 종류·선 모양은 brushes.ts
+  const look = { ...stroke, width: stroke.width ?? ink.width };
+  const { mixBlendMode, ...attrs } = strokeAttrs(look);
   return (
     <path
-      d={d}
-      fill={stroke.color ?? theme.color.ink}
+      d={strokeD(stroke.points, look)}
+      {...attrs}
       fillRule="nonzero"
       shapeRendering="geometricPrecision"
-      opacity={highlighter ? penOpts.highlightOpacity : undefined}
-      style={highlighter ? { mixBlendMode: "multiply" } : undefined}
+      style={mixBlendMode ? { mixBlendMode } : undefined}
     />
   );
 });

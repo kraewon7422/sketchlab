@@ -50,3 +50,45 @@ export function hexToHsl(hex: string): Hsl {
 export function rainbow(s: number, l: number): string[] {
   return Array.from({ length: 12 }, (_, i) => hslToHex({ h: i * 30, s, l }));
 }
+
+/** HSV — 색 고르기 판(가로 = 색상, 세로 = 채도)과 밝기 막대에 쓴다. h 0~360, s·v 0~100 */
+export interface Hsv {
+  h: number;
+  s: number;
+  v: number;
+}
+
+export function hsvToHex({ h, s, v }: Hsv): string {
+  const S = s / 100;
+  const V = v / 100;
+  const f = (n: number) => {
+    const k = (n + h / 60) % 6;
+    return V - V * S * Math.max(0, Math.min(k, 4 - k, 1));
+  };
+  const to = (x: number) => Math.round(x * 255).toString(16).padStart(2, "0");
+  return `#${to(f(5))}${to(f(3))}${to(f(1))}`.toUpperCase();
+}
+
+export function hexToHsv(hex: string): Hsv {
+  const [r, g, b] = hexToRgb(hex).map((c) => c / 255) as [number, number, number];
+  const max = Math.max(r, g, b);
+  const d = max - Math.min(r, g, b);
+  let h = 0;
+  if (d > 0) {
+    if (max === r) h = 60 * (((g - b) / d) % 6);
+    else if (max === g) h = 60 * ((b - r) / d + 2);
+    else h = 60 * ((r - g) / d + 4);
+  }
+  return { h: (h + 360) % 360, s: max === 0 ? 0 : (d / max) * 100, v: max * 100 };
+}
+
+export function hexToRgb(hex: string): [number, number, number] {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  const n = m ? parseInt(m[1] as string, 16) : 0;
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+export function rgbToHex(r: number, g: number, b: number): string {
+  const to = (x: number) => Math.round(Math.min(255, Math.max(0, x))).toString(16).padStart(2, "0");
+  return `#${to(r)}${to(g)}${to(b)}`.toUpperCase();
+}

@@ -10,18 +10,21 @@ import { currentStrokeStyle, penStore } from "../store/pen";
 import { createStabilizer } from "./stabilize";
 import { GroupHint, InkItemView } from "./InkLayer";
 import { hitItem, itemsInLasso, itemsTouchedByLasso, selectionBox } from "./editing";
-import { buildTape, tapeCorners } from "./tape";
+import { asPoints, buildFreeTape, buildTape, TAPE_MIN_LEN } from "./tape";
+import { centerlinePath } from "./smoothOutline";
+import { straightenStroke } from "./straighten";
+import { colorAt, eyedropperStore } from "../ui/eyedropper";
 import { buildShape } from "./shapes";
 import { IR_VERSION } from "@sketchlab/shared";
 import { primitivePolyline } from "../render/shape2dGeometry";
 import { markFresh } from "../render/Shape2DView";
 import { distance, toWorld, zoomAbout, type View } from "./geometry";
 import { simplifyRDP } from "./simplify";
-import { smoothStrokePath } from "./smoothOutline";
+import { isLineDrawn, strokeAttrs, strokeD } from "./brushes";
 import { createPalmRejector } from "./palmRejection";
 import type { InkItem, Point } from "./types";
 
-export type Tool = "pen" | "eraser" | "lasso" | "text" | "shape" | "tape";
+export type Tool = "pen" | "eraser" | "lasso" | "text" | "shape" | "tape" | "laser";
 
 /**
  * S Pen 측면 버튼(2) 또는 지우개 버튼(32)이 눌린 상태인가 (v4 §6.1).
@@ -74,6 +77,8 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
   const lassoRef = useRef<SVGPathElement>(null);
   const shapeRef = useRef<SVGPathElement>(null);
   const tapeRef = useRef<SVGPathElement>(null);
+  /** 레이저 포인터 자국이 잠깐 머무는 곳 (저장하지 않는다) */
+  const laserRef = useRef<SVGGElement>(null);
   const hoverRef = useRef<SVGCircleElement>(null);
 
   const items = useSession((s) => s.items);
@@ -158,32 +163,45 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
     let lasso: { pointerId: number; pts: Point[] } | null = null;
     /** 도형 도구로 끄는 중 (월드 좌표 시작점) */
     let shapeDrag: { pointerId: number; a: { x: number; y: number } } | null = null;
-    /** 테이프를 끌어 붙이는 중 (월드 시작점 + 화면 시작점 — 짧으면 톡) */
-    let tapeDrag: { pointerId: number; a: { x: number; y: number }; sx: number; sy: number } | null = null;
-
-    const tapeAt = (event: PointerEvent) => {
-      if (!tapeDrag || !rect) return null;
-      const { tapeWidth, tapeColor, tapePattern } = penStore.getState();
-      return buildTape(tapeDrag.a, toWorld(event.clientX, event.clientY, rect, view()), tapeWidth, tapeColor, tapePattern);
+    /**
+     * 테이프를 긋는 중 — 펜처럼 자유롭게 (삼성노트 기본). 그은 길(월드)과 화면 시작점(짧으면 톡).
+     * 직선 자동 보정이 켜져 있고 거의 곧게 그었으면 손을 뗄 때 곧은 테이프로.
+     */
+    let tapeDrag: { pointerId: number; pts: Array<{ x: number; y: number }>; sx: number; sy: number } | null = null;
+    /** 레이저 포인터 — 빨갛게 빛나는 자국이 손을 떼면 서서히 사라진다 (발표·설명용, 노트에 남지 않는다) */
+    let laser: { pointerId: number; pts: Array<{ x: number; y: number }>; el: SVGPathElement } | null = null;
+    const LASER_HOLD_MS = 700;
+    const LASER_FADE_MS = 600;
+    const fadeLaser = (el: SVGPathElement): void => {
+      setTimeout(() => {
+        el.style.transition = `opacity ${LASER_FADE_MS}ms ease-out`;
+        el.style.opacity = "0";
+        setTimeout(() => el.remove(), LASER_FADE_MS + 50);
+      }, LASER_HOLD_MS);
     };
+
     const previewTape = (event: PointerEvent): void => {
-      const t = tapeAt(event);
-      const path = tapeRef.current;
-      if (!path) return;
-      if (!t) {
-        path.setAttribute("d", "");
-        return;
-      }
-      path.setAttribute("fill", t.data.color);
-      path.setAttribute("d", `M${tapeCorners(t.data, t.transform).map((q) => `${q.x.toFixed(1)},${q.y.toFixed(1)}`).join("L")}Z`);
+      if (!tapeDrag || !rect) return;
+      const w = toWorld(event.clientX, event.clientY, rect, view());
+      const last = tapeDrag.pts[tapeDrag.pts.length - 1];
+      if (last && Math.hypot(w.x - last.x, w.y - last.y) * view().k < 2) return;
+      tapeDrag.pts.push(w);
+      tapeRef.current?.setAttribute("d", centerlinePath(asPoints(tapeDrag.pts)));
     };
     const finishTape = (event: PointerEvent): void => {
       const drag = tapeDrag;
-      const t = tapeAt(event);
       tapeDrag = null;
       tapeRef.current?.setAttribute("d", "");
       if (!drag) return;
       release(drag.pointerId);
+      const { tapeWidth, tapeColor, tapePattern, straightTape } = penStore.getState();
+      const straight = straightTape ? straightenStroke(asPoints(drag.pts), TAPE_MIN_LEN) : null;
+      const first = drag.pts[0];
+      const last = drag.pts[drag.pts.length - 1];
+      const t =
+        straight && first && last
+          ? buildTape(first, last, tapeWidth, tapeColor, tapePattern)
+          : buildFreeTape(simplifyRDP(asPoints(drag.pts), 0.8 / view().k), tapeWidth, tapeColor, tapePattern);
       if (!t) {
         // 짧게 톡 = 테이프 벗기기·붙이기 (다른 도구에서와 같게)
         handleTap(drag.sx, drag.sy, event.timeStamp);
@@ -333,13 +351,29 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
       );
     };
     const drawingHighlighter = (): boolean => (drawing ? drawing.style.tool : penStore.getState().kind) === "highlighter";
-    /** 진행 중 획의 색·투명도를 그 펜에 맞춘다 */
+    /** 진행 중 획의 색·투명도·선 모양을 그 펜에 맞춘다 (저장된 획과 같은 brushes.ts 정의) */
     const styleLive = (style: ReturnType<typeof currentStrokeStyle>): void => {
-      const path = livePathRef.current;
-      if (!path) return;
-      path.setAttribute("fill", style.color);
-      path.setAttribute("opacity", style.tool === "highlighter" ? String(penOpts.highlightOpacity) : "1");
-      path.style.mixBlendMode = style.tool === "highlighter" ? "multiply" : "";
+      const g = livePathRef.current;
+      if (!g) return;
+      const a = strokeAttrs(style);
+      g.setAttribute("fill", a.fill);
+      g.setAttribute("opacity", String(a.opacity ?? 1));
+      g.style.mixBlendMode = a.mixBlendMode ?? "";
+      for (const [attr, v] of [
+        ["stroke", a.stroke],
+        ["stroke-width", a.strokeWidth],
+        ["stroke-dasharray", a.strokeDasharray],
+        ["stroke-linecap", a.strokeLinecap],
+        ["stroke-linejoin", a.strokeLinejoin],
+      ] as const) {
+        if (v === undefined) g.removeAttribute(attr);
+        else g.setAttribute(attr, String(v));
+      }
+    };
+    /** 진행 중 획 색만 바꾸기 (멈춤 스냅 표시) — 점선 펜은 선 색, 나머지는 칠 색 */
+    const colorLive = (color: string): void => {
+      if (!drawing) return;
+      livePathRef.current?.setAttribute(isLineDrawn(drawing.style) ? "stroke" : "fill", color);
     };
 
     /**
@@ -406,7 +440,7 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
         if (!drawing || drawing.length < ink.holdMinLength) return;
         drawing.held = true;
         // 확정됐다는 신호: 진행 중 획 색을 강조색으로. 놓으면 도형으로 바뀐다.
-        livePathRef.current?.setAttribute("fill", theme.color.accent);
+        colorLive(theme.color.accent);
         navigator.vibrate?.(8);
       }, ink.holdMs);
     };
@@ -434,14 +468,16 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
       queued = [];
 
       const pts = drawing.points;
-      const opts = { baseWidth: drawing.style.width };
-      if (pts.length - frozenUpTo > TAIL_EVERY + TAIL_OVERLAP) {
+      const look = drawing.style;
+      // 붓(양 끝이 가늘어짐)·점선은 획 전체를 봐야 모양이 맞다 — 두 조각으로 나누지 않고 통째로
+      const whole = look.brush === "brush" || isLineDrawn(look);
+      if (!whole && pts.length - frozenUpTo > TAIL_EVERY + TAIL_OVERLAP) {
         frozenUpTo = pts.length - TAIL_OVERLAP;
-        livePrefixRef.current?.setAttribute("d", smoothStrokePath(pts.slice(0, frozenUpTo + 1), opts));
+        livePrefixRef.current?.setAttribute("d", strokeD(pts.slice(0, frozenUpTo + 1), look));
       }
       // 예측 점은 그릴 때만 덧붙인다 — 다음 프레임에 실제 점으로 대체된다
-      const recent = pts.slice(Math.max(0, frozenUpTo - TAIL_OVERLAP));
-      tail.setAttribute("d", smoothStrokePath(predicted.length > 0 ? [...recent, ...predicted] : recent, opts));
+      const recent = whole ? pts : pts.slice(Math.max(0, frozenUpTo - TAIL_OVERLAP));
+      tail.setAttribute("d", strokeD(predicted.length > 0 ? [...recent, ...predicted] : recent, look));
     };
 
     const schedulePaint = (): void => {
@@ -539,6 +575,19 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
     const onPointerDown = (event: PointerEvent): void => {
       hideHover();
 
+      // 스포이트: 이번 톡은 그 자리의 색 가져오기 (그리지 않는다)
+      const onPick = eyedropperStore.getState().onPick;
+      if (onPick) {
+        event.preventDefault();
+        rect = svg.getBoundingClientRect();
+        const v = view();
+        const w = toWorld(event.clientX, event.clientY, rect, v);
+        const c = colorAt(sessionStore.getState().items, w.x, w.y, ink.tapSlop / v.k);
+        eyedropperStore.setState({ onPick: null });
+        if (c) onPick(c);
+        return;
+      }
+
       if (event.pointerType === "touch") {
         // 펜으로 그리는 중의 손 터치는 손바닥 — 무시한다 (획을 끊지 않는다)
         if (drawing && drawing.pointerType === "pen") return;
@@ -571,7 +620,7 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
         return;
       }
 
-      if (manip || lasso || tapeDrag) return;
+      if (manip || lasso || tapeDrag || laser) return;
       rect = svg.getBoundingClientRect();
       {
         const v = view();
@@ -633,8 +682,25 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
         return;
       }
 
+      if (toolRef.current === "laser") {
+        const el = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        el.setAttribute("fill", "none");
+        el.setAttribute("stroke", ink.laserColor);
+        el.setAttribute("stroke-width", String(ink.laserWidth / view().k));
+        el.setAttribute("stroke-linecap", "round");
+        el.setAttribute("stroke-linejoin", "round");
+        el.style.filter = `drop-shadow(0 0 ${3 / view().k}px ${ink.laserColor})`;
+        laserRef.current?.appendChild(el);
+        laser = { pointerId: event.pointerId, pts: [toWorld(event.clientX, event.clientY, rect, view())], el };
+        capture(event.pointerId);
+        return;
+      }
+
       if (toolRef.current === "tape" && !isBarrelPressed(event)) {
-        tapeDrag = { pointerId: event.pointerId, a: toWorld(event.clientX, event.clientY, rect, view()), sx: event.clientX, sy: event.clientY };
+        tapeDrag = { pointerId: event.pointerId, pts: [toWorld(event.clientX, event.clientY, rect, view())], sx: event.clientX, sy: event.clientY };
+        const { tapeColor, tapeWidth } = penStore.getState();
+        tapeRef.current?.setAttribute("stroke", tapeColor);
+        tapeRef.current?.setAttribute("stroke-width", String(tapeWidth));
         capture(event.pointerId);
         return;
       }
@@ -688,7 +754,7 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
       styleLive(style);
       frozenUpTo = 0;
       livePrefixRef.current?.setAttribute("d", "");
-      liveTailRef.current?.setAttribute("d", smoothStrokePath([first], { baseWidth: style.width }));
+      liveTailRef.current?.setAttribute("d", strokeD([first], style));
     };
 
     const onPointerMove = (event: PointerEvent): void => {
@@ -709,6 +775,12 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
       }
       if (tapeDrag && tapeDrag.pointerId === event.pointerId) {
         previewTape(event);
+        return;
+      }
+      if (laser && laser.pointerId === event.pointerId) {
+        if (!rect) return;
+        laser.pts.push(toWorld(event.clientX, event.clientY, rect, view()));
+        laser.el.setAttribute("d", centerlinePath(asPoints(laser.pts)));
         return;
       }
       if (lasso && lasso.pointerId === event.pointerId) {
@@ -779,7 +851,7 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
           drawing.anchor = point;
           if (drawing.held) {
             drawing.held = false;
-            livePathRef.current?.setAttribute("fill", drawing.style.color);
+            colorLive(drawing.style.color);
           }
           armHold();
         }
@@ -812,7 +884,9 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
       }
       if (state.selection.length > 0) state.setSelection([]);
 
-      const simplified = simplifyRDP(captured.points, ink.simplifyEpsilon);
+      // 직선 자동 보정이 켜져 있고 거의 곧게 그었으면 곧은 선으로 (필압 변화는 남기려고 단순화는 건너뛴다)
+      const straight = captured.style.straight && !captured.held ? straightenStroke(captured.points) : null;
+      const simplified = straight ?? simplifyRDP(captured.points, ink.simplifyEpsilon);
       if (simplified.length > 0) {
         // 형광펜 획은 형광펜 획끼리만 묶인다 (session.addStroke) — ✨로 형광펜 도형으로 정리된다
         const groupId = sessionStore.getState().addStroke(createStroke(simplified, Date.now(), captured.style), { newGroup: captured.held });
@@ -855,6 +929,12 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
         finishTape(event);
         return;
       }
+      if (laser && laser.pointerId === event.pointerId) {
+        release(event.pointerId);
+        fadeLaser(laser.el);
+        laser = null;
+        return;
+      }
       if (erasingPointerId === event.pointerId) {
         erasingPointerId = null;
         release(event.pointerId);
@@ -884,6 +964,10 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
       if (tapeDrag?.pointerId === event.pointerId) {
         tapeDrag = null;
         tapeRef.current?.setAttribute("d", "");
+      }
+      if (laser?.pointerId === event.pointerId) {
+        fadeLaser(laser.el);
+        laser = null;
       }
       // 시스템이 포인터를 회수했다(전화 수신, 제스처 인식 등). 획은 버린다.
       if (erasingPointerId === event.pointerId) erasingPointerId = null;
@@ -963,8 +1047,10 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
       </g>
       {/* 도형 도구 미리보기 */}
       <path ref={shapeRef} fill="none" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" pointerEvents="none" data-export-skip />
+      {/* 레이저 포인터 자국 (잠깐 보였다 사라진다) */}
+      <g ref={laserRef} pointerEvents="none" data-export-skip />
       {/* 테이프 붙이는 중 미리보기 */}
-      <path ref={tapeRef} opacity={0.85} pointerEvents="none" data-export-skip />
+      <path ref={tapeRef} fill="none" strokeLinejoin="round" strokeLinecap="butt" opacity={0.85} pointerEvents="none" data-export-skip />
       {/* 올가미 — 점선 테두리, 옅은 안쪽 (선 굵기는 확대와 무관) */}
       <path ref={lassoRef} fill={theme.color.groupHint} stroke={theme.color.accent} strokeWidth={1.5} strokeDasharray="6 5" vectorEffect="non-scaling-stroke" pointerEvents="none" />
 

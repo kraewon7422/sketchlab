@@ -1,5 +1,6 @@
-import type { ReactElement } from "react";
-import type { TapePattern } from "../ink/tape";
+import { useId, type ReactElement } from "react";
+import { centerlinePath } from "../ink/smoothOutline";
+import { asPoints, tapePath, type TapeData, type TapePattern } from "../ink/tape";
 import type { ObjectItem } from "../ink/types";
 import { penOpts } from "./theme";
 
@@ -10,6 +11,7 @@ import { penOpts } from "./theme";
 export function TapeObject({ item }: { item: ObjectItem }): ReactElement | null {
   if (item.ir.kind !== "tape") return null;
   const d = item.ir.data;
+  if (d.pts) return <FreeTape item={item} data={d} />;
   const { x, y, scale } = item.transform;
   const len = d.len * scale;
   const h = d.width * scale;
@@ -30,7 +32,7 @@ export function TapeObject({ item }: { item: ObjectItem }): ReactElement | null 
         background: d.revealed ? "transparent" : tapeBackground(d.color, d.pattern ?? "stripes"),
         border: d.revealed ? `1.5px dashed ${d.color}` : "none",
         boxShadow: d.revealed ? "none" : "0 1px 2px rgba(26,26,26,0.18)",
-        opacity: d.revealed ? 1 : 0.97,
+        opacity: 1,
         pointerEvents: "none",
       }}
     >
@@ -52,4 +54,64 @@ export function tapeBackground(color: string, pattern: TapePattern): string {
     case "grid":
       return `linear-gradient(${w} 1px, rgba(255,255,255,0) 1px) 0 0 / 10px 10px, linear-gradient(90deg, ${w} 1px, rgba(255,255,255,0) 1px) 0 0 / 10px 10px, ${color}`;
   }
+}
+
+/** 자유 테이프 — 그은 길을 따라 폭 width인 띠 (무늬는 SVG pattern으로, 내보내기에도 그대로) */
+function FreeTape({ item, data: d }: { item: ObjectItem; data: TapeData }): ReactElement {
+  const id = `tape-${useId().replace(/:/g, "")}`;
+  const b = item.bbox;
+  const w = d.width * item.transform.scale;
+  const path = (tapePath(d, item.transform) ?? []).map((p) => ({ x: p.x - b.minX, y: p.y - b.minY }));
+  const pattern = d.pattern ?? "stripes";
+  return (
+    <svg
+      data-overlay-id={item.id}
+      aria-label={d.revealed ? "벗긴 테이프" : "테이프"}
+      width={b.maxX - b.minX}
+      height={b.maxY - b.minY}
+      style={{ position: "absolute", left: b.minX, top: b.minY, overflow: "visible", pointerEvents: "none" }}
+    >
+      {!d.revealed && pattern !== "plain" && (
+        <defs>
+          <TapePatternDef id={id} color={d.color} pattern={pattern} />
+        </defs>
+      )}
+      <path
+        d={centerlinePath(asPoints(path))}
+        fill="none"
+        stroke={d.revealed || pattern === "plain" ? d.color : `url(#${id})`}
+        strokeWidth={w}
+        strokeLinejoin="round"
+        strokeLinecap="butt"
+        opacity={d.revealed ? penOpts.tapeRevealedOpacity : 1}
+      />
+    </svg>
+  );
+}
+
+/** 테이프 무늬 (CSS tapeBackground와 같은 모양을 SVG로) */
+export function TapePatternDef({ id, color, pattern }: { id: string; color: string; pattern: Exclude<TapePattern, "plain"> }): ReactElement {
+  const w = "rgba(255,255,255,0.32)";
+  if (pattern === "stripes") {
+    return (
+      <pattern id={id} width={14} height={14} patternUnits="userSpaceOnUse" patternTransform="rotate(25)">
+        <rect width={14} height={14} fill={color} />
+        <rect width={6} height={14} fill={w} />
+      </pattern>
+    );
+  }
+  if (pattern === "dots") {
+    return (
+      <pattern id={id} width={12} height={12} patternUnits="userSpaceOnUse">
+        <rect width={12} height={12} fill={color} />
+        <circle cx={6} cy={6} r={2.5} fill={w} />
+      </pattern>
+    );
+  }
+  return (
+    <pattern id={id} width={10} height={10} patternUnits="userSpaceOnUse">
+      <rect width={10} height={10} fill={color} />
+      <path d="M0 0.5H10M0.5 0V10" stroke={w} strokeWidth={1} />
+    </pattern>
+  );
 }

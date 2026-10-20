@@ -23,6 +23,12 @@ export interface SmoothOptions {
   spacing?: number;
   /** 이 각도(도) 이상 급하게 꺾이면 조각을 나눈다 */
   splitDeg?: number;
+  /** 필압 → 굵기 배율 (없으면 radiusAt의 기본 곡선) — 펜 종류마다 다르다 */
+  pressure?: (p: number) => number;
+  /** 획 양 끝을 이 길이(px)에 걸쳐 가늘게 (붓) */
+  taper?: number;
+  /** 납작한 펜촉: 획 방향에 따라 굵기가 바뀐다 (캘리그래피·사각 형광펜). angle = 펜촉 방향(라디안), min = 가장 가늘 때 배율 */
+  nib?: { angle: number; min: number };
 }
 
 /** 필압 → 반지름 배율. v1과 같은 곡선 (p=0.5에서 1배) — 굵기 느낌이 바뀌지 않게. */
@@ -44,7 +50,8 @@ function dot(x: number, y: number, r: number): string {
 }
 
 /** 중심선 보간 (centripetal Catmull-Rom — 점 간격이 고르지 않아도 고리·오버슈트가 안 생긴다) */
-function densify(points: readonly Point[], half: number, spacing: number): Sample[] {
+function densify(points: readonly Point[], half: number, spacing: number, pressure?: (p: number) => number): Sample[] {
+  const R = (p: number) => (pressure ? half * pressure(p < 0 ? 0 : p > 1 ? 1 : p) : radiusAt(p, half));
   const n = points.length;
   const P = (i: number) => points[Math.max(0, Math.min(n - 1, i))] as Point;
   const out: Sample[] = [];
@@ -76,11 +83,11 @@ function densify(points: readonly Point[], half: number, spacing: number): Sampl
       const C = { x: B1.x + (B2.x - B1.x) * u, y: B1.y + (B2.y - B1.y) * u };
       const x = Number.isFinite(C.x) ? C.x : p1.x + (p2.x - p1.x) * u;
       const y = Number.isFinite(C.y) ? C.y : p1.y + (p2.y - p1.y) * u;
-      out.push({ x, y, r: radiusAt(p1.p + (p2.p - p1.p) * u, half) });
+      out.push({ x, y, r: R(p1.p + (p2.p - p1.p) * u) });
     }
   }
   const last = P(n - 1);
-  out.push({ x: last.x, y: last.y, r: radiusAt(last.p, half) });
+  out.push({ x: last.x, y: last.y, r: R(last.p) });
 
   // 필압 이동평균 (반경 ±3 샘플) — 굵기 출렁임 제거
   const rs = out.map((s) => s.r);
@@ -100,12 +107,21 @@ function densify(points: readonly Point[], half: number, spacing: number): Sampl
   return out.filter((s, i) => i === 0 || Math.hypot(s.x - (out[i - 1] as Sample).x, s.y - (out[i - 1] as Sample).y) > 0.05);
 }
 
-function pieceOutline(s: readonly Sample[]): string {
-  const n = s.length;
+function pieceOutline(src: readonly Sample[], nib?: { angle: number; min: number }): string {
+  const n = src.length;
   if (n < 2) {
-    const a = s[0];
+    const a = src[0];
     return a ? dot(a.x, a.y, a.r) : "";
   }
+  // 납작한 펜촉: 그 자리의 획 방향과 펜촉 방향이 이루는 각도로 굵기를 정한다
+  const s: Sample[] = nib
+    ? src.map((c, i) => {
+        const a = src[Math.max(0, i - 2)] as Sample;
+        const b = src[Math.min(n - 1, i + 2)] as Sample;
+        const f = Math.abs(Math.sin(Math.atan2(b.y - a.y, b.x - a.x) - nib.angle));
+        return { ...c, r: c.r * (nib.min + (1 - nib.min) * f) };
+      })
+    : [...src];
   const left: Array<[number, number]> = [];
   const right: Array<[number, number]> = [];
   for (let i = 0; i < n; i++) {
@@ -153,7 +169,15 @@ export function smoothStrokePath(points: readonly Point[], options: SmoothOption
   if (!first) return "";
   if (points.length === 1) return dot(first.x, first.y, radiusAt(first.p, half));
 
-  const dense = densify(points, half, options.spacing ?? 1.5);
+  const dense = densify(points, half, options.spacing ?? 1.5, options.pressure);
+  if (options.taper && dense.length > 2) {
+    // 붓: 시작과 끝을 가늘게 (전체 길이의 1/3을 넘지 않게)
+    const acc = [0];
+    for (let i = 1; i < dense.length; i++) acc.push((acc[i - 1] as number) + Math.hypot((dense[i] as Sample).x - (dense[i - 1] as Sample).x, (dense[i] as Sample).y - (dense[i - 1] as Sample).y));
+    const L = acc[acc.length - 1] as number;
+    const t = Math.min(options.taper, L / 3);
+    if (t > 0) dense.forEach((d, i) => (d.r *= 0.15 + 0.85 * Math.min(1, (acc[i] as number) / t, (L - (acc[i] as number)) / t)));
+  }
   if (dense.length < 2) {
     const a = dense[0] ?? { x: first.x, y: first.y, r: radiusAt(first.p, half) };
     return dot(a.x, a.y, a.r);
@@ -183,5 +207,14 @@ export function smoothStrokePath(points: readonly Point[], options: SmoothOption
     }
   }
   pieces.push(cur);
-  return pieces.map(pieceOutline).join("");
+  return pieces.map((pc) => pieceOutline(pc, options.nib)).join("");
+}
+
+/** 획의 중심선만 (점선·파선 펜용 — 굵기는 SVG stroke-width로) */
+export function centerlinePath(points: readonly Point[]): string {
+  const first = points[0];
+  if (!first) return "";
+  if (points.length === 1) return `M${r2(first.x)},${r2(first.y)}l0.01,0`;
+  const dense = densify(points, 1, 2);
+  return `M${dense.map((d) => `${r2(d.x)},${r2(d.y)}`).join("L")}`;
 }

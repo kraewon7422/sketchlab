@@ -1,4 +1,5 @@
 import type { SceneIR } from "@sketchlab/shared";
+import type { Brush, LineStyle } from "./brushes";
 
 /**
  * 잉크와 씬 모델의 자료형 (마스터스펙 §5.1).
@@ -37,6 +38,12 @@ export interface Stroke {
   color?: string;
   /** 기본 굵기 px (없으면 ink.width) */
   width?: number;
+  /** 펜 종류 (없으면 볼펜·둥근 형광펜 — 예전 획) — brushes.ts */
+  brush?: Brush;
+  /** 선 모양 (펜만, 없으면 실선) */
+  line?: LineStyle;
+  /** 형광펜 투명도 0~1 (없으면 기본값) */
+  opacity?: number;
 }
 
 export interface InkItem {

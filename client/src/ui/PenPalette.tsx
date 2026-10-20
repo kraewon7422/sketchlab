@@ -1,67 +1,67 @@
-import { useEffect, useRef, useState, type CSSProperties, type ReactElement } from "react";
-import { hexToHsl, hslToHex, rainbow, type Hsl } from "../ink/color";
-import { smoothStrokePath } from "../ink/smoothOutline";
+import { ChevronDown, Plus, X } from "lucide-react";
+import { useState, type ReactElement } from "react";
+import { HIGHLIGHT_BRUSHES, LINE_STYLES, PEN_BRUSHES, strokeAttrs, strokeD, type StrokeLook } from "../ink/brushes";
+import type { Point } from "../ink/types";
 import { penOpts, theme } from "../render/theme";
-import { currentStrokeStyle, penStore, usePen } from "../store/pen";
+import { currentStrokeStyle, penStore, usePen, type PenPreset } from "../store/pen";
+import { ColorPicker } from "./ColorPicker";
 
 /**
- * 펜·형광펜 옵션 패널 (도구 레일에서 펜/형광펜을 한 번 더 누르면 열린다).
- *   미리보기
- *   자주 쓰는 색 + 최근에 직접 고른 색
- *   무지개 12색
- *   색상 · 채도 · 밝기 슬라이더 (아무 색이나)
- *   굵기 슬라이더 · 흔들림 보정
- * 펜인지 형광펜인지는 레일에서 고른 도구(penStore.kind)를 따른다.
+ * 펜·형광펜 옵션 패널 (도구 레일에서 펜/형광펜을 한 번 더 누르면 열린다) — 삼성노트 펜 패널처럼.
+ *   즐겨 찾는 펜 선반 (+ 지금 펜 저장)
+ *   펜 종류 (볼펜·만년필·캘리그래피·연필·붓 / 형광펜: 둥근 촉·사각 촉)
+ *   굵기 · (형광펜) 투명도 · (펜) 선 모양 · 직선 자동 보정
+ *   색: 자주 쓰는 색 + 최근 색 + 직접 고르기(색 판·밝기·HEX/RGB·스포이트)
+ *   흔들림 보정 · 손가락으로는 그리지 않기
  */
+
+/** 미리보기 물결 — 필압이 오르내리는 획 */
+function wave(w: number, h: number, pressure: boolean): Point[] {
+  return Array.from({ length: 40 }, (_, i) => ({
+    x: w * 0.06 + (i * w * 0.88) / 39,
+    y: h / 2 + Math.sin(i / 5) * h * 0.22,
+    p: pressure ? 0.25 + 0.55 * Math.sin((i / 39) * Math.PI) : 0.5,
+    t: i * 8,
+  }));
+}
+
+/** 그 펜으로 그린 짧은 획 미리보기 (실제 펜과 같은 brushes.ts) */
+function StrokeSample({ look, w, h, points }: { look: StrokeLook; w: number; h: number; points?: Point[] }): ReactElement {
+  const { mixBlendMode, ...attrs } = strokeAttrs(look);
+  return (
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} aria-hidden style={{ display: "block" }}>
+      <path d={strokeD(points ?? wave(w, h, look.tool === "pen"), look)} {...attrs} style={mixBlendMode ? { mixBlendMode } : undefined} />
+    </svg>
+  );
+}
+
+const presetLook = (pr: PenPreset): StrokeLook => ({ tool: pr.kind, color: pr.color, width: pr.width, brush: pr.brush, line: pr.line, opacity: pr.opacity });
+
 export function PenOptions(): ReactElement {
   const pen = usePen((s) => s);
   const style = currentStrokeStyle(pen);
   const highlighter = pen.kind === "highlighter";
   const current = style.color;
+  const [custom, setCustom] = useState(false);
 
-  // 슬라이더 값은 따로 들고 있다 — 회색(채도 0)이 되어도 색상 위치를 잃지 않게
-  const [hsl, setHsl] = useState<Hsl>(() => hexToHsl(current));
-  const lastSet = useRef(current);
-  useEffect(() => {
-    // 단추로 색을 바꿨을 때만 슬라이더를 맞춘다 (슬라이더로 바꾼 건 이미 맞다)
-    if (current !== lastSet.current) {
-      setHsl(hexToHsl(current));
-      lastSet.current = current;
-    }
-  }, [current]);
-
-  const pick = (color: string) => {
-    lastSet.current = "";
-    penStore.getState().pickColor(color);
-  };
-  /** 슬라이더를 움직이는 동안: 색만 바꾸고, 손을 떼면 최근 색에 올린다 */
-  const slide = (patch: Partial<Hsl>) => {
-    const next = { ...hsl, ...patch };
-    setHsl(next);
-    const c = hslToHex(next);
-    lastSet.current = c;
-    penStore.getState().set(highlighter ? { highlightColor: c } : { penColor: c });
-  };
-  const commitSlide = () => penStore.getState().pickColor(hslToHex(hsl));
+  const setColor = (c: string) => penStore.getState().set(highlighter ? { highlightColor: c } : { penColor: c });
 
   const presets: readonly string[] = highlighter ? penOpts.highlightColors : penOpts.colors;
   const names: readonly string[] = highlighter ? penOpts.highlightNames : penOpts.colorNames;
   const recent = highlighter ? pen.recentHighlight : pen.recentPen;
-  const rb = highlighter ? penOpts.rainbowHighlight : penOpts.rainbowPen;
-  const hues = rainbow(rb.s, rb.l);
   const widthRange = highlighter ? penOpts.highlightWidth : penOpts.penWidth;
 
-  const swatch = (c: string, label: string, size = 30) => (
+  const swatch = (c: string, label: string) => (
     <button
       key={label + c}
       type="button"
       aria-label={label}
       aria-pressed={current === c}
       title={label}
-      onClick={() => pick(c)}
+      onClick={() => penStore.getState().pickColor(c)}
       style={{
-        width: size,
-        height: size,
+        width: 30,
+        height: 30,
         borderRadius: "50%",
         border: "none",
         padding: 0,
@@ -74,173 +74,172 @@ export function PenOptions(): ReactElement {
     />
   );
 
-  const hueTrack = `linear-gradient(to right, ${Array.from({ length: 13 }, (_, i) => hslToHex({ h: i * 30, s: Math.max(hsl.s, 60), l: 50 })).join(", ")})`;
-  const satTrack = `linear-gradient(to right, ${hslToHex({ ...hsl, s: 0 })}, ${hslToHex({ ...hsl, s: 100 })})`;
-  const lightTrack = `linear-gradient(to right, #000000, ${hslToHex({ ...hsl, l: 50 })}, #FFFFFF)`;
-  const gradientSlider = (label: string, value: number, max: number, track: string, onChange: (v: number) => void) => (
-    <label style={{ display: "grid", gap: 4, fontSize: 12, color: theme.color.asymptote }}>
+  const choice = (on: boolean) =>
+    ({
+      display: "grid",
+      justifyItems: "center",
+      gap: 2,
+      padding: "4px 2px",
+      border: `1px solid ${on ? theme.color.accent : theme.color.sub}`,
+      borderRadius: theme.radius.s,
+      background: on ? theme.color.selection : theme.color.bg,
+      color: on ? theme.color.accent : theme.color.ink,
+      fontSize: 11,
+      cursor: "pointer",
+    }) as const;
+
+  const slider = (label: string, value: number, shown: string, min: number, max: number, step: number, onChange: (v: number) => void) => (
+    <label style={{ display: "grid", gap: 4, fontSize: 13, color: theme.color.ink }}>
       <span style={{ display: "flex", justifyContent: "space-between" }}>
         <span>{label}</span>
-        <span>{Math.round(value)}</span>
+        <span style={{ color: theme.color.asymptote }}>{shown}</span>
       </span>
-      <input
-        type="range"
-        className="sl-gradient-range"
-        aria-label={label}
-        min={0}
-        max={max}
-        step={1}
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
-        onPointerUp={commitSlide}
-        onKeyUp={commitSlide}
-        style={{ background: track, ["--thumb" as string]: current } as CSSProperties}
-      />
+      <input type="range" aria-label={label} min={min} max={max} step={step} value={value} onChange={(e) => onChange(Number(e.target.value))} style={{ width: "100%", accentColor: theme.color.accent }} />
     </label>
   );
 
-  // 미리보기 획: 필압이 살짝 변하는 물결 (실제 펜과 같은 외곽선 엔진)
-  const sample = Array.from({ length: 40 }, (_, i) => ({ x: 14 + i * 6, y: 26 + Math.sin(i / 5) * 10, p: highlighter ? 0.5 : 0.35 + 0.4 * Math.sin((i / 39) * Math.PI), t: i * 8 }));
+  const toggle = (label: string, checked: boolean, onChange: (v: boolean) => void) => (
+    <label style={{ display: "flex", alignItems: "center", gap: theme.space[2], fontSize: 13, color: theme.color.ink }}>
+      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} style={{ width: 18, height: 18, accentColor: theme.color.accent }} />
+      {label}
+    </label>
+  );
+
+  const section = (title: string) => <div style={{ fontSize: 12, color: theme.color.asymptote, marginBottom: -theme.space[1] }}>{title}</div>;
+  const flat = (y: number): Point[] => [
+    { x: 4, y, p: 0.5, t: 0 },
+    { x: 48, y, p: 0.5, t: 8 },
+  ];
 
   return (
     <div style={{ display: "grid", gap: theme.space[3] }}>
       <strong style={{ fontSize: 14 }}>{highlighter ? "형광펜" : "펜"}</strong>
 
-      {/* 즐겨 찾는 펜 — 누르면 그 펜으로, ×로 빼기 */}
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }} aria-label="즐겨 찾는 펜">
+      {/* 즐겨 찾는 펜 선반 — 누르면 그 펜으로 (종류·선·투명도까지), ×로 빼기 */}
+      {section("즐겨 찾는 펜")}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6 }} aria-label="즐겨 찾는 펜">
         {pen.presets.map((pr, i) => {
-          const on = pr.kind === pen.kind && pr.color === current && Math.abs(pr.width - style.width) < 0.05;
+          const on =
+            pr.kind === pen.kind &&
+            pr.color === current &&
+            Math.abs(pr.width - style.width) < 0.05 &&
+            (pr.brush ?? (pr.kind === "pen" ? "ballpoint" : "round")) === style.brush &&
+            (pr.line ?? "solid") === style.line;
           return (
             <span key={`${pr.color}-${pr.width}-${i}`} style={{ position: "relative" }}>
               <button
                 type="button"
                 aria-label={`즐겨 찾는 펜 ${i + 1}`}
                 onClick={() =>
-                  penStore.getState().set(pr.kind === "highlighter" ? { kind: "highlighter", highlightColor: pr.color, highlightWidth: pr.width } : { kind: "pen", penColor: pr.color, penWidth: pr.width })
+                  penStore.getState().set(
+                    pr.kind === "highlighter"
+                      ? { kind: "highlighter", highlightColor: pr.color, highlightWidth: pr.width, highlightBrush: pr.brush === "chisel" ? "chisel" : "round", ...(pr.opacity !== undefined ? { highlightOpacity: pr.opacity } : {}) }
+                      : { kind: "pen", penColor: pr.color, penWidth: pr.width, penBrush: pr.brush && pr.brush !== "round" && pr.brush !== "chisel" ? pr.brush : "ballpoint", penLine: pr.line ?? "solid" },
+                  )
                 }
-                style={{
-                  width: 46,
-                  height: 34,
-                  display: "grid",
-                  placeItems: "center",
-                  border: `1.5px solid ${on ? theme.color.accent : theme.color.sub}`,
-                  borderRadius: 10,
-                  background: theme.color.bg,
-                  cursor: "pointer",
-                }}
+                style={{ ...choice(on), width: "100%", height: 40, padding: 0, placeItems: "center" }}
               >
-                <span style={{ width: 28, height: Math.max(2, Math.min(14, pr.kind === "highlighter" ? pr.width * 0.5 : pr.width * 1.3)), borderRadius: 99, background: pr.color, opacity: pr.kind === "highlighter" ? 0.6 : 1 }} />
+                <StrokeSample look={presetLook(pr)} w={56} h={30} />
               </button>
               <button
                 type="button"
                 aria-label={`즐겨 찾는 펜 ${i + 1} 빼기`}
                 onClick={() => penStore.getState().set({ presets: pen.presets.filter((_, j) => j !== i) })}
-                style={{ position: "absolute", top: -6, right: -6, width: 18, height: 18, padding: 0, border: "none", borderRadius: "50%", background: theme.color.sub, color: theme.color.ink, fontSize: 11, lineHeight: "18px", cursor: "pointer" }}
+                style={{ position: "absolute", top: -6, right: -6, width: 18, height: 18, padding: 0, display: "grid", placeItems: "center", border: "none", borderRadius: "50%", background: theme.color.sub, color: theme.color.ink, cursor: "pointer" }}
               >
-                ×
+                <X size={11} />
               </button>
             </span>
           );
         })}
-        {pen.presets.length < 6 && (
+        {pen.presets.length < 12 && (
           <button
             type="button"
-            onClick={() => penStore.getState().set({ presets: [...pen.presets, { kind: pen.kind, color: current, width: style.width }] })}
-            style={{ height: 34, padding: "0 10px", border: `1px dashed ${theme.color.accent}`, borderRadius: 10, background: theme.color.bg, color: theme.color.accent, fontSize: 12, cursor: "pointer" }}
+            aria-label="지금 펜을 즐겨 찾는 펜에 저장"
+            title="지금 펜 저장"
+            onClick={() =>
+              penStore.getState().set({
+                presets: [
+                  ...pen.presets,
+                  { kind: pen.kind, color: current, width: style.width, brush: style.brush, ...(style.line !== "solid" ? { line: style.line } : {}), ...(style.opacity !== undefined ? { opacity: style.opacity } : {}) },
+                ],
+              })
+            }
+            style={{ height: 40, display: "grid", placeItems: "center", border: `1px dashed ${theme.color.accent}`, borderRadius: theme.radius.s, background: theme.color.bg, color: theme.color.accent, cursor: "pointer" }}
           >
-            + 지금 펜 저장
+            <Plus size={18} />
           </button>
         )}
       </div>
 
-      {/* 미리보기 */}
-      <svg width="100%" height={52} viewBox="0 0 268 52" style={{ display: "block", borderRadius: theme.radius.s, background: "#FAFAFA" }}>
-        <text x={20} y={34} fontSize={20} fill={theme.color.ink} opacity={highlighter ? 0.75 : 0}>
-          가나다 abc 123
-        </text>
-        <path
-          d={smoothStrokePath(sample, { baseWidth: style.width })}
-          fill={current}
-          opacity={highlighter ? penOpts.highlightOpacity : 1}
-          style={highlighter ? { mixBlendMode: "multiply" } : undefined}
-        />
-      </svg>
+      {/* 펜 종류 — 단추마다 그 펜으로 그린 미리보기 */}
+      {section(highlighter ? "형광펜 촉" : "펜 종류")}
+      <div style={{ display: "grid", gridTemplateColumns: `repeat(${highlighter ? 2 : 5}, 1fr)`, gap: 4 }}>
+        {(highlighter ? HIGHLIGHT_BRUSHES : PEN_BRUSHES).map(([k, label]) => (
+          <button
+            key={k}
+            type="button"
+            aria-pressed={style.brush === k}
+            aria-label={label}
+            onClick={() => penStore.getState().set(highlighter ? { highlightBrush: k === "chisel" ? "chisel" : "round" } : { penBrush: k as typeof pen.penBrush })}
+            style={choice(style.brush === k)}
+          >
+            <StrokeSample look={{ ...style, brush: k, line: "solid", width: highlighter ? 12 : 3 }} w={highlighter ? 100 : 44} h={24} />
+            {label}
+          </button>
+        ))}
+      </div>
 
+      {/* 미리보기 (글씨 위에 그어 본 모양) */}
+      <div style={{ position: "relative", height: 52, borderRadius: theme.radius.s, background: "#FAFAFA", overflow: "hidden" }}>
+        {highlighter && <span style={{ position: "absolute", left: 20, top: 13, fontSize: 20, color: theme.color.ink, opacity: 0.75 }}>가나다 abc 123</span>}
+        <div style={{ position: "absolute", inset: 0 }}>
+          <StrokeSample look={style} w={268} h={52} />
+        </div>
+      </div>
+
+      {slider(highlighter ? "형광펜 굵기" : "펜 굵기", style.width, `${style.width.toFixed(highlighter ? 0 : 1)}px`, widthRange.min, widthRange.max, highlighter ? 1 : 0.1, (w) =>
+        penStore.getState().set(highlighter ? { highlightWidth: w } : { penWidth: w }),
+      )}
+      {highlighter &&
+        slider("투명도", Math.round((1 - pen.highlightOpacity) * 100), `${Math.round((1 - pen.highlightOpacity) * 100)}%`, 10, 90, 1, (t) => penStore.getState().set({ highlightOpacity: 1 - t / 100 }))}
+
+      {!highlighter && (
+        <>
+          {section("선 모양")}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 4 }}>
+            {LINE_STYLES.map(([k, label]) => (
+              <button key={k} type="button" aria-pressed={style.line === k} aria-label={label} onClick={() => penStore.getState().set({ penLine: k })} style={{ ...choice(style.line === k), padding: "6px 2px" }}>
+                <StrokeSample look={{ tool: "pen", width: 3, line: k, color: theme.color.ink }} w={52} h={10} points={flat(5)} />
+                {label}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+
+      {toggle("직선 자동 보정 (곧게 그으면 곧은 선으로)", highlighter ? pen.straightHighlight : pen.straightPen, (v) => penStore.getState().set(highlighter ? { straightHighlight: v } : { straightPen: v }))}
+
+      {section("색")}
       <div style={{ display: "flex", flexWrap: "wrap", gap: theme.space[2] }}>
         {presets.map((c, i) => swatch(c, names[i] ?? c))}
         {recent.map((c) => swatch(c, `최근 ${c}`))}
       </div>
+      <button
+        type="button"
+        aria-expanded={custom}
+        onClick={() => setCustom((o) => !o)}
+        style={{ display: "flex", alignItems: "center", gap: 6, padding: 0, border: "none", background: "transparent", color: theme.color.ink, fontSize: 13, cursor: "pointer" }}
+      >
+        <span style={{ width: 22, height: 22, borderRadius: "50%", background: "conic-gradient(#F00, #FF0, #0F0, #0FF, #00F, #F0F, #F00)" }} />
+        직접 고르기 (색 판 · 코드 · 스포이트)
+        <ChevronDown size={16} style={{ transform: custom ? "rotate(180deg)" : undefined }} />
+      </button>
+      {custom && <ColorPicker value={current} onChange={setColor} onCommit={(c) => penStore.getState().pickColor(c)} />}
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(12, 1fr)", gap: 4 }} aria-label="무지개">
-        {hues.map((c, i) => (
-          <button
-            key={c}
-            type="button"
-            aria-label={`무지개 ${i + 1}`}
-            onClick={() => pick(c)}
-            style={{
-              height: 26,
-              border: "none",
-              padding: 0,
-              borderRadius: 6,
-              background: c,
-              boxShadow: current === c ? `0 0 0 2px ${theme.color.bg}, 0 0 0 4px ${theme.color.accent}` : "none",
-              cursor: "pointer",
-            }}
-          />
-        ))}
-      </div>
+      {slider("흔들림 보정", pen.smoothing, pen.smoothing === 0 ? "끔" : `${Math.round(pen.smoothing * 100)}%`, 0, 0.9, 0.05, (v) => penStore.getState().set({ smoothing: v }))}
 
-      {gradientSlider("색상", hsl.h, 360, hueTrack, (h) => slide({ h }))}
-      {gradientSlider("채도", hsl.s, 100, satTrack, (s) => slide({ s }))}
-      {gradientSlider("밝기", hsl.l, 100, lightTrack, (l) => slide({ l }))}
-
-      <label style={{ display: "grid", gap: 4, fontSize: 13, color: theme.color.ink }}>
-        <span style={{ display: "flex", justifyContent: "space-between" }}>
-          <span>{highlighter ? "형광펜 굵기" : "펜 굵기"}</span>
-          <span style={{ color: theme.color.asymptote }}>{style.width.toFixed(highlighter ? 0 : 1)}px</span>
-        </span>
-        <input
-          type="range"
-          aria-label={highlighter ? "형광펜 굵기" : "펜 굵기"}
-          min={widthRange.min}
-          max={widthRange.max}
-          step={highlighter ? 1 : 0.1}
-          value={style.width}
-          onChange={(e) => {
-            const w = Number(e.target.value);
-            penStore.getState().set(highlighter ? { highlightWidth: w } : { penWidth: w });
-          }}
-          style={{ width: "100%", accentColor: theme.color.accent }}
-        />
-      </label>
-
-      <label style={{ display: "grid", gap: 4, fontSize: 13, color: theme.color.ink }}>
-        <span style={{ display: "flex", justifyContent: "space-between" }}>
-          <span>흔들림 보정</span>
-          <span style={{ color: theme.color.asymptote }}>{pen.smoothing === 0 ? "끔" : `${Math.round(pen.smoothing * 100)}%`}</span>
-        </span>
-        <input
-          type="range"
-          aria-label="흔들림 보정"
-          min={0}
-          max={0.9}
-          step={0.05}
-          value={pen.smoothing}
-          onChange={(e) => penStore.getState().set({ smoothing: Number(e.target.value) })}
-          style={{ width: "100%", accentColor: theme.color.accent }}
-        />
-      </label>
-
-      <label style={{ display: "flex", alignItems: "center", gap: theme.space[2], fontSize: 13, color: theme.color.ink }}>
-        <input
-          type="checkbox"
-          checked={pen.penOnly}
-          onChange={(e) => penStore.getState().set({ penOnly: e.target.checked })}
-          style={{ width: 18, height: 18, accentColor: theme.color.accent }}
-        />
-        손가락으로는 그리지 않기 (S Pen 전용)
-      </label>
+      {toggle("손가락으로는 그리지 않기 (S Pen 전용)", pen.penOnly, (v) => penStore.getState().set({ penOnly: v }))}
       <span style={{ fontSize: 12, color: theme.color.asymptote, marginTop: -theme.space[2] }}>손가락은 화면 이동·확대와 고르기만 해요</span>
     </div>
   );

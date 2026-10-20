@@ -26,3 +26,16 @@ describe("색 변환 (HSL ↔ hex)", () => {
     expect(hexToHsl("blue").l).toBeLessThan(20);
   });
 });
+
+describe("색 변환 (HSV·RGB ↔ hex)", () => {
+  it("기본색과 왕복", async () => {
+    const { hexToHsv, hexToRgb, hsvToHex, rgbToHex } = await import("./color");
+    expect(hsvToHex({ h: 0, s: 100, v: 100 })).toBe("#FF0000");
+    expect(hsvToHex({ h: 120, s: 100, v: 50 })).toBe("#008000");
+    expect(hsvToHex({ h: 0, s: 0, v: 100 })).toBe("#FFFFFF");
+    for (const c of ["#FFD41B", "#1A1A1A", "#2563EB", "#7FB8E0"]) expect(hsvToHex(hexToHsv(c))).toBe(c);
+    expect(hexToRgb("#FFD41B")).toEqual([255, 212, 27]);
+    expect(rgbToHex(255, 212, 27)).toBe("#FFD41B");
+    expect(rgbToHex(300, -4, 27.4)).toBe("#FF001B");
+  });
+});

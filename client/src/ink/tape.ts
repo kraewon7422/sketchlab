@@ -1,9 +1,11 @@
 import type { SceneDataOf } from "@sketchlab/shared";
-import type { BBox } from "./types";
+import { distanceToPolyline } from "./geometry";
+import type { BBox, Point } from "./types";
 
 /**
  * 마스킹 테이프 기하 (순수 함수) — 캔버스(끌어 붙이기·톡 판정)와 렌더러가 같이 쓴다.
- * 테이프는 원점(한쪽 끝의 가운데)에서 angle 방향으로 len, 폭 width 인 직사각형 (× transform.scale).
+ * 곧은 테이프: 원점(한쪽 끝의 가운데)에서 angle 방향으로 len, 폭 width 인 직사각형 (× transform.scale).
+ * 자유 테이프: pts(중심선)를 따라 폭 width인 띠 — 펜처럼 자유롭게 긋는다 (삼성노트 기본).
  */
 export type TapeData = SceneDataOf<"tape">;
 type P2 = { x: number; y: number };
@@ -34,7 +36,24 @@ export function tapeCorners(d: Pick<TapeData, "len" | "width" | "angle">, tf: Tf
   ];
 }
 
-export function tapeBox(d: Pick<TapeData, "len" | "width" | "angle">, tf: Tf): BBox {
+type TapeGeom = Pick<TapeData, "len" | "width" | "angle"> & { pts?: TapeData["pts"] | undefined };
+
+/** 자유 테이프 중심선 (월드 좌표) */
+export function tapePath(d: TapeGeom, tf: Tf): P2[] | null {
+  return d.pts ? d.pts.map(([x, y]) => ({ x: tf.x + x * tf.scale, y: tf.y + y * tf.scale })) : null;
+}
+
+export function tapeBox(d: TapeGeom, tf: Tf): BBox {
+  const path = tapePath(d, tf);
+  if (path) {
+    const h = (d.width * tf.scale) / 2;
+    return {
+      minX: Math.min(...path.map((p) => p.x)) - h,
+      minY: Math.min(...path.map((p) => p.y)) - h,
+      maxX: Math.max(...path.map((p) => p.x)) + h,
+      maxY: Math.max(...path.map((p) => p.y)) + h,
+    };
+  }
   const c = tapeCorners(d, tf);
   return {
     minX: Math.min(...c.map((p) => p.x)),
@@ -45,7 +64,9 @@ export function tapeBox(d: Pick<TapeData, "len" | "width" | "angle">, tf: Tf): B
 }
 
 /** 점이 테이프 위인가 (slop만큼 여유) — 비스듬한 테이프는 상자보다 훨씬 좁다 */
-export function onTape(d: Pick<TapeData, "len" | "width" | "angle">, tf: Tf, x: number, y: number, slop = 0): boolean {
+export function onTape(d: TapeGeom, tf: Tf, x: number, y: number, slop = 0): boolean {
+  const path = tapePath(d, tf);
+  if (path) return distanceToPolyline(x, y, path.map((p) => ({ ...p, p: 0.5, t: 0 }))) <= (d.width * tf.scale) / 2 + slop;
   const ux = Math.cos(d.angle);
   const uy = Math.sin(d.angle);
   const along = (x - tf.x) * ux + (y - tf.y) * uy;
@@ -74,3 +95,27 @@ export function buildTape(a: P2, b: P2, width: number, color: string, pattern: T
   const transform = { x: a.x, y: a.y, scale: 1 };
   return { data, transform, bbox: tapeBox(data, transform) };
 }
+
+/** 자유롭게 그은 테이프 (월드 좌표의 점들). 너무 짧으면 null */
+export function buildFreeTape(points: readonly P2[], width: number, color: string, pattern: TapePattern = "stripes"): { data: TapeData; transform: Tf; bbox: BBox } | null {
+  const first = points[0];
+  if (!first || points.length < 2) return null;
+  let len = 0;
+  for (let i = 1; i < points.length; i++) len += Math.hypot((points[i] as P2).x - (points[i - 1] as P2).x, (points[i] as P2).y - (points[i - 1] as P2).y);
+  if (len < TAPE_MIN_LEN) return null;
+  const r = (v: number) => Math.round(v * 10) / 10;
+  const data: TapeData = {
+    len,
+    width,
+    angle: 0,
+    color,
+    pattern,
+    revealed: false,
+    pts: points.map((p) => [r(p.x - first.x), r(p.y - first.y)] as [number, number]),
+  };
+  const transform = { x: first.x, y: first.y, scale: 1 };
+  return { data, transform, bbox: tapeBox(data, transform) };
+}
+
+/** 그은 점 → 테이프 미리보기·그리기용 (Point 모양으로) */
+export const asPoints = (pts: readonly P2[]): Point[] => pts.map((p, i) => ({ x: p.x, y: p.y, p: 0.5, t: i }));

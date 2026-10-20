@@ -266,6 +266,11 @@ const Tape = z.object({
   /** 라디안 */
   angle: z.number(),
   color: z.string(),
+  /**
+   * 자유 테이프: 그은 길을 따라 붙인 테이프의 중심선 (로컬 좌표 × transform.scale, 원점 = transform.x,y).
+   * 있으면 len·angle 대신 이 길로 그린다. 없으면 곧은 테이프 (예전 테이프).
+   */
+  pts: z.array(Vec2).min(2).optional(),
   /** 무늬 (없으면 사선 — 무늬 고르기 전에 붙인 테이프) */
   pattern: z.enum(["plain", "stripes", "dots", "grid"]).optional(),
   /** 벗겨 둔 상태 (속이 비쳐 보인다) */

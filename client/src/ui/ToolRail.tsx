@@ -1,9 +1,10 @@
-import { Bandage, Bot, Eraser, Highlighter, Keyboard, Lasso, NotebookText, Pen, Redo2, Shapes, SquareFunction, Undo2 } from "lucide-react";
+import { Bandage, Bot, WandSparkles, Eraser, Highlighter, Keyboard, Lasso, NotebookText, Pen, Redo2, Shapes, SquareFunction, Undo2 } from "lucide-react";
 import { useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
 import { theme } from "../render/theme";
 import { penStore, usePen } from "../store/pen";
 import { sessionStore, useSession } from "../store/session";
 import type { LayoutMode } from "./layoutMode";
+import { eyedropperStore } from "./eyedropper";
 import { PenOptions } from "./PenPalette";
 
 /**
@@ -15,7 +16,7 @@ import { PenOptions } from "./PenPalette";
  *   [텍스트] [펜] [형광펜] [지우개] [올가미] [도형] [테이프] │ [되돌리기] [다시] │ [ƒ 입력] [AI]
  */
 
-export type RailTool = "text" | "pen" | "highlighter" | "eraser" | "lasso" | "shape" | "tape";
+export type RailTool = "text" | "pen" | "highlighter" | "eraser" | "lasso" | "shape" | "tape" | "laser";
 
 /** 패널 이름 — 도구마다 하나 + 쪽(속지·쪽 목록·내보내기) */
 export type PanelKey = RailTool | "page";
@@ -53,6 +54,7 @@ export function ToolRail({ tool, onTool, mode, onFormula, onAi, disabled = [], p
     const close = (e: PointerEvent) => {
       if (rootRef.current?.contains(e.target as Node)) return;
       if ((e.target as Element | null)?.closest?.("[data-text-editor]")) return; // 글 상자 안을 누른 것
+      if (eyedropperStore.getState().onPick) return; // 스포이트로 노트의 색을 집는 중 — 패널은 그대로
       setPanel(null);
       if ((e.target as Element | null)?.closest("main")) {
         e.stopPropagation();
@@ -117,6 +119,7 @@ export function ToolRail({ tool, onTool, mode, onFormula, onAi, disabled = [], p
         {btn("lasso", "올가미", Lasso)}
         {btn("shape", "도형", Shapes)}
         {btn("tape", "마스킹 테이프", Bandage)}
+        {btn("laser", "레이저 포인터", WandSparkles)}
         {divider}
         <RailButton label="실행 취소" disabled={!canUndo} onClick={() => sessionStore.getState().undo()}>
           <Undo2 size={21} strokeWidth={1.6} />

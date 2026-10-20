@@ -70,6 +70,9 @@ export const stroke = {
 
 /** 손글씨 잉크 관련 값. 렌더링 굵기(stroke)와 구분해 둔다. */
 export const ink = {
+  /** 레이저 포인터 — 화면 기준 굵기 px */
+  laserColor: "#FF2D2D",
+  laserWidth: 4,
   /** 필압 0.5(=필압 미지원 입력) 기준 획 굵기 px */
   width: 2.6,
   /** 획 단위 지우개의 반경 px. 터치 최소 타깃보다 작아야 정밀하게 지워진다. */

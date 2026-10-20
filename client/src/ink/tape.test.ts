@@ -1,7 +1,7 @@
 import { IR_VERSION } from "@sketchlab/shared";
 import { describe, expect, it } from "vitest";
 import { hitItem, itemsInLasso, itemsTouchedByLasso, scaleItem } from "./editing";
-import { buildTape, onTape, tapeBox, TAPE_MIN_LEN } from "./tape";
+import { buildFreeTape, buildTape, onTape, tapeBox, TAPE_MIN_LEN } from "./tape";
 import type { InkItem, ObjectItem, Point } from "./types";
 
 const pt = (x: number, y: number): Point => ({ x, y, p: 0.5, t: 0 });
@@ -84,5 +84,45 @@ describe("올가미 두 가지", () => {
     const tape = tapeItem("t", { x: 0, y: 0 }, { x: 200, y: 200 });
     expect(itemsTouchedByLasso([tape], [pt(90, 110), pt(110, 90)], 4)).toEqual(["t"]);
     expect(itemsTouchedByLasso([tape], [pt(185, 5), pt(195, 15)], 4)).toEqual([]);
+  });
+});
+
+describe("자유 테이프 (그은 길을 따라)", () => {
+  // ㄱ자로 그은 테이프: (100,100) → (300,100) → (300,300), 폭 20
+  const path = [
+    { x: 100, y: 100 },
+    { x: 200, y: 100 },
+    { x: 300, y: 100 },
+    { x: 300, y: 200 },
+    { x: 300, y: 300 },
+  ];
+  const t = buildFreeTape(path, 20, "#F2C94C", "dots");
+
+  it("상자 = 그은 길 + 폭의 절반, 무늬·색 그대로", () => {
+    expect(t).not.toBeNull();
+    if (!t) return;
+    expect(t.bbox).toEqual({ minX: 90, minY: 90, maxX: 310, maxY: 310 });
+    expect(t.data.pattern).toBe("dots");
+    expect(t.data.pts?.[0]).toEqual([0, 0]);
+  });
+
+  it("띠 위만 닿는다 (ㄱ자 안쪽 빈 곳은 아님)", () => {
+    if (!t) return;
+    expect(onTape(t.data, t.transform, 200, 105)).toBe(true);
+    expect(onTape(t.data, t.transform, 295, 250)).toBe(true);
+    expect(onTape(t.data, t.transform, 200, 200)).toBe(false); // 상자 안이지만 띠 밖
+    expect(tapeBox(t.data, t.transform)).toEqual(t.bbox);
+  });
+
+  it("크기를 바꾸면 길과 폭이 같이 커진다", () => {
+    if (!t) return;
+    const big = { ...t.transform, scale: 2 };
+    // 가로 부분 (200,100) → 2배 자리 (300,100): 폭 40이라 15 아래는 띠 안, 25 아래는 밖
+    expect(onTape(t.data, big, 300, 115)).toBe(true);
+    expect(onTape(t.data, big, 300, 125)).toBe(false);
+  });
+
+  it("너무 짧게 그으면 붙이지 않는다 (톡)", () => {
+    expect(buildFreeTape([{ x: 0, y: 0 }, { x: TAPE_MIN_LEN - 2, y: 0 }], 20, "#000000")).toBeNull();
   });
 });

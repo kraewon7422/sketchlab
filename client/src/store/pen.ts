@@ -2,6 +2,7 @@ import { useStore } from "zustand";
 import { createStore } from "zustand/vanilla";
 import type { ShapeKind } from "../ink/shapes";
 import type { TapePattern } from "../ink/tape";
+import type { HighlightBrush, LineStyle, PenBrush } from "../ink/brushes";
 import { penOpts } from "../render/theme";
 
 /**
@@ -43,12 +44,26 @@ export interface PenSettings {
   tapeColor: string;
   tapeWidth: number;
   tapePattern: TapePattern;
+  /** 펜 종류·선 모양 (삼성노트 펜 패널) */
+  penBrush: PenBrush;
+  penLine: LineStyle;
+  /** 형광펜 촉·투명도 */
+  highlightBrush: HighlightBrush;
+  highlightOpacity: number;
+  /** 직선 자동 보정 (거의 곧게 그은 획 → 곧은 선) — 도구마다 따로 */
+  straightPen: boolean;
+  straightHighlight: boolean;
+  straightTape: boolean;
 }
 
 export interface PenPreset {
   kind: PenKind;
   color: string;
   width: number;
+  /** 펜 종류·선 모양·투명도 (없으면 볼펜·실선 — 예전에 저장한 즐겨찾기) */
+  brush?: PenBrush | HighlightBrush;
+  line?: LineStyle;
+  opacity?: number;
 }
 
 export interface PenState extends PenSettings {
@@ -84,7 +99,17 @@ const DEFAULTS: PenSettings = {
   tapeColor: penOpts.tapeColors[0],
   tapeWidth: penOpts.tapeWidth.default,
   tapePattern: "stripes",
+  penBrush: "ballpoint",
+  penLine: "solid",
+  highlightBrush: "round",
+  highlightOpacity: penOpts.highlightOpacity,
+  straightPen: false,
+  straightHighlight: false,
+  straightTape: false,
 };
+
+const PEN_BRUSH_KEYS: readonly PenBrush[] = ["ballpoint", "fountain", "calligraphy", "pencil", "brush"];
+const LINE_KEYS: readonly LineStyle[] = ["solid", "thin", "dashed", "dotted"];
 
 const SHAPES: readonly ShapeKind[] = ["line", "arrow", "rect", "ellipse", "triangle", "axes"];
 
@@ -119,7 +144,7 @@ function load(): PenSettings {
       presets: Array.isArray(v.presets)
         ? v.presets
             .filter((p): p is PenPreset => !!p && (p.kind === "pen" || p.kind === "highlighter") && /^#[0-9A-Fa-f]{6}$/.test(p.color) && typeof p.width === "number")
-            .slice(0, 6)
+            .slice(0, 12)
         : DEFAULTS.presets,
       penOnly: v.penOnly === true,
       dark: v.dark === true,
@@ -127,6 +152,13 @@ function load(): PenSettings {
       tapeColor: hex(v.tapeColor, DEFAULTS.tapeColor),
       tapeWidth: clamp(v.tapeWidth, penOpts.tapeWidth),
       tapePattern: v.tapePattern === "plain" || v.tapePattern === "dots" || v.tapePattern === "grid" ? v.tapePattern : "stripes",
+      penBrush: PEN_BRUSH_KEYS.includes(v.penBrush as PenBrush) ? (v.penBrush as PenBrush) : "ballpoint",
+      penLine: LINE_KEYS.includes(v.penLine as LineStyle) ? (v.penLine as LineStyle) : "solid",
+      highlightBrush: v.highlightBrush === "chisel" ? "chisel" : "round",
+      highlightOpacity: typeof v.highlightOpacity === "number" ? Math.min(0.9, Math.max(0.1, v.highlightOpacity)) : DEFAULTS.highlightOpacity,
+      straightPen: v.straightPen === true,
+      straightHighlight: v.straightHighlight === true,
+      straightTape: v.straightTape === true,
     };
   } catch {
     return DEFAULTS;
@@ -135,10 +167,10 @@ function load(): PenSettings {
 
 function persist(s: PenSettings): void {
   try {
-    const { kind, penColor, highlightColor, penWidth, highlightWidth, recentPen, recentHighlight, smoothing, eraserMode, eraserSize, shapeKind, shapeSquare, presets, penOnly, dark, lassoStyle, tapeColor, tapeWidth, tapePattern } = s;
+    const { kind, penColor, highlightColor, penWidth, highlightWidth, recentPen, recentHighlight, smoothing, eraserMode, eraserSize, shapeKind, shapeSquare, presets, penOnly, dark, lassoStyle, tapeColor, tapeWidth, tapePattern, penBrush, penLine, highlightBrush, highlightOpacity, straightPen, straightHighlight, straightTape } = s;
     localStorage.setItem(
       KEY,
-      JSON.stringify({ kind, penColor, highlightColor, penWidth, highlightWidth, recentPen, recentHighlight, smoothing, eraserMode, eraserSize, shapeKind, shapeSquare, presets, penOnly, dark, lassoStyle, tapeColor, tapeWidth, tapePattern }),
+      JSON.stringify({ kind, penColor, highlightColor, penWidth, highlightWidth, recentPen, recentHighlight, smoothing, eraserMode, eraserSize, shapeKind, shapeSquare, presets, penOnly, dark, lassoStyle, tapeColor, tapeWidth, tapePattern, penBrush, penLine, highlightBrush, highlightOpacity, straightPen, straightHighlight, straightTape }),
     );
   } catch {
     /* 저장이 막혀도 이번 세션 동안은 그대로 쓴다 */
@@ -168,11 +200,17 @@ export function usePen<T>(selector: (state: PenState) => T): T {
 }
 
 /** 지금 설정으로 그릴 획의 모양 */
-export function currentStrokeStyle(s: PenSettings = penStore.getState()): { tool: PenKind; color: string; width: number } {
+export function currentStrokeStyle(s: PenSettings = penStore.getState()): {
+  tool: PenKind;
+  color: string;
+  width: number;
+  brush: PenBrush | HighlightBrush;
+  line: LineStyle;
+  opacity?: number;
+  straight: boolean;
+} {
   const highlighter = s.kind === "highlighter";
-  return {
-    tool: s.kind,
-    color: highlighter ? s.highlightColor : s.penColor,
-    width: highlighter ? s.highlightWidth : s.penWidth,
-  };
+  return highlighter
+    ? { tool: s.kind, color: s.highlightColor, width: s.highlightWidth, brush: s.highlightBrush, line: "solid", opacity: s.highlightOpacity, straight: s.straightHighlight }
+    : { tool: s.kind, color: s.penColor, width: s.penWidth, brush: s.penBrush, line: s.penLine, straight: s.straightPen };
 }

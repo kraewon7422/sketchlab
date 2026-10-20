@@ -475,7 +475,7 @@ export function __resetSession(): void {
 export function createStroke(
   points: Stroke["points"],
   endedAt: number,
-  style?: { tool: Stroke["tool"]; color: string; width: number },
+  style?: { tool: Stroke["tool"]; color: string; width: number; brush?: Stroke["brush"]; line?: Stroke["line"]; opacity?: Stroke["opacity"] },
 ): Stroke {
   return {
     id: newId("stroke"),
@@ -484,6 +484,10 @@ export function createStroke(
     endedAt,
     tool: style?.tool ?? "pen",
     ...(style ? { color: style.color, width: style.width } : {}),
+    // 기본값(볼펜·실선·둥근 형광펜)은 저장하지 않는다 — 예전 획과 같은 모양
+    ...(style?.brush && style.brush !== "ballpoint" && style.brush !== "round" ? { brush: style.brush } : {}),
+    ...(style?.line && style.line !== "solid" ? { line: style.line } : {}),
+    ...(style?.opacity !== undefined ? { opacity: style.opacity } : {}),
   };
 }
 
