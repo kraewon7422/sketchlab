@@ -67,6 +67,11 @@ export interface SessionState extends Doc {
    * 끝나면 commitObjectIR로 한 번에 기록한다 (Undo가 슬라이더 틱마다 쌓이지 않게).
    */
   previewObjectIR(id: string, ir: SceneIR): void;
+  /**
+   * 객체의 자리 상자만 실제 크기에 맞춘다 (이력 없이) — 코드 블록처럼 결과가 나오면서 키가 바뀌는 객체.
+   * 선택·올가미·빈자리 찾기가 실제 크기를 쓰게. 커지면서 바로 아래의 것을 덮으면 그 아래를 함께 내린다.
+   */
+  fitObjectBox(id: string, bbox: BBox): void;
   /** 항목 삭제 (선택 메뉴의 "삭제"). Undo 1단위 */
   removeItems(ids: readonly string[]): void;
   /**
@@ -332,6 +337,20 @@ export const sessionStore: StoreApi<SessionState> = createStore<SessionState>((s
     previewObjectIR(id, ir) {
       set({
         items: get().items.map((item) => (item.id === id && item.kind === "object" ? { ...item, ir } : item)),
+      });
+    },
+
+    fitObjectBox(id, bbox) {
+      const items = get().items;
+      const old = items.find((i) => i.id === id)?.bbox;
+      if (!old) return;
+      // 커지면서 바로 아래 것(같은 세로줄)을 덮게 되면, 그 아래 것들을 함께 내려 준다 (공책처럼)
+      const GAP = 16;
+      const below = (i: CanvasItem) => i.id !== id && i.bbox.minY >= old.maxY - 1 && i.bbox.maxX > bbox.minX && i.bbox.minX < bbox.maxX;
+      const hit = items.filter((i) => below(i) && i.bbox.minY < bbox.maxY + GAP);
+      const shift = hit.length ? bbox.maxY + GAP - Math.min(...hit.map((i) => i.bbox.minY)) : 0;
+      set({
+        items: items.map((item) => (item.id === id && item.kind === "object" ? { ...item, bbox } : shift > 0 && below(item) ? translateItem(item, 0, shift) : item)),
       });
     },
 

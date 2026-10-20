@@ -1,6 +1,9 @@
 import basicSsl from "@vitejs/plugin-basic-ssl";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
+import fs from "node:fs";
+import { createRequire } from "node:module";
+import path from "node:path";
 import { defineConfig, type PluginOption } from "vite";
 
 /**
@@ -26,6 +29,31 @@ import { defineConfig, type PluginOption } from "vite";
  */
 const httpsEnabled = process.env["SKETCHLAB_NO_HTTPS"] !== "1";
 
+/**
+ * 7단계 코드 블록의 Python(Pyodide) — 기본 파이썬 파일을 앱과 함께 둔다 (<base>/pyodide/…).
+ * 개발 서버에서는 node_modules에서 바로 내주고, 빌드에서는 dist/pyodide/로 복사한다.
+ * (numpy 같은 꾸러미는 처음 import할 때 CDN에서 — pyWorker.ts)
+ */
+const PYODIDE_FILES = ["pyodide.asm.js", "pyodide.asm.wasm", "python_stdlib.zip", "pyodide-lock.json"];
+const pyodideDir = path.dirname(createRequire(import.meta.url).resolve("pyodide/package.json"));
+function pyodideAssets(): PluginOption {
+  return {
+    name: "sketchlab-pyodide-assets",
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const m = /\/pyodide\/([\w.-]+)(?:\?.*)?$/.exec(req.url ?? "");
+        const file = m?.[1];
+        if (!file || !PYODIDE_FILES.includes(file)) return next();
+        res.setHeader("Content-Type", file.endsWith(".wasm") ? "application/wasm" : file.endsWith(".json") ? "application/json" : file.endsWith(".zip") ? "application/zip" : "text/javascript");
+        fs.createReadStream(path.join(pyodideDir, file)).pipe(res);
+      });
+    },
+    generateBundle() {
+      for (const file of PYODIDE_FILES) this.emitFile({ type: "asset", fileName: `pyodide/${file}`, source: fs.readFileSync(path.join(pyodideDir, file)) });
+    },
+  };
+}
+
 export default defineConfig({
   // GitHub Pages는 https://<user>.github.io/sketchlab/ 아래에서 서빙한다.
   // 배포 워크플로가 SKETCHLAB_BASE=/sketchlab/ 로 빌드하고, 로컬은 기본값 "/" 그대로.
@@ -34,7 +62,12 @@ export default defineConfig({
     react(),
     tailwindcss(),
     ...(httpsEnabled ? [basicSsl() as PluginOption] : []),
+    pyodideAssets(),
   ],
+  // 코드 블록 작업자(jsWorker·pyWorker)는 ES 모듈 작업자
+  worker: { format: "es" },
+  // Pyodide는 스스로 파일을 불러오는 꾸러미라 미리 묶지 않는다
+  optimizeDeps: { exclude: ["pyodide"] },
   server: {
     // 태블릿·폰이 LAN IP로 붙을 수 있도록 0.0.0.0 바인딩
     host: true,

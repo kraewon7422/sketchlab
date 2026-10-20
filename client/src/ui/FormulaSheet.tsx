@@ -24,6 +24,7 @@ import { freeSpot, type Area } from "./placement";
 import { AiCreatePanel } from "./AiCreatePanel";
 import { LatexGuide } from "./LatexGuide";
 import { DataPanel } from "./DataPanel";
+import { CodePanel } from "./CodePanel";
 
 /**
  * 수식·그래프 직접 입력 (마스터스펙 v4 §9.3 — API 키 없이 동작하는 1급 경로).
@@ -137,7 +138,7 @@ export interface FormulaSheetProps {
 }
 
 export default function FormulaSheet({ onClose, area, onOpenAiSettings }: FormulaSheetProps): ReactElement {
-  const [mode, setMode] = useState<"formula" | "data" | "ai">("formula");
+  const [mode, setMode] = useState<"formula" | "data" | "code" | "ai">("formula");
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -315,7 +316,7 @@ export default function FormulaSheet({ onClose, area, onOpenAiSettings }: Formul
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: theme.space[2], marginBottom: theme.space[3] }}>
-        {(["formula", "data", "ai"] as const).map((m) => (
+        {(["formula", "data", "code", "ai"] as const).map((m) => (
           <button
             key={m}
             type="button"
@@ -335,7 +336,7 @@ export default function FormulaSheet({ onClose, area, onOpenAiSettings }: Formul
               cursor: "pointer",
             }}
           >
-            {m === "formula" ? "수식·그래프" : m === "data" ? "표·차트" : "AI에게 부탁"}
+            {m === "formula" ? "수식·그래프" : m === "data" ? "표·차트" : m === "code" ? "코드" : "AI에게 부탁"}
           </button>
         ))}
         <span style={{ flex: 1 }} />
@@ -351,6 +352,8 @@ export default function FormulaSheet({ onClose, area, onOpenAiSettings }: Formul
 
       {mode === "data" ? (
         <DataPanel area={area} onClose={onClose} />
+      ) : mode === "code" ? (
+        <CodePanel area={area} onClose={onClose} />
       ) : mode === "ai" ? (
         <AiCreatePanel area={area} onClose={onClose} {...(onOpenAiSettings ? { onOpenSettings: onOpenAiSettings } : {})} />
       ) : (

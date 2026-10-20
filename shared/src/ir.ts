@@ -354,6 +354,38 @@ const NNet = z.object({
   showLabels: z.boolean().default(true),
 });
 
+/** 코드 셀이 낸 결과 한 조각 — 글(print)·표(table)·그래프(plot) */
+export const CodeOutputItem = z.discriminatedUnion("t", [
+  z.object({ t: z.literal("text"), text: z.string().max(20000), error: z.boolean().optional() }),
+  z.object({ t: z.literal("table"), rows: z.array(z.array(z.string().max(200)).max(20)).max(60) }),
+  z.object({
+    t: z.literal("chart"),
+    kind: z.enum(["line", "scatter", "bar"]),
+    xs: z.array(z.number()).max(5000),
+    ys: z.array(z.number()).max(5000),
+    label: z.string().max(80).optional(),
+  }),
+]);
+export type CodeOutput = z.infer<typeof CodeOutputItem>;
+
+/**
+ * 코드 블록 (7단계) — 이름 붙은 실행 셀 (주피터처럼). 같은 노트의 셀끼리 변수를 나눠 쓴다.
+ * 폭 = transform.scale px. 마지막 실행 결과도 함께 저장한다 (다시 열면 그대로 보이게).
+ */
+const Code = z.object({
+  name: z.string().max(40),
+  lang: z.enum(["js", "python"]),
+  source: z.string().max(20000),
+  output: z
+    .object({
+      items: z.array(CodeOutputItem).max(60),
+      /** 걸린 시간 (ms) */
+      ms: z.number().min(0),
+      ranAt: z.number(),
+    })
+    .optional(),
+});
+
 // ─────────────────────────────────────────────────────────── 조립
 
 const meta = {
@@ -379,6 +411,7 @@ export const SceneIRSchema = z.discriminatedUnion("kind", [
   z.object({ ...meta, kind: z.literal("tensor"), data: Tensor }),
   z.object({ ...meta, kind: z.literal("topology"), data: Topology }),
   z.object({ ...meta, kind: z.literal("nnet"), data: NNet }),
+  z.object({ ...meta, kind: z.literal("code"), data: Code }),
 ]);
 
 /**
