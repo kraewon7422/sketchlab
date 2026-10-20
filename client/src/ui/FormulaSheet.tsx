@@ -13,7 +13,7 @@ import { buildSpace, describeSpace } from "../math/space3d";
 import { parseTensor } from "../math/tensor";
 import { paramCount, parseNNet } from "../math/nnet";
 import { TOPOLOGY } from "../math/build";
-import { FIGURES, parseFigure } from "../math/figures";
+import { figureNote, figureTitle, parseFigure } from "../math/figures";
 import { parseSpecial, SPECIAL_LATEX } from "../math/special";
 import { measureKatex } from "../math/measure";
 import { SOLID_NAMES } from "../solid/mesh";
@@ -231,7 +231,7 @@ export default function FormulaSheet({ onClose, area, onOpenAiSettings }: Formul
     }
     if (TOPOLOGY.test(text)) return { html: "", note: "위상수학 · 도넛이 머그잔으로 (구멍 1개는 그대로) — 재생 단추·슬라이더" };
     const fig = parseFigure(text);
-    if (fig) return { html: "", note: `${FIGURES[fig.name].title} · ${FIGURES[fig.name].note}` };
+    if (fig) return { html: "", note: `${figureTitle(fig)} · ${figureNote(fig)}` };
     const curve = parseSpecial(text);
     if (curve) return { html: katex.renderToString(SPECIAL_LATEX[curve], { throwOnError: false, displayMode: true }), note: curve === "zetaCritical" ? "리만 제타 함수의 임계선 · 0에 닿는 곳이 영점 (곡선을 눌러 따라가 보세요)" : "항의 수 N을 슬라이더로 늘려 보세요" };
     if (parseTupper(text)) return { html: katex.renderToString(TUPPER_LATEX, { throwOnError: false, displayMode: true }), note: "투퍼의 자기 참조 공식 · 그래프가 이 식 모양이 돼요" };
@@ -329,7 +329,9 @@ export default function FormulaSheet({ onClose, area, onOpenAiSettings }: Formul
       const wide = name === "life" || name === "mandelbrot" || name === "logistic" || name === "golden";
       const w = Math.min(wide ? 440 : solid.size + 40, maxW);
       const ratio: Record<string, number> = { genus: 0.7, mandelbrot: 0.75, logistic: 0.62, sierpinski: 0.92, golden: 0.7, euler: 0.86, life: 26 / 40 };
-      const h = Math.round(w * (ratio[name] ?? 1)) + 96;
+      // 슬라이더·분석 줄이 있는 그림은 그만큼 더
+      const extra: Record<string, number> = { lorenz: 200, logistic: 190, mandelbrot: 50, mobius: 40, trefoil: 40, sierpinski: 50, koch: 30, golden: 30, euler: 40, life: 40 };
+      const h = Math.round(w * (ratio[name] ?? 1)) + 96 + (extra[name] ?? 0);
       const pos = freeSpot(w, h, area);
       const fid = sessionStore.getState().addObject(r.ir, { x: pos.x, y: pos.y, scale: w }, { minX: pos.x, minY: pos.y, maxX: pos.x + w, maxY: pos.y + h });
       markFresh(fid);

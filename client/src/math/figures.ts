@@ -25,16 +25,16 @@ export interface FigureInfo {
 export const FIGURES: Record<FigureName, FigureInfo> = {
   mobius: { title: "뫼비우스 띠", note: "면이 하나뿐인 띠 — 한 바퀴 돌면 뒤집혀 돌아온다", init: {} },
   klein: { title: "클라인 병", note: "안과 밖이 없는 닫힌 곡면 (3차원에서는 스스로를 뚫고 지나간다)", init: {} },
-  trefoil: { title: "세잎 매듭", note: "풀 수 없는 가장 간단한 매듭", init: {} },
+  trefoil: { title: "세잎 매듭", note: "풀 수 없는 가장 간단한 매듭", init: { p: { p: 2, q: 3 } } },
   genus: { title: "종수 (구멍 수)", note: "위상수학: 구멍 수가 같으면 같은 모양", init: { n: 2 } },
-  mandelbrot: { title: "만델브로 집합", note: "zₙ₊₁ = zₙ² + c 가 무한히 커지지 않는 c — 톡 하면 확대", init: { zoom: { cx: -0.6, cy: 0, s: 3.2 } } },
+  mandelbrot: { title: "만델브로 집합", note: "zₙ₊₁ = zₙ² + c 가 무한히 커지지 않는 c — 안쪽 c의 줄리아 집합은 한 덩어리", init: { zoom: { cx: -0.6, cy: 0, s: 3.2 } } },
   koch: { title: "코흐 눈송이", note: "변을 3등분해 가운데에 삼각형 — 둘레는 무한, 넓이는 유한", init: { n: 3 } },
   sierpinski: { title: "시에르핀스키 삼각형", note: "가운데를 계속 빼내는 프랙탈 (넓이 → 0)", init: { n: 4 } },
   golden: { title: "황금 나선", note: "피보나치 정사각형에 그린 나선 — 비가 황금비 φ ≈ 1.618에 가까워진다", init: { n: 8 } },
   lorenz: { title: "로렌츠 끌개", note: "나비 효과 — 처음이 조금만 달라도 전혀 다른 길 (σ=10, ρ=28, β=8/3)", init: {} },
   life: { title: "라이프 게임", note: "콘웨이: 이웃 3개면 태어나고 2·3개면 산다 — 칸 톡 · 재생", init: { gen: 0 } },
-  logistic: { title: "로지스틱 사상 분기 도표", note: "xₙ₊₁ = r·xₙ(1−xₙ) — r이 커지며 주기 2·4·8… 그리고 혼돈", init: {} },
-  euler: { title: "오일러 공식", note: "e^{iθ} = cos θ + i sin θ — 단위원 위의 점", init: { t: Math.PI / 4 } },
+  logistic: { title: "로지스틱 사상 분기 도표", note: "xₙ₊₁ = r·xₙ(1−xₙ) — r이 커지며 주기 2·4·8… 그리고 혼돈 (갈라지는 간격의 비 → 파이겐바움 수 4.669…)", init: { p: { r0: 2.5, r1: 4, rc: 3.5 } } },
+  euler: { title: "오일러 공식", note: "e^(iθ) = cos θ + i sin θ — 단위원 위의 점", init: { t: Math.PI / 4 } },
 };
 
 const ALIASES: Array<[RegExp, FigureName]> = [
@@ -51,6 +51,41 @@ const ALIASES: Array<[RegExp, FigureName]> = [
   [/^(로지스틱(\s*(사상|맵))?|분기\s*도표|bifurcation|logistic(\s*map)?)$/i, "logistic"],
   [/^(오일러(\s*(공식|원|항등식))?|euler(\s*formula)?|e\^\{?i\\?theta\}?)$/i, "euler"],
 ];
+
+const fmt = (v: number, d = 2) => String(Number(v.toFixed(d)));
+
+/** 그림 제목 — 값에 따라 바뀌는 것(매듭 p·q, 띠의 꼬임 수)도 */
+export function figureTitle(d: FigData): string {
+  if (d.name === "trefoil") return knotInfo(d.p?.p ?? 2, d.p?.q ?? 3).title;
+  if (d.name === "mobius") {
+    const k = d.p?.tw ?? 1;
+    return k === 1 ? FIGURES.mobius.title : `반 바퀴 ${k}번 꼬인 띠`;
+  }
+  return FIGURES[d.name].title;
+}
+
+/** 그림 밑 한 줄 설명 — 지금 값으로 */
+export function figureNote(d: FigData): string {
+  switch (d.name) {
+    case "mobius":
+      return (d.p?.tw ?? 1) % 2 === 1 ? "면이 하나뿐 (반 꼬임이 홀수) — 한 바퀴 돌면 뒤집혀 돌아온다" : "면이 둘 (반 꼬임이 짝수) — 보통 고리처럼 안팎이 있다";
+    case "trefoil": {
+      const p = d.p?.p ?? 2;
+      const q = d.p?.q ?? 3;
+      return `도넛 둘레를 ${p}번·구멍을 ${q}번 감는 매듭 — 교차 ${knotInfo(p, q).crossings}번, 풀 수 없다`;
+    }
+    case "genus": {
+      const g = d.n ?? 2;
+      return `구멍 수가 같으면 같은 모양 — 오일러 지표 χ = 2 − 2g = ${String(2 - 2 * g).replace("-", "−")}`;
+    }
+    case "lorenz": {
+      const L = lorenzParams(d);
+      return `나비 효과 — 처음이 조금만 달라도 전혀 다른 길 (σ=${fmt(L.s)}, ρ=${fmt(L.r)}, β=${fmt(L.b)})`;
+    }
+    default:
+      return FIGURES[d.name].note;
+  }
+}
 
 /** 입력 → 그림 (아니면 null) */
 export function parseFigure(input: string): FigData | null {
@@ -91,18 +126,32 @@ function fit(g: V[][]): V[][] {
 }
 
 const TAU = Math.PI * 2;
-const meshCache = new Map<FigureName, V[][]>();
+const meshCache = new Map<string, V[][]>();
 
-export function surfaceMesh(name: "mobius" | "klein" | "trefoil"): V[][] {
-  const hit = meshCache.get(name);
+export const gcd = (a: number, b: number): number => (b ? gcd(b, a % b) : Math.abs(a));
+
+/** 토러스 매듭 T(p, q)의 이름과 교차 수 (p·q는 서로소) */
+export function knotInfo(p: number, q: number): { title: string; crossings: number } {
+  const names: Record<string, string> = { "2,3": "세잎 매듭 (3₁)", "2,5": "오엽 매듭 (5₁)", "2,7": "7₁ 매듭", "2,9": "9₁ 매듭", "3,4": "8₁₉ 매듭", "3,5": "10₁₂₄ 매듭" };
+  return { title: names[`${p},${q}`] ?? `토러스 매듭 T(${p}, ${q})`, crossings: Math.min(p * (q - 1), q * (p - 1)) };
+}
+
+/**
+ * 3D 곡면 그물 — mobius: a = 반 바퀴 꼬임 수(1이면 뫼비우스 띠)
+ *                trefoil: 토러스 매듭 T(a, b) (기본 2, 3 = 세잎 매듭)
+ */
+export function surfaceMesh(name: "mobius" | "klein" | "trefoil", a = 0, b = 0): V[][] {
+  const key = `${name}|${a}|${b}`;
+  const hit = meshCache.get(key);
   if (hit) return hit;
   let g: V[][];
   if (name === "mobius") {
-    g = grid(72, 8, (a, b) => {
-      const u = a * TAU;
-      const v = (b - 0.5) * 0.9;
-      const r = 1 + v * Math.cos(u / 2);
-      return [r * Math.cos(u), v * Math.sin(u / 2), r * Math.sin(u)];
+    const k = a || 1;
+    g = grid(72 + 12 * k, 8, (s, t) => {
+      const u = s * TAU;
+      const v = (t - 0.5) * 0.9;
+      const r = 1 + v * Math.cos((k * u) / 2);
+      return [r * Math.cos(u), v * Math.sin((k * u) / 2), r * Math.sin(u)];
     });
   } else if (name === "klein") {
     // 흔히 보는 "병" 모양 (Wikipedia의 매개변수 식)
@@ -118,23 +167,27 @@ export function surfaceMesh(name: "mobius" | "klein" | "trefoil"): V[][] {
       return [x, -y, z];
     });
   } else {
-    // 세잎 매듭을 따라가는 관 (곡선의 접선에 수직인 원)
-    const c = (t: number): V => [Math.sin(t) + 2 * Math.sin(2 * t), Math.cos(t) - 2 * Math.cos(2 * t), -Math.sin(3 * t)];
-    g = grid(180, 12, (a, b) => {
-      const t = a * TAU;
+    // 토러스 매듭을 따라가는 관 (곡선의 접선에 수직인 원) — 도넛 둘레를 p번, 구멍을 q번 감는다
+    const p = a || 2;
+    const q = b || 3;
+    const c = (t: number): V => [(2 + Math.cos(q * t)) * Math.cos(p * t), (2 + Math.cos(q * t)) * Math.sin(p * t), -Math.sin(q * t)];
+    const tube = Math.min(0.42, 1.5 / q);
+    g = grid(60 * Math.max(p, q), 12, (s, w0) => {
+      const t = s * TAU;
       const p = c(t);
       const h = 1e-3;
       const q = c(t + h);
       const T = norm([q[0] - p[0], q[1] - p[1], q[2] - p[2]]);
       const N = norm(cross(T, [0.3, 0.2, 1]));
       const B = cross(T, N);
-      const w = b * TAU;
-      const r = 0.42;
+      const w = w0 * TAU;
+      const r = tube;
       return [p[0] + r * (Math.cos(w) * N[0] + Math.sin(w) * B[0]), p[2] + r * (Math.cos(w) * N[2] + Math.sin(w) * B[2]), p[1] + r * (Math.cos(w) * N[1] + Math.sin(w) * B[1])];
     });
   }
   const fitted = fit(g);
-  meshCache.set(name, fitted);
+  if (meshCache.size > 24) meshCache.clear();
+  meshCache.set(key, fitted);
   return fitted;
 }
 
@@ -196,6 +249,35 @@ export function genusSdf(n: number): (p: V) => number {
 // ─────────────────────────────────────────────────────────── 평면 프랙탈
 
 type P = [number, number];
+
+/** 코흐 눈송이 n단계: 처음 삼각형에 대한 둘레·넓이 배 (둘레 → ∞, 넓이 → 8/5) */
+export function kochStats(n: number): { perimeter: number; area: number } {
+  return { perimeter: (4 / 3) ** n, area: 8 / 5 - (3 / 5) * (4 / 9) ** n };
+}
+
+/** 시에르핀스키 n단계: 남은 넓이 배 (3/4)ⁿ → 0 */
+export const sierpinskiArea = (n: number): number => (3 / 4) ** n;
+
+/** 혼돈 게임: 아무 점에서 시작해 무작위 꼭짓점 쪽으로 반씩 — 시에르핀스키 삼각형이 나타난다 */
+export function chaosGame(count: number, seed = 7): P[] {
+  const V3: P[] = [
+    [0, 1],
+    [-Math.sqrt(3) / 2, -0.5],
+    [Math.sqrt(3) / 2, -0.5],
+  ];
+  let r = seed >>> 0 || 1;
+  const rand = () => ((r = (r * 1664525 + 1013904223) >>> 0) / 2 ** 32);
+  let x = 0.1;
+  let y = 0.2;
+  const out: P[] = [];
+  for (let i = 0; i < count; i++) {
+    const v = V3[Math.floor(rand() * 3)] as P;
+    x = (x + v[0]) / 2;
+    y = (y + v[1]) / 2;
+    if (i >= 8) out.push([x, y]);
+  }
+  return out;
+}
 
 /** 코흐 눈송이 (단위 원 안, 위가 꼭짓점) — 점들 (닫힌 다각형) */
 export function koch(n: number): P[] {
@@ -301,31 +383,69 @@ export function mandelbrot(zoom: { cx: number; cy: number; s: number }, w: numbe
         x = t;
         k++;
       }
-      const i = (py * w + px) * 4;
-      if (k >= iter) {
-        out[i] = 20;
-        out[i + 1] = 24;
-        out[i + 2] = 48;
-      } else {
-        // 매끄러운 색 (탈출 횟수의 소수부)
-        const mu = k + 1 - Math.log2(Math.log2(Math.sqrt(x * x + y * y)) || 1);
-        const t = (mu / 40) % 1;
-        out[i] = 255 * (0.5 + 0.5 * Math.cos(TAU * (t + 0.0)));
-        out[i + 1] = 255 * (0.5 + 0.5 * Math.cos(TAU * (t + 0.15)));
-        out[i + 2] = 255 * (0.5 + 0.5 * Math.cos(TAU * (t + 0.3)));
-      }
-      out[i + 3] = 255;
+      paintEscape(out, (py * w + px) * 4, k, iter, x, y);
     }
   return out;
 }
 
-/** 로지스틱 사상 분기 도표 — 가로 r ∈ [2.5, 4], 세로 x ∈ [0, 1] (점이 많이 찍힌 곳일수록 진하게) */
-export function logistic(w: number, h: number): Uint8ClampedArray {
+/** 탈출 횟수 → 색 (집합 안은 어두운 남색, 밖은 매끄러운 무지개) */
+function paintEscape(out: Uint8ClampedArray, i: number, k: number, iter: number, x: number, y: number): void {
+  if (k >= iter) {
+    out[i] = 20;
+    out[i + 1] = 24;
+    out[i + 2] = 48;
+  } else {
+    // 매끄러운 색 (탈출 횟수의 소수부)
+    const mu = k + 1 - Math.log2(Math.log2(Math.sqrt(x * x + y * y)) || 1);
+    const t = (mu / 40) % 1;
+    out[i] = 255 * (0.5 + 0.5 * Math.cos(TAU * (t + 0.0)));
+    out[i + 1] = 255 * (0.5 + 0.5 * Math.cos(TAU * (t + 0.15)));
+    out[i + 2] = 255 * (0.5 + 0.5 * Math.cos(TAU * (t + 0.3)));
+  }
+  out[i + 3] = 255;
+}
+
+/** 줄리아 집합 — z → z² + c 에서 시작점 z가 달아나지 않는 곳. c가 만델브로 집합 안이면 이어진 한 덩어리 */
+export function julia(c: { x: number; y: number }, w: number, h: number): Uint8ClampedArray {
+  const out = new Uint8ClampedArray(w * h * 4);
+  const iter = 160;
+  const span = 3.4;
+  for (let py = 0; py < h; py++)
+    for (let px = 0; px < w; px++) {
+      let x = ((px + 0.5) / w - 0.5) * span;
+      let y = -((py + 0.5) / h - 0.5) * span * (h / w);
+      let k = 0;
+      while (k < iter && x * x + y * y <= 4) {
+        const t = x * x - y * y + c.x;
+        y = 2 * x * y + c.y;
+        x = t;
+        k++;
+      }
+      paintEscape(out, (py * w + px) * 4, k, iter, x, y);
+    }
+  return out;
+}
+
+/** c가 만델브로 집합 안인지 (줄리아 집합이 이어져 있는지) */
+export function inMandelbrot(c: { x: number; y: number }, iter = 500): boolean {
+  let x = 0;
+  let y = 0;
+  for (let k = 0; k < iter; k++) {
+    const t = x * x - y * y + c.x;
+    y = 2 * x * y + c.y;
+    x = t;
+    if (x * x + y * y > 4) return false;
+  }
+  return true;
+}
+
+/** 로지스틱 사상 분기 도표 — 가로 r ∈ [r0, r1] (기본 2.5~4), 세로 x ∈ [0, 1] (점이 많이 찍힌 곳일수록 진하게) */
+export function logistic(w: number, h: number, r0 = 2.5, r1 = 4): Uint8ClampedArray {
   const count = new Float32Array(w * h);
   for (let px = 0; px < w; px++) {
-    const r = 2.5 + (1.5 * (px + 0.5)) / w;
+    const r = r0 + ((r1 - r0) * (px + 0.5)) / w;
     let x = 0.5;
-    for (let k = 0; k < 300; k++) x = r * x * (1 - x);
+    for (let k = 0; k < 500; k++) x = r * x * (1 - x);
     for (let k = 0; k < 400; k++) {
       x = r * x * (1 - x);
       const py = Math.min(h - 1, Math.max(0, Math.floor((1 - x) * h)));
@@ -343,30 +463,118 @@ export function logistic(w: number, h: number): Uint8ClampedArray {
   return out;
 }
 
+/**
+ * 한 r에서 xₙ₊₁ = r·xₙ(1−xₙ) 를 오래 돌린 뒤의 모습
+ *   period: 결국 도는 주기 (1·2·4·8… / 혼돈이면 null)  · values: 마지막 값들
+ *   lyap: 랴푸노프 지수 (평균 ln|r(1−2x)|) — 음수면 안정, 양수면 혼돈
+ */
+export function logisticOrbit(r0: number): { period: number | null; values: number[]; lyap: number } {
+  const r = Math.min(4, Math.max(0, r0));
+  let x = 0.5;
+  for (let k = 0; k < 3000; k++) x = r * x * (1 - x);
+  let sum = 0;
+  const N = 2000;
+  for (let k = 0; k < N; k++) {
+    x = r * x * (1 - x);
+    sum += Math.log(Math.max(1e-12, Math.abs(r * (1 - 2 * x))));
+  }
+  const values: number[] = [];
+  for (let k = 0; k < 128; k++) {
+    x = r * x * (1 - x);
+    values.push(x);
+  }
+  let period: number | null = null;
+  for (let p = 1; p <= 64 && period === null; p++) {
+    let ok = true;
+    for (let i = 0; i + p < values.length && ok; i++) if (Math.abs((values[i + p] as number) - (values[i] as number)) > 1e-5) ok = false;
+    if (ok) period = p;
+  }
+  return { period, values, lyap: sum / N };
+}
+
+/** 같은 r에서 x₀부터 몇 번 돌린 값들 (시간에 따른 xₙ) */
+export function logisticSeries(r: number, n: number, x0 = 0.2): number[] {
+  const out = [x0];
+  let x = x0;
+  for (let k = 0; k < n; k++) out.push((x = r * x * (1 - x)));
+  return out;
+}
+
 // ─────────────────────────────────────────────────────────── 로렌츠 끌개
 
-let lorenzCache: V[] | null = null;
-/** 로렌츠 방정식을 따라간 점들 (그리기 좌표, 반지름 1 안) */
-export function lorenzPoints(): V[] {
-  if (lorenzCache) return lorenzCache;
-  const s = 10;
-  const r = 28;
-  const b = 8 / 3;
-  const f = ([x, y, z]: V): V => [s * (y - x), x * (r - z) - y, x * y - b * z];
-  let p: V = [0.1, 0, 0];
-  const dt = 0.008;
-  const pts: V[] = [];
-  for (let k = 0; k < 7000; k++) {
+export interface LorenzParams {
+  s: number;
+  r: number;
+  b: number;
+}
+export const LORENZ0: LorenzParams = { s: 10, r: 28, b: 8 / 3 };
+export const LORENZ_DT = 0.008;
+const LORENZ_STEPS = 7000;
+
+export const lorenzParams = (d: FigData): LorenzParams => ({ s: d.p?.s ?? LORENZ0.s, r: d.p?.r ?? LORENZ0.r, b: d.p?.b ?? LORENZ0.b });
+
+/**
+ * ρ에 따라 바뀌는 모습 — ρ < 1: 원점으로, 1 < ρ < ρ_H: 두 고정점 C± 중 하나로, ρ > ρ_H: 혼돈 (이상한 끌개)
+ * ρ_H = σ(σ+β+3)/(σ−β−1) (호프 분기; σ ≤ β+1이면 혼돈 없음)
+ */
+export function lorenzRegime(L: LorenzParams): { rhoH: number; kind: "origin" | "fixed" | "chaos"; text: string } {
+  const rhoH = L.s > L.b + 1 ? (L.s * (L.s + L.b + 3)) / (L.s - L.b - 1) : Infinity;
+  if (L.r < 1) return { rhoH, kind: "origin", text: "ρ < 1 — 모든 길이 원점으로 모인다 (안정)" };
+  if (L.r < rhoH) return { rhoH, kind: "fixed", text: `1 < ρ < ρ_H ≈ ${Number.isFinite(rhoH) ? fmt(rhoH) : "∞"} — 두 고정점 C± 중 하나로 소용돌이치며 모인다` };
+  return { rhoH, kind: "chaos", text: `ρ > ρ_H ≈ ${fmt(rhoH)} — 혼돈: 두 날개를 예측할 수 없이 오간다` };
+}
+
+function lorenzRaw(L: LorenzParams, x0: number): V[] {
+  const f = ([x, y, z]: V): V => [L.s * (y - x), x * (L.r - z) - y, x * y - L.b * z];
+  let p: V = [x0, 0, 0];
+  const dt = LORENZ_DT;
+  const pts: V[] = [p];
+  for (let k = 0; k < LORENZ_STEPS; k++) {
     // 4차 룽게-쿠타
     const k1 = f(p);
     const k2 = f([p[0] + (dt / 2) * k1[0], p[1] + (dt / 2) * k1[1], p[2] + (dt / 2) * k1[2]]);
     const k3 = f([p[0] + (dt / 2) * k2[0], p[1] + (dt / 2) * k2[1], p[2] + (dt / 2) * k2[2]]);
     const k4 = f([p[0] + dt * k3[0], p[1] + dt * k3[1], p[2] + dt * k3[2]]);
     p = [p[0] + (dt / 6) * (k1[0] + 2 * k2[0] + 2 * k3[0] + k4[0]), p[1] + (dt / 6) * (k1[1] + 2 * k2[1] + 2 * k3[1] + k4[1]), p[2] + (dt / 6) * (k1[2] + 2 * k2[2] + 2 * k3[2] + k4[2])];
-    if (k > 200) pts.push([p[0] / 25, (p[2] - 25) / 25, p[1] / 25]);
+    if (!p.every(Number.isFinite)) break;
+    pts.push(p);
   }
-  lorenzCache = pts;
   return pts;
+}
+
+const lorenzCache = new Map<string, { a: V[]; b: V[] | null; split: number | null }>();
+
+/**
+ * 로렌츠 방정식을 따라간 길 (그리기 좌표, 반지름 1 안 — z가 위)
+ *   butterfly: 시작이 0.00001 다른 두 번째 길도  · split: 두 길이 눈에 띄게 갈라진 시각 (안 갈라지면 null)
+ */
+export function lorenz(L: LorenzParams, butterfly = false): { a: V[]; b: V[] | null; split: number | null } {
+  const key = `${L.s}|${L.r}|${L.b}|${butterfly}`;
+  const hit = lorenzCache.get(key);
+  if (hit) return hit;
+  const A = lorenzRaw(L, 0.1);
+  const B = butterfly ? lorenzRaw(L, 0.1 + 1e-5) : null;
+  let split: number | null = null;
+  if (B)
+    for (let k = 0; k < Math.min(A.length, B.length); k++) {
+      const a = A[k] as V;
+      const b = B[k] as V;
+      if (Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]) > 1) {
+        split = k * LORENZ_DT;
+        break;
+      }
+    }
+  // 두 길 모두가 들어가게 가운데·크기를 맞춘다
+  const all = B ? A.concat(B) : A;
+  const lo = [0, 1, 2].map((i) => Math.min(...all.map((p) => p[i] as number)));
+  const hi = [0, 1, 2].map((i) => Math.max(...all.map((p) => p[i] as number)));
+  const c = lo.map((v, i) => (v + (hi[i] as number)) / 2);
+  const R = Math.max(1e-9, ...hi.map((v, i) => (v - (lo[i] as number)) / 2));
+  const map = (p: V): V => [(p[0] - c[0]!) / R, (p[2] - c[2]!) / R, (p[1] - c[1]!) / R];
+  const out = { a: A.map(map), b: B ? B.map(map) : null, split };
+  if (lorenzCache.size > 30) lorenzCache.clear();
+  lorenzCache.set(key, out);
+  return out;
 }
 
 // ─────────────────────────────────────────────────────────── 라이프 게임
@@ -383,6 +591,15 @@ export const GOSPER: Array<[number, number]> = (
     [3, 35], [4, 35], [3, 36], [4, 36],
   ] as Array<[number, number]>
 ).map(([r, c]) => [r + 1, c + 1]);
+
+/** 무작위로 채우기 (밀도 0~1) */
+export function lifeRandom(density: number, seed: number): Array<[number, number]> {
+  let r = seed >>> 0 || 1;
+  const rand = () => ((r = (r * 1664525 + 1013904223) >>> 0) / 2 ** 32);
+  const out: Array<[number, number]> = [];
+  for (let i = 0; i < LIFE_ROWS; i++) for (let j = 0; j < LIFE_COLS; j++) if (rand() < density) out.push([i, j]);
+  return out;
+}
 
 /** 한 세대 앞으로 (가장자리 밖은 죽은 칸) */
 export function lifeStep(cells: ReadonlyArray<readonly [number, number]>): Array<[number, number]> {

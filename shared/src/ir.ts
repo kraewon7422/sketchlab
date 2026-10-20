@@ -378,6 +378,7 @@ export const FIGURE_NAMES = ["mobius", "klein", "trefoil", "genus", "mandelbrot"
  * 유명한 그림 (수학·과학·컴퓨터) — 이름 하나로 그리고, 그림마다 직접 바꿀 수 있는 값이 있다.
  *   n: 종수(구멍 수)·프랙탈 단계  · t: 오일러 원의 각 θ  · view: 돌려 본 각도
  *   zoom: 만델브로 집합의 보는 곳 (가운데 cx + i·cy, 너비 s)  · cells: 라이프 게임의 산 칸 [행, 열]
+ *   hideInfo: 이름 밑 설명을 접었는지  · p: 그림마다의 숫자 값 (로렌츠 σ·ρ·β, 로지스틱 r 구간, 매듭 p·q …)
  */
 const Figure = z.object({
   name: z.enum(FIGURE_NAMES),
@@ -387,6 +388,8 @@ const Figure = z.object({
   zoom: z.object({ cx: z.number(), cy: z.number(), s: z.number().positive() }).optional(),
   cells: z.array(z.tuple([z.number().int(), z.number().int()])).max(2500).optional(),
   gen: z.number().int().min(0).optional(),
+  hideInfo: z.boolean().optional(),
+  p: z.record(z.string().max(16), z.number()).optional(),
 });
 
 /** 코드 셀이 낸 결과 한 조각 — 글(print)·표(table)·그래프(plot) */
