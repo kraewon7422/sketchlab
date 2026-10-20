@@ -191,6 +191,31 @@ export default function FormulaSheet({ onClose, area, onOpenAiSettings }: Formul
 
   useEffect(() => inputRef.current?.focus(), []);
 
+  // 화학 칸을 펴면 예시 분자의 작은 구조식 그림을 만든다 (RDKit은 이때 처음 내려받는다)
+  const [thumbs, setThumbs] = useState<Record<string, string>>({});
+  const chemOpen = openGroups.has("화학 구조식");
+  useEffect(() => {
+    if (!chemOpen || Object.keys(thumbs).length) return;
+    let alive = true;
+    void import("../chem/rdkit")
+      .then(({ loadRDKit }) => loadRDKit())
+      .then((rd) => {
+        const out: Record<string, string> = {};
+        for (const name of CHEM_EXAMPLES) {
+          const c = chemFromInput(name);
+          const mol = c ? rd.get_mol(c.smiles) : null;
+          if (!mol) continue;
+          if (mol.is_valid()) out[name] = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(mol.get_svg(136, 102))}`;
+          mol.delete();
+        }
+        if (alive) setThumbs(out);
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [chemOpen, thumbs]);
+
   const preview = useMemo(() => {
     const c = chemFromInput(text);
     if (c && !c.guessed) return { html: "", note: `화학 구조식${c.name ? ` · ${c.name}` : ""}` };
@@ -527,8 +552,16 @@ export default function FormulaSheet({ onClose, area, onOpenAiSettings }: Formul
                       ))}
                     {g.chem &&
                       CHEM_EXAMPLES.map((name) => (
-                        <button key={name} type="button" disabled={loading} onClick={() => add(name)} style={chipStyle}>
-                          {name}
+                        <button
+                          key={name}
+                          type="button"
+                          disabled={loading}
+                          onClick={() => add(name)}
+                          style={{ ...chipStyle, borderRadius: 12, padding: "4px 8px", display: "inline-flex", flexDirection: "column", alignItems: "center", gap: 2, minWidth: 76 }}
+                        >
+                          {/* 구조식 미리보기 (화학 칸을 펼 때 RDKit으로 한 번 그린다) */}
+                          {thumbs[name] ? <img src={thumbs[name]} alt="" width={68} height={51} style={{ display: "block" }} /> : <span style={{ width: 68, height: 51, display: "block", borderRadius: 6, background: theme.color.selection }} />}
+                          <span style={{ fontSize: 12 }}>{name}</span>
                         </button>
                       ))}
                   </div>

@@ -42,6 +42,57 @@ export const MOLECULES: Array<[smiles: string, name: string, ...aliases: string[
   ["O", "물", "water"],
   ["N", "암모니아", "ammonia"],
   ["O=C=O", "이산화 탄소", "이산화탄소", "carbon dioxide"],
+  // 작용기 예시·자주 쓰는 물질
+  ["CCCCCCCC", "옥테인", "옥탄", "octane"],
+  ["CC(C)O", "아이소프로필 알코올", "이소프로판올", "isopropanol"],
+  ["CCCCO", "뷰탄올", "부탄올", "butanol"],
+  ["OCCO", "에틸렌 글라이콜", "에틸렌글리콜", "ethylene glycol"],
+  ["CN", "메틸아민", "methylamine"],
+  ["O=Cc1ccccc1", "벤즈알데하이드", "benzaldehyde"],
+  ["CC(O)C(=O)O", "젖산", "락트산", "lactic acid"],
+  ["OC(=O)CC(O)(CC(=O)O)C(=O)O", "시트르산", "구연산", "citric acid"],
+  ["OC(=O)C(=O)O", "옥살산", "oxalic acid"],
+  ["CCCCCCCCCCCCCCCCCC(=O)O", "스테아르산", "stearic acid"],
+  ["c1ccc2cc3ccccc3cc2c1", "안트라센", "anthracene"],
+  ["c1ccoc1", "퓨란", "furan"],
+  ["c1ccsc1", "싸이오펜", "티오펜", "thiophene"],
+  ["OO", "과산화 수소", "과산화수소", "hydrogen peroxide"],
+  ["OS(=O)(=O)O", "황산", "sulfuric acid"],
+  ["O[N+](=O)[O-]", "질산", "nitric acid"],
+  ["COc1cc(C=O)ccc1O", "바닐린", "vanillin"],
+  ["CC(C)C1CCC(C)CC1O", "멘톨", "menthol"],
+  ["Oc1ccc(cc1)C1(OC(=O)c2ccccc12)c1ccc(O)cc1", "페놀프탈레인", "phenolphthalein"],
+  // 아미노산
+  ["CC(N)C(=O)O", "알라닌", "alanine"],
+  ["CC(C)C(N)C(=O)O", "발린", "valine"],
+  ["CC(C)CC(N)C(=O)O", "류신", "leucine"],
+  ["OCC(N)C(=O)O", "세린", "serine"],
+  ["SCC(N)C(=O)O", "시스테인", "cysteine"],
+  ["NC(Cc1ccccc1)C(=O)O", "페닐알라닌", "phenylalanine"],
+  ["NC(Cc1c[nH]c2ccccc12)C(=O)O", "트립토판", "tryptophan"],
+  ["NC(CCC(=O)O)C(=O)O", "글루탐산", "glutamic acid"],
+  ["NCCCCC(N)C(=O)O", "라이신", "lysine"],
+  // DNA·RNA 염기
+  ["Nc1ncnc2[nH]cnc12", "아데닌", "adenine"],
+  ["NC1=Nc2[nH]cnc2C(=O)N1", "구아닌", "guanine"],
+  ["NC1=NC(=O)NC=C1", "사이토신", "시토신", "cytosine"],
+  ["CC1=CNC(=O)NC1=O", "티민", "thymine"],
+  ["O=C1C=CNC(=O)N1", "우라실", "uracil"],
+  // 당
+  ["OC[C@H]1O[C@@](O)(CO)[C@@H](O)[C@@H]1O", "과당", "프럭토스", "fructose"],
+  ["OC[C@H]1OC(O)[C@H](O)[C@@H]1O", "리보스", "ribose"],
+  ["OC[C@H]1O[C@@](CO)(O[C@H]2O[C@H](CO)[C@@H](O)[C@H](O)[C@H]2O)[C@@H](O)[C@@H]1O", "설탕", "수크로스", "sucrose"],
+  // 약·호르몬·비타민
+  ["CC(C)Cc1ccc(cc1)C(C)C(=O)O", "이부프로펜", "ibuprofen"],
+  ["CC(=O)Nc1ccc(O)cc1", "아세트아미노펜", "타이레놀", "paracetamol", "acetaminophen"],
+  ["CC1(C)S[C@@H]2[C@H](NC(=O)Cc3ccccc3)C(=O)N2[C@H]1C(=O)O", "페니실린 G", "페니실린", "penicillin"],
+  ["CN1CCC[C@H]1c1cccnc1", "니코틴", "nicotine"],
+  ["NCCc1ccc(O)c(O)c1", "도파민", "dopamine"],
+  ["NCCc1c[nH]c2ccc(O)cc12", "세로토닌", "serotonin"],
+  ["CNC[C@H](O)c1ccc(O)c(O)c1", "아드레날린", "에피네프린", "adrenaline", "epinephrine"],
+  ["OC[C@H](O)[C@H]1OC(=O)C(O)=C1O", "비타민 C", "아스코르브산", "vitamin c", "ascorbic acid"],
+  ["CC(C)CCC[C@@H](C)[C@H]1CC[C@H]2[C@@H]3CC=C4C[C@@H](O)CC[C@]4(C)[C@H]3CC[C@]12C", "콜레스테롤", "cholesterol"],
+  ["COc1cc(CNC(=O)CCCC/C=C/C(C)C)ccc1O", "캡사이신", "capsaicin"],
 ];
 
 const key = (s: string) => s.toLowerCase().replace(/\s+/g, "");
@@ -51,7 +102,36 @@ for (const [smiles, name, ...aliases] of MOLECULES) {
 }
 
 /** FormulaSheet 칩에 보일 분자 */
-export const CHEM_EXAMPLES = ["벤젠", "에탄올", "아세트산", "페놀", "나프탈렌", "아스피린", "카페인", "포도당"] as const;
+export const CHEM_EXAMPLES = [
+  "벤젠",
+  "에탄올",
+  "아세트산",
+  "페놀",
+  "나프탈렌",
+  "아스피린",
+  "카페인",
+  "포도당",
+  "설탕",
+  "비타민 C",
+  "이부프로펜",
+  "아세트아미노펜",
+  "페니실린 G",
+  "도파민",
+  "세로토닌",
+  "아드레날린",
+  "콜레스테롤",
+  "캡사이신",
+  "바닐린",
+  "멘톨",
+  "글라이신",
+  "트립토판",
+  "아데닌",
+  "구아닌",
+  "사이토신",
+  "티민",
+  "우라실",
+  "페놀프탈레인",
+] as const;
 
 /**
  * SMILES처럼 생긴 입력인지 (RDKit을 부르기 전 빠른 거르기).

@@ -2,7 +2,7 @@ import initRDKit from "@rdkit/rdkit";
 import { beforeAll, describe, expect, it } from "vitest";
 import { chem } from "../render/theme";
 import { layoutMolecule, type ChemDrawing } from "./layout";
-import { chemFromInput, looksLikeSmiles } from "./names";
+import { CHEM_EXAMPLES, chemFromInput, looksLikeSmiles, MOLECULES } from "./names";
 import { moleculeJson } from "./rdkit";
 
 let rd: Awaited<ReturnType<typeof initRDKit>>;
@@ -15,6 +15,25 @@ function draw(smiles: string, opts: { full?: boolean; circle?: boolean } = {}): 
   if (!json) throw new Error("bad smiles");
   return layoutMolecule(json, { ...chem, showCarbons: opts.full ?? false, aromaticCircle: opts.circle ?? false });
 }
+
+describe("분자 목록", () => {
+  it("모든 이름의 SMILES를 RDKit이 읽고, 그림으로 펼칠 수 있다", () => {
+    for (const [smiles, name] of MOLECULES) {
+      const mol = rd.get_mol(smiles);
+      expect(mol?.is_valid(), `${name} ${smiles}`).toBe(true);
+      mol?.delete();
+      const d = draw(smiles);
+      expect(d.lines.length + d.labels.length, name).toBeGreaterThan(0);
+    }
+  });
+
+  it("예시 칩의 이름은 모두 목록에 있다 · 이름이 겹치지 않는다", () => {
+    for (const n of CHEM_EXAMPLES) expect(chemFromInput(n)?.name, n).toBe(n);
+    // 띄어쓰기만 다른 같은 분자의 이름("이산화 탄소"·"이산화탄소")은 괜찮다 — 다른 분자끼리 겹치면 안 된다
+    const names = MOLECULES.flatMap(([, ...ns]) => [...new Set(ns.map((x) => x.toLowerCase().replace(/\s+/g, "")))]);
+    expect(new Set(names).size).toBe(names.length);
+  });
+});
 
 describe("화학 입력 구분", () => {
   it("이름(한국어·영어)과 SMILES를 알아본다", () => {
