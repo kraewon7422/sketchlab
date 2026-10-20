@@ -62,6 +62,12 @@ export function useTurntable(item: { id: string }, irView: View3 | undefined, de
     if (current.ir.kind === "solid3d") {
       before = { ...current.ir, data: { ...current.ir.data, view: start } };
       after = { ...current.ir, data: { ...current.ir.data, view: { ...now } } };
+    } else if (current.ir.kind === "tensor") {
+      before = { ...current.ir, data: { ...current.ir.data, view: start } };
+      after = { ...current.ir, data: { ...current.ir.data, view: { ...now } } };
+    } else if (current.ir.kind === "topology") {
+      before = { ...current.ir, data: { ...current.ir.data, view: start } };
+      after = { ...current.ir, data: { ...current.ir.data, view: { ...now } } };
     } else if (current.ir.kind === "space3d") {
       before = { ...current.ir, data: { ...current.ir.data, view3: start } };
       after = { ...current.ir, data: { ...current.ir.data, view3: { ...now } } };

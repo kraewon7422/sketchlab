@@ -8,6 +8,12 @@ import { buildLinear } from "./linearBuild";
 import { parseTupper, TUPPER_LATEX } from "./tupper";
 import { buildDist } from "./stats";
 import { parseVenn } from "./venn";
+import { buildSpace } from "./space3d";
+import { parseTensor } from "./tensor";
+import { parseNNet } from "./nnet";
+
+/** 도넛 ↔ 머그잔 (위상수학) */
+export const TOPOLOGY = /^\s*(?:위상수학|위상|토폴로지|topology|도넛\s*(?:↔|<->|-|와|과)?\s*(?:컵|머그잔?)|donut\s*(?:↔|<->|-|and)?\s*(?:cup|mug))\s*$/i;
 
 /**
  * 입력한 식 → Scene IR (수동 입력 경로, 마스터스펙 v4 §9.3).
@@ -29,6 +35,17 @@ function meta(): Pick<SceneIR, "version" | "confidence" | "source"> {
 }
 
 export function buildFromInput(input: string): BuildResult {
+  // 3D 텐서 (3겹 괄호 · "텐서 2x3x4") — 행렬 [[…]]보다 먼저
+  const tensor = parseTensor(input);
+  if (tensor) return { ok: true, analysis: { kind: "formula", latex: input }, ir: { ...meta(), kind: "tensor", data: tensor } };
+  const layers = parseNNet(input);
+  if (layers) return { ok: true, analysis: { kind: "formula", latex: input }, ir: { ...meta(), kind: "nnet", data: { layers, showLabels: true } } };
+  if (TOPOLOGY.test(input)) return { ok: true, analysis: { kind: "formula", latex: input }, ir: { ...meta(), kind: "topology", data: { t: 0 } } };
+
+  // 좌표공간 속 곡면·입체 (z가 든 식, 평행육면체) — 평면만 여러 개면 null이라 연립방정식으로 간다
+  const space = buildSpace(input);
+  if (space) return "error" in space ? { ok: false, message: space.error } : { ok: true, analysis: { kind: "formula", latex: input }, ir: space };
+
   // 연립일차방정식·행렬 — 쉼표로 나뉜 식이나 [[…]]는 여기서 먼저 (아니면 null로 넘어간다)
   const lin = buildLinear(input);
   if (lin) return { ok: true, analysis: { kind: "formula", latex: input }, ir: lin.ir };

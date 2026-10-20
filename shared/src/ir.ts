@@ -148,6 +148,21 @@ const Space3D = z.object({
     .optional(),
   /** z = f(x,y). v3의 plot3d를 흡수했다 */
   surfaces: z.array(z.object({ latex: z.string() })).optional(),
+  /**
+   * 좌표 속 입체 — 구·원기둥(축에 나란한)·평행육면체(세 벡터 a, b, c가 o에서).
+   * 식(x²+y²+z²=9 등)에서 알아본 것. 평행육면체는 부피 |a·(b×c)|를 캡션에 쓴다.
+   */
+  shapes: z
+    .array(
+      z.discriminatedUnion("t", [
+        z.object({ t: z.literal("sphere"), c: Vec3, r: z.number().positive() }),
+        z.object({ t: z.literal("cylinder"), axis: z.enum(["x", "y", "z"]), c: Vec3, r: z.number().positive() }),
+        z.object({ t: z.literal("parallelepiped"), o: Vec3, a: Vec3, b: Vec3, c: Vec3 }),
+      ]),
+    )
+    .optional(),
+  /** 그림 아래 식 (LaTeX) — 입력한 식·부피 계산 */
+  caption: z.string().optional(),
   /** 점에서 각 좌표평면으로 점선 수선 — 교과서 공간좌표 그림의 핵심 */
   showProjections: z.boolean().default(false),
   /** 보는 각도 (라디안) */
@@ -317,6 +332,28 @@ const Venn = z.object({
   universe: z.string().optional(),
 });
 
+/** 3D 텐서 — 숫자 칸 dims[0]×dims[1]×dims[2]를 쌓은 블록. slice가 있으면 그 단면만 진하게 */
+const Tensor = z.object({
+  dims: z.tuple([z.number().int().min(1).max(5), z.number().int().min(1).max(5), z.number().int().min(1).max(5)]),
+  /** 칸 값 (i, j, k 순서로 펼친 것: (i·d1 + j)·d2 + k) */
+  values: z.array(z.number()).max(125),
+  slice: z.object({ axis: z.number().int().min(0).max(2), index: z.number().int().min(0) }).optional(),
+  view: z.object({ yaw: z.number(), pitch: z.number() }).optional(),
+});
+
+/** 위상수학: 도넛 ↔ 머그잔 연속 변형 (t = 0 도넛, 1 컵) */
+const Topology = z.object({
+  t: z.number().min(0).max(1),
+  view: z.object({ yaw: z.number(), pitch: z.number() }).optional(),
+});
+
+/** 신경망 그림 — 층마다 뉴런 수 (입력층 … 출력층) */
+const NNet = z.object({
+  layers: z.array(z.number().int().min(1).max(16)).min(2).max(8),
+  /** 뉴런 이름(x₁ … , y₁ …)과 층 이름을 쓸지 */
+  showLabels: z.boolean().default(true),
+});
+
 // ─────────────────────────────────────────────────────────── 조립
 
 const meta = {
@@ -339,6 +376,9 @@ export const SceneIRSchema = z.discriminatedUnion("kind", [
   z.object({ ...meta, kind: z.literal("image"), data: Image }),
   z.object({ ...meta, kind: z.literal("venn"), data: Venn }),
   z.object({ ...meta, kind: z.literal("table"), data: Table }),
+  z.object({ ...meta, kind: z.literal("tensor"), data: Tensor }),
+  z.object({ ...meta, kind: z.literal("topology"), data: Topology }),
+  z.object({ ...meta, kind: z.literal("nnet"), data: NNet }),
 ]);
 
 /**

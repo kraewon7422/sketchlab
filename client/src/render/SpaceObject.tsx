@@ -1,8 +1,10 @@
 import type { SceneIR } from "@sketchlab/shared";
-import { memo, useMemo, type ReactElement } from "react";
+import katex from "katex";
+import "katex/dist/katex.min.css";
+import { memo, useEffect, useMemo, useState, type ReactElement } from "react";
 import type { ObjectItem } from "../ink/types";
 import type { P2, View3 } from "../solid/project";
-import { drawSpace } from "../solid/space";
+import { drawSpace, spaceFaces } from "../solid/space";
 import { isFresh } from "./Shape2DView";
 import { line } from "./SolidObject";
 import { plot, solid, theme } from "./theme";
@@ -32,11 +34,51 @@ function arrowHead(from: P2, to: P2, size: number): string {
   return `M${to[0]},${to[1]} L${to[0] - ux * size - uy * w},${to[1] - uy * size + ux * w} L${to[0] - ux * size + uy * w},${to[1] - uy * size - ux * w}Z`;
 }
 
+type SurfaceFn = (x: number, y: number) => number;
+const NO_FNS: SurfaceFn[] = [];
+
+/** 곡면 식(등식) → z = f(x, y). F가 z에 대해 일차라서 z = −F(x,y,0) / (F(x,y,1) − F(x,y,0)) */
+function useSurfaceFns(surfaces: ReadonlyArray<{ latex: string }> | undefined): SurfaceFn[] {
+  const [fns, setFns] = useState<SurfaceFn[]>(NO_FNS);
+  const key = (surfaces ?? []).map((s) => s.latex).join("\n");
+  useEffect(() => {
+    if (!key) {
+      setFns(NO_FNS);
+      return;
+    }
+    let alive = true;
+    void import("../math/latex").then(({ equationResidual }) => {
+      const out: SurfaceFn[] = [];
+      for (const latex of key.split("\n")) {
+        const r = equationResidual(latex);
+        if (!r) continue;
+        const F = r.F(["x", "y", "z"]);
+        out.push((x, y) => {
+          const f0 = F(x, y, 0);
+          return -f0 / (F(x, y, 1) - f0);
+        });
+      }
+      if (alive) setFns(out);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [key]);
+  return fns;
+}
+
 function SpaceBox({ item, ir, interactive }: { item: ObjectItem; ir: SpaceIR; interactive: boolean }) {
   const S = item.transform.scale;
   const { view, handlers } = useTurntable(item, ir.data.view3, DEFAULT_VIEW);
-  const scale = (S * 0.52) / ir.data.view.range;
-  const d = useMemo(() => drawSpace(ir.data, view, scale, S * 0.47, S * 0.58), [ir.data, view, scale, S]);
+  // 곡면·평면·원기둥은 상자(±범위)를 꽉 채운다 — 돌려도 상자 모서리가 그림 밖으로 안 나가게 작게
+  const fills = !!(ir.data.surfaces?.length || ir.data.planes?.length || ir.data.shapes?.some((s) => s.t === "cylinder"));
+  const scale = (S * (fills ? 0.32 : 0.52)) / ir.data.view.range;
+  const cy = S * (fills ? 0.52 : 0.58);
+  const d = useMemo(() => drawSpace(ir.data, view, scale, S * 0.47, cy), [ir.data, view, scale, S, cy]);
+  // z = f(x, y) 곡면은 식 계산 모듈(무거움)이 필요하다 — 곡면이 있을 때만 불러온다
+  const fns = useSurfaceFns(ir.data.surfaces);
+  const faces = useMemo(() => spaceFaces(ir.data, view, scale, S * 0.47, cy, fns), [ir.data, view, scale, S, cy, fns]);
+  const caption = useMemo(() => (ir.data.caption ? katex.renderToString(ir.data.caption, { throwOnError: false, displayMode: true }) : null), [ir.data.caption]);
   const fresh = isFresh(item.id);
   const varFont = "KaTeX_Math, 'Times New Roman', serif";
   const numFont = "KaTeX_Main, 'Times New Roman', serif";
@@ -62,6 +104,34 @@ function SpaceBox({ item, ir, interactive }: { item: ObjectItem; ir: SpaceIR; in
               <line x1={a.neg[0]} y1={a.neg[1]} x2={a.from[0]} y2={a.from[1]} strokeWidth={0.9} />
               <line x1={a.from[0]} y1={a.from[1]} x2={a.to[0]} y2={a.to[1]} strokeWidth={1.3} />
               <path d={arrowHead(a.from, a.to, plot.arrow)} stroke="none" />
+            </g>
+          ))}
+        </g>
+        {faces.length > 0 && (
+          <g strokeWidth={0.5} strokeLinejoin="round" opacity={0.86}>
+            {faces.map((f, i) => (
+              <path key={i} d={f.d} fill={f.fill} stroke={f.stroke} />
+            ))}
+          </g>
+        )}
+        <g fill="none" stroke={theme.color.ink} strokeLinecap="round" strokeLinejoin="round">
+          {d.edges.hidden.map((pts, i) => (
+            <path key={`h${i}`} d={line(pts)} strokeWidth={solid.hiddenWidth} strokeDasharray={solid.hiddenDash} opacity={0.85} />
+          ))}
+          {d.edges.visible.map((pts, i) => (
+            <path key={`v${i}`} d={line(pts)} strokeWidth={1.8} />
+          ))}
+        </g>
+        <g stroke={theme.color.accent} fill={theme.color.accent} strokeWidth={2.2} strokeLinecap="round">
+          {d.arrows.map((a, i) => (
+            <g key={i}>
+              <line x1={a.from[0]} y1={a.from[1]} x2={a.to[0]} y2={a.to[1]} />
+              <path d={arrowHead(a.from, a.to, plot.arrow + 2)} stroke="none" />
+              {a.label && (
+                <text x={a.to[0] + 7} y={a.to[1] - 7} stroke={theme.color.bg} strokeWidth={3} paintOrder="stroke" fontSize={16} fontFamily={varFont} fontStyle="italic" fontWeight={700}>
+                  {a.label}
+                </text>
+              )}
             </g>
           ))}
         </g>
@@ -99,6 +169,7 @@ function SpaceBox({ item, ir, interactive }: { item: ObjectItem; ir: SpaceIR; in
           </g>
         ))}
       </svg>
+      {caption && <div style={{ textAlign: "center", color: theme.color.ink, fontSize: 15, overflowX: "auto", overflowY: "hidden" }} dangerouslySetInnerHTML={{ __html: caption }} />}
       {interactive && (
         <div data-export-skip style={{ textAlign: "center", fontSize: 12, color: theme.color.asymptote }}>
           드래그해서 돌리기 · 두 번 탭하면 처음 각도

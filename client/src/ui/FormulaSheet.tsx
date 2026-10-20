@@ -9,6 +9,10 @@ import { describeLinear } from "../math/linearBuild";
 import { parseTupper, TUPPER_LATEX } from "../math/tupper";
 import { parseVenn, vennLatex } from "../math/venn";
 import { parseDist } from "../math/stats";
+import { buildSpace, describeSpace } from "../math/space3d";
+import { parseTensor } from "../math/tensor";
+import { paramCount, parseNNet } from "../math/nnet";
+import { TOPOLOGY } from "../math/build";
 import { measureKatex } from "../math/measure";
 import { SOLID_NAMES } from "../solid/mesh";
 import { CHEM_EXAMPLES, chemFromInput } from "../chem/names";
@@ -78,6 +82,29 @@ const GROUPS: Array<{ title: string; examples: Example[]; solids?: true; chem?: 
       ["역행렬", "inv [[2,1],[1,3]]"],
     ],
   },
+  {
+    title: "공간 곡면·벡터",
+    examples: [
+      ["포물면", "z=x^2+y^2"],
+      ["안장면", "z=x^2-y^2"],
+      ["물결 곡면", "z=\\sin x\\cos y"],
+      ["구", "(x-1)^2+y^2+z^2=4"],
+      ["구와 평면", "x^2+y^2+z^2=9, z=1"],
+      ["원기둥", "공간 x^2+y^2=4"],
+      ["평면", "x+2y+z=4"],
+      ["평행육면체", "평행육면체 (2,0,0),(1,2,0),(0,1,2)"],
+    ],
+  },
+  {
+    title: "텐서·위상·신경망",
+    examples: [
+      ["텐서 2×3×4", "텐서 2x3x4"],
+      ["값 있는 텐서", "[[[1,2],[3,4]],[[5,6],[7,8]]]"],
+      ["도넛 ↔ 컵", "도넛 컵"],
+      ["신경망", "신경망 3-4-4-2"],
+      ["큰 신경망", "신경망 10-16-16-3"],
+    ],
+  },
   { title: "공간좌표·입체도형", examples: [["공간좌표", "A(2,3,4)"]], solids: true },
   { title: "화학 구조식", examples: [], chem: true },
   {
@@ -125,6 +152,14 @@ export default function FormulaSheet({ onClose, area, onOpenAiSettings }: Formul
     const latex = normalizeInput(text);
     if (!latex) return { html: "", note: "식을 입력하거나 아래 예시를 누르세요" };
     if (c) return { html: "", note: "화학 구조식 (SMILES)" };
+    const tensor = parseTensor(text);
+    if (tensor) return { html: katex.renderToString(`T\\in\\mathbb{R}^{${tensor.dims.join("\\times")}}`, { throwOnError: false, displayMode: true }), note: "3D 텐서 · 돌려 보고, 겹·행·열 단면을 골라 행렬로 보기" };
+    const layers = parseNNet(text);
+    if (layers) {
+      const pc = paramCount(layers);
+      return { html: "", note: `신경망 ${layers.join("–")} · 층 ${layers.length}개 · 가중치 ${pc.weights}개 + 편향 ${pc.biases}개` };
+    }
+    if (TOPOLOGY.test(text)) return { html: "", note: "위상수학 · 도넛이 머그잔으로 (구멍 1개는 그대로) — 재생 단추·슬라이더" };
     if (parseTupper(text)) return { html: katex.renderToString(TUPPER_LATEX, { throwOnError: false, displayMode: true }), note: "투퍼의 자기 참조 공식 · 그래프가 이 식 모양이 돼요" };
     const venn = parseVenn(text);
     if (venn) return { html: katex.renderToString(vennLatex(venn), { throwOnError: false, displayMode: true }), note: `벤 다이어그램 · 집합 ${venn.sets.join(", ")} · 식의 영역을 칠해요` };
@@ -137,6 +172,11 @@ export default function FormulaSheet({ onClose, area, onOpenAiSettings }: Formul
       };
     }
     const html = katex.renderToString(latex, { throwOnError: false, displayMode: true });
+    const sp = buildSpace(text);
+    if (sp) {
+      if ("error" in sp) return { html, note: sp.error };
+      if (sp.kind === "space3d") return { html: sp.data.caption ? katex.renderToString(sp.data.caption, { throwOnError: false, displayMode: true }) : html, note: describeSpace(sp) };
+    }
     const lin = describeLinear(text);
     if (lin) return { html, note: lin };
     const a = analyze(text);
@@ -186,9 +226,22 @@ export default function FormulaSheet({ onClose, area, onOpenAiSettings }: Formul
     }
     if (r.ir.kind === "space3d") {
       const S = Math.min(solid.size + 40, area.width - theme.space[6] * 2);
-      const pos = freeSpot(S, S + 24, area);
-      const sid = sessionStore.getState().addObject(r.ir, { x: pos.x, y: pos.y, scale: S }, { minX: pos.x, minY: pos.y, maxX: pos.x + S, maxY: pos.y + S + 24 });
+      // 아래 식(캡션): 한 줄 48, 평행육면체처럼 두 줄이면 84
+      const cap = r.ir.data.caption ? (r.ir.data.caption.includes("gathered") ? 84 : 48) : 0;
+      const pos = freeSpot(S, S + 24 + cap, area);
+      const sid = sessionStore.getState().addObject(r.ir, { x: pos.x, y: pos.y, scale: S }, { minX: pos.x, minY: pos.y, maxX: pos.x + S, maxY: pos.y + S + 24 + cap });
       markFresh(sid);
+      onClose();
+      return;
+    }
+    if (r.ir.kind === "tensor" || r.ir.kind === "topology" || r.ir.kind === "nnet") {
+      // 텐서·도넛: 정사각 그림 + 아래(단면 행렬·단추 / 슬라이더), 신경망: 가로로 긴 그림 + 한 줄
+      const maxW = area.width - theme.space[6] * 2;
+      const w = r.ir.kind === "nnet" ? Math.min(480, maxW) : Math.min(solid.size, maxW);
+      const h = r.ir.kind === "nnet" ? Math.round(w * 0.62) + 28 : r.ir.kind === "tensor" ? w + 110 : w + 72;
+      const pos = freeSpot(w, h, area);
+      const oid = sessionStore.getState().addObject(r.ir, { x: pos.x, y: pos.y, scale: w }, { minX: pos.x, minY: pos.y, maxX: pos.x + w, maxY: pos.y + h });
+      markFresh(oid);
       onClose();
       return;
     }
