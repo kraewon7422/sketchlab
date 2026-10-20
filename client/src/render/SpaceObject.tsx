@@ -1,10 +1,11 @@
 import type { SceneIR } from "@sketchlab/shared";
 import katex from "katex";
 import "katex/dist/katex.min.css";
-import { memo, useEffect, useMemo, useState, type ReactElement } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import type { ObjectItem } from "../ink/types";
 import type { P2, View3 } from "../solid/project";
-import { drawSpace, spaceFaces } from "../solid/space";
+import { applyHandleDrag, drawSpace, screenDeltaToMath, spaceFaces, spaceHandles } from "../solid/space";
+import { sessionStore } from "../store/session";
 import { isFresh } from "./Shape2DView";
 import { line } from "./SolidObject";
 import { plot, solid, theme } from "./theme";
@@ -12,6 +13,7 @@ import { useTurntable } from "./useTurntable";
 
 /**
  * 공간좌표 객체 — 좌표공간의 점과 수선 (마스터스펙 v4 §12.5). 돌려 볼 수 있다 (useTurntable).
+ * 손잡이(벡터 끝·점·구의 중심과 반지름·평면)를 끌면 옮겨지고 아래 식도 다시 쓴다. 곡면의 계수 글자는 슬라이더로.
  */
 
 type SpaceIR = Extract<SceneIR, { kind: "space3d" }>;
@@ -35,36 +37,48 @@ function arrowHead(from: P2, to: P2, size: number): string {
 }
 
 type SurfaceFn = (x: number, y: number) => number;
-const NO_FNS: SurfaceFn[] = [];
+type Compiled = (...v: number[]) => number;
+const NO_FNS: Compiled[] = [];
 
-/** 곡면 식(등식) → z = f(x, y). F가 z에 대해 일차라서 z = −F(x,y,0) / (F(x,y,1) − F(x,y,0)) */
-function useSurfaceFns(surfaces: ReadonlyArray<{ latex: string }> | undefined): SurfaceFn[] {
-  const [fns, setFns] = useState<SurfaceFn[]>(NO_FNS);
-  const key = (surfaces ?? []).map((s) => s.latex).join("\n");
+/**
+ * 곡면 식(등식) → z = f(x, y). F가 z에 대해 일차라서 z = −F(x,y,0) / (F(x,y,1) − F(x,y,0)).
+ * 식 계산 모듈은 무거워서 곡면이 있을 때만 불러온다. 계수(a, b …)는 슬라이더 값으로.
+ */
+function useSurfaceFns(surfaces: ReadonlyArray<{ latex: string }> | undefined, params: ReadonlyArray<{ name: string; value: number }> | undefined): SurfaceFn[] {
+  const [compiled, setCompiled] = useState<Compiled[]>(NO_FNS);
+  const names = (params ?? []).map((p) => p.name);
+  const key = `${(surfaces ?? []).map((s) => s.latex).join("\n")}|${names.join(",")}`;
   useEffect(() => {
-    if (!key) {
-      setFns(NO_FNS);
+    const latexes = key.split("|")[0] ?? "";
+    if (!latexes) {
+      setCompiled(NO_FNS);
       return;
     }
     let alive = true;
+    const vars = ["x", "y", "z", ...(key.split("|")[1] ?? "").split(",").filter(Boolean)];
     void import("../math/latex").then(({ equationResidual }) => {
-      const out: SurfaceFn[] = [];
-      for (const latex of key.split("\n")) {
+      const out: Compiled[] = [];
+      for (const latex of latexes.split("\n")) {
         const r = equationResidual(latex);
-        if (!r) continue;
-        const F = r.F(["x", "y", "z"]);
-        out.push((x, y) => {
-          const f0 = F(x, y, 0);
-          return -f0 / (F(x, y, 1) - f0);
-        });
+        if (r) out.push(r.F(vars));
       }
-      if (alive) setFns(out);
+      if (alive) setCompiled(out);
     });
     return () => {
       alive = false;
     };
   }, [key]);
-  return fns;
+  const values = (params ?? []).map((p) => p.value);
+  const valueKey = values.join(",");
+  return useMemo(
+    () =>
+      compiled.map((F): SurfaceFn => (x, y) => {
+        const f0 = F(x, y, 0, ...values);
+        return -f0 / (F(x, y, 1, ...values) - f0);
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- values는 valueKey로
+    [compiled, valueKey],
+  );
 }
 
 function SpaceBox({ item, ir, interactive }: { item: ObjectItem; ir: SpaceIR; interactive: boolean }) {
@@ -76,7 +90,52 @@ function SpaceBox({ item, ir, interactive }: { item: ObjectItem; ir: SpaceIR; in
   const cy = S * (fills ? 0.52 : 0.58);
   const d = useMemo(() => drawSpace(ir.data, view, scale, S * 0.47, cy), [ir.data, view, scale, S, cy]);
   // z = f(x, y) 곡면은 식 계산 모듈(무거움)이 필요하다 — 곡면이 있을 때만 불러온다
-  const fns = useSurfaceFns(ir.data.surfaces);
+  const fns = useSurfaceFns(ir.data.surfaces, ir.data.params);
+  const handles = useMemo(() => (interactive ? spaceHandles(ir.data, view, scale, S * 0.47, cy) : []), [interactive, ir.data, view, scale, S, cy]);
+
+  /** 지금 스토어의 그림 (끄는 동안 바뀐다) */
+  const current = (): SpaceIR | null => {
+    const now = sessionStore.getState().items.find((i) => i.id === item.id);
+    return now && now.kind === "object" && now.ir.kind === "space3d" ? now.ir : null;
+  };
+  /** 손잡이 끌기 — 돌리기 대신 그 점만 옮긴다 (놓으면 Undo 1단계) */
+  const grab = (key: string) => (e: React.PointerEvent<SVGGElement>) => {
+    e.stopPropagation();
+    const start = current();
+    const svg = e.currentTarget.ownerSVGElement;
+    if (!start || !svg) return;
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      /* 캡처를 못 해도 끌기는 된다 */
+    }
+    const k = svg.getBoundingClientRect().width / S || 1; // 화면 확대 배율
+    const sx = e.clientX;
+    const sy = e.clientY;
+    const at = (ev: PointerEvent) => ({ ...start, data: applyHandleDrag(start.data, key, screenDeltaToMath(start.data, view, scale, (ev.clientX - sx) / k, (ev.clientY - sy) / k)) });
+    const move = (ev: PointerEvent) => sessionStore.getState().previewObjectIR(item.id, at(ev));
+    const up = (ev: PointerEvent) => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+      sessionStore.getState().commitObjectIR(item.id, start, at(ev), "3D 옮기기");
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+  };
+  /** 곡면 계수 슬라이더 */
+  const sliderStart = useRef<SpaceIR | null>(null);
+  const setParam = (name: string, value: number, commit: boolean) => {
+    const now = current();
+    if (!now) return;
+    sliderStart.current ??= now;
+    const next: SpaceIR = { ...now, data: { ...now.data, params: (now.data.params ?? []).map((p) => (p.name === name ? { ...p, value } : p)) } };
+    if (commit) {
+      sessionStore.getState().commitObjectIR(item.id, sliderStart.current, next, "계수 변경");
+      sliderStart.current = null;
+    } else sessionStore.getState().previewObjectIR(item.id, next);
+  };
   const faces = useMemo(() => spaceFaces(ir.data, view, scale, S * 0.47, cy, fns), [ir.data, view, scale, S, cy, fns]);
   const caption = useMemo(() => (ir.data.caption ? katex.renderToString(ir.data.caption, { throwOnError: false, displayMode: true }) : null), [ir.data.caption]);
   const fresh = isFresh(item.id);
@@ -135,6 +194,13 @@ function SpaceBox({ item, ir, interactive }: { item: ObjectItem; ir: SpaceIR; in
             </g>
           ))}
         </g>
+        {/* 손잡이 — 끌어서 옮긴다 (빈 곳을 끌면 그대로 돌리기) */}
+        {handles.map((h) => (
+          <g key={h.key} style={{ cursor: "move", touchAction: "none" }} onPointerDown={grab(h.key)}>
+            <circle cx={h.at[0]} cy={h.at[1]} r={14} fill="transparent" />
+            <circle cx={h.at[0]} cy={h.at[1]} r={6.5} fill={theme.color.bg} stroke={theme.color.accent} strokeWidth={2.5} />
+          </g>
+        ))}
         <g fill="none" stroke={theme.color.ink} strokeWidth={solid.hiddenWidth} strokeDasharray={solid.hiddenDash} opacity={0.85}>
           {d.dashed.map((pts, i) => (
             <path key={i} d={line(pts)} />
@@ -170,9 +236,34 @@ function SpaceBox({ item, ir, interactive }: { item: ObjectItem; ir: SpaceIR; in
         ))}
       </svg>
       {caption && <div style={{ textAlign: "center", color: theme.color.ink, fontSize: 15, overflowX: "auto", overflowY: "hidden" }} dangerouslySetInnerHTML={{ __html: caption }} />}
+      {interactive && (ir.data.params ?? []).length > 0 && (
+        <div data-export-skip style={{ display: "grid", gap: 4, marginTop: 4, pointerEvents: "auto" }}>
+          {(ir.data.params ?? []).map((p) => (
+            <label key={p.name} style={{ display: "grid", gridTemplateColumns: "34px 1fr 44px", alignItems: "center", gap: 8, fontSize: 14, color: theme.color.ink }}>
+              <i style={{ fontFamily: varFont }}>{p.name} =</i>
+              <input
+                type="range"
+                aria-label={`계수 ${p.name}`}
+                min={p.min}
+                max={p.max}
+                step={p.step}
+                value={p.value}
+                onInput={(e) => setParam(p.name, Number((e.target as HTMLInputElement).value), false)}
+                onChange={() => {
+                  /* 기록은 놓을 때 */
+                }}
+                onPointerUp={(e) => setParam(p.name, Number((e.target as HTMLInputElement).value), true)}
+                onKeyUp={(e) => setParam(p.name, Number((e.target as HTMLInputElement).value), true)}
+                style={{ width: "100%", accentColor: theme.color.accent, touchAction: "pan-x" }}
+              />
+              <span style={{ fontVariantNumeric: "tabular-nums", textAlign: "right" }}>{Number(p.value.toFixed(2))}</span>
+            </label>
+          ))}
+        </div>
+      )}
       {interactive && (
         <div data-export-skip style={{ textAlign: "center", fontSize: 12, color: theme.color.asymptote }}>
-          드래그해서 돌리기 · 두 번 탭하면 처음 각도
+          드래그해서 돌리기 · {handles.length ? "동그라미를 끌어 옮기기 · " : ""}두 번 탭하면 처음 각도
         </div>
       )}
     </div>

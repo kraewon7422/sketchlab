@@ -227,10 +227,12 @@ export default function FormulaSheet({ onClose, area, onOpenAiSettings }: Formul
     }
     if (r.ir.kind === "space3d") {
       const S = Math.min(solid.size + 40, area.width - theme.space[6] * 2);
-      // 아래 식(캡션): 한 줄 48, 평행육면체처럼 두 줄이면 84
-      const cap = r.ir.data.caption ? (r.ir.data.caption.includes("gathered") ? 84 : 48) : 0;
-      const pos = freeSpot(S, S + 24 + cap, area);
-      const sid = sessionStore.getState().addObject(r.ir, { x: pos.x, y: pos.y, scale: S }, { minX: pos.x, minY: pos.y, maxX: pos.x + S, maxY: pos.y + S + 24 + cap });
+      // 아래 식(캡션): 줄 수만큼 (평행육면체는 세 줄) + 계수 슬라이더
+      const capLines = r.ir.data.caption ? 1 + (r.ir.data.caption.match(/\\\\/g)?.length ?? 0) : 0;
+      const cap = capLines ? 18 + capLines * 30 : 0;
+      const sliders = (r.ir.data.params?.length ?? 0) * 30;
+      const pos = freeSpot(S, S + 24 + cap + sliders, area);
+      const sid = sessionStore.getState().addObject(r.ir, { x: pos.x, y: pos.y, scale: S }, { minX: pos.x, minY: pos.y, maxX: pos.x + S, maxY: pos.y + S + 24 + cap + sliders });
       markFresh(sid);
       onClose();
       return;

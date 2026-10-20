@@ -127,6 +127,15 @@ const Solid3D = z.object({
 
 // ─────────────────────────────────────────────────────────── 공간좌표 (v4 M1)
 
+/** 계수 슬라이더 (v4 M2). 한 글자 계수만 — x,y,t 등은 분류기가 미리 거른다. */
+const Param = z.object({
+  name: z.string().regex(/^[a-zA-Z]$/),
+  value: z.number(),
+  min: z.number(),
+  max: z.number(),
+  step: z.number().positive(),
+});
+
 const Space3D = z.object({
   /** 각 축 [-range, range] */
   view: z.object({
@@ -163,6 +172,8 @@ const Space3D = z.object({
     .optional(),
   /** 그림 아래 식 (LaTeX) — 입력한 식·부피 계산 */
   caption: z.string().optional(),
+  /** 곡면 식의 계수 슬라이더 (z = a·sin(bx) 의 a, b) */
+  params: z.array(Param).max(4).optional(),
   /** 점에서 각 좌표평면으로 점선 수선 — 교과서 공간좌표 그림의 핵심 */
   showProjections: z.boolean().default(false),
   /** 보는 각도 (라디안) */
@@ -170,15 +181,6 @@ const Space3D = z.object({
 });
 
 // ─────────────────────────────────────────────────────────── 평면좌표·그래프
-
-/** 계수 슬라이더 (v4 M2). 한 글자 계수만 — x,y,t 등은 분류기가 미리 거른다. */
-const Param = z.object({
-  name: z.string().regex(/^[a-zA-Z]$/),
-  value: z.number(),
-  min: z.number(),
-  max: z.number(),
-  step: z.number().positive(),
-});
 
 const Plot2D = z.object({
   functions: z

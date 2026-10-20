@@ -298,3 +298,155 @@ export function parsePoints(input: string): Array<{ label: string; at: [number, 
   }));
   return out.length > 0 ? out : null;
 }
+
+// ─────────────────────────────────────────────────────────── 아래 식 (끌어서 바꾼 뒤에도 다시 쓴다)
+
+type V3 = [number, number, number];
+const near = (a: number, b: number) => Math.abs(a - b) < 1e-9 * Math.max(1, Math.abs(a), Math.abs(b));
+const fmtN = (v: number) => {
+  const r = Math.round(v * 1000) / 1000;
+  return String(Object.is(r, -0) ? 0 : r);
+};
+
+export const triple = (a: readonly number[], b: readonly number[], c: readonly number[]): number =>
+  a[0]! * (b[1]! * c[2]! - b[2]! * c[1]!) - a[1]! * (b[0]! * c[2]! - b[2]! * c[0]!) + a[2]! * (b[0]! * c[1]! - b[1]! * c[0]!);
+
+const term = (coef: number, v: string, first: boolean): string => {
+  if (near(coef, 0)) return "";
+  const sign = coef < 0 ? "-" : first ? "" : "+";
+  const mag = Math.abs(coef);
+  return `${sign}${near(mag, 1) ? "" : fmtN(mag)}${v}`;
+};
+const shifted = (v: string, c: number) => (near(c, 0) ? `${v}^2` : `(${v}${c > 0 ? "-" : "+"}${fmtN(Math.abs(c))})^2`);
+
+/** 구 → (x−a)²+(y−b)²+(z−c)²=r² */
+export function sphereLatex(c: readonly number[], r: number): string {
+  return `${shifted("x", c[0] ?? 0)}+${shifted("y", c[1] ?? 0)}+${shifted("z", c[2] ?? 0)}=${fmtN(r * r)}`;
+}
+
+/** 평면 → ax+by+cz=d */
+export function planeLatex(n: readonly number[], d: number): string {
+  let s = "";
+  ["x", "y", "z"].forEach((v, i) => {
+    s += term(n[i] ?? 0, v, s === "");
+  });
+  return `${s || "0"}=${fmtN(d)}`;
+}
+
+/** 평행육면체 아래 식 (세 벡터와 부피) */
+export function parallelepipedCaption(a: V3, b: V3, c: V3): string {
+  const v = triple(a, b, c);
+  // 숫자는 KaTeX가 읽는 보통 빼기표(-)로 (fmt는 그림 글자용 −)
+  const vec = (p: readonly number[]) => `(${p.map(fmtN).join(", ")})`;
+  // 세 줄로 — 한 줄에 다 쓰면 좁은 상자에서 넘친다
+  return (
+    `\\begin{gathered}\\vec a=${vec(a)},\\ \\vec b=${vec(b)}\\\\ \\vec c=${vec(c)}\\\\` +
+    `V=\\left|\\vec a\\cdot(\\vec b\\times\\vec c)\\right|=${fmtN(Math.abs(v))}` +
+    (Math.abs(v) < 1e-9 ? "\\ (\\text{세 벡터가 한 평면 위})" : "") +
+    "\\end{gathered}"
+  );
+}
+
+/** 지금 그림(구·원기둥·평면·곡면)으로 아래 식을 다시 만든다 — 손잡이로 옮긴 뒤 */
+export function spaceCaption(d: SpaceData): string | undefined {
+  const pp = d.shapes?.find((s) => s.t === "parallelepiped");
+  if (pp && pp.t === "parallelepiped") return parallelepipedCaption(pp.a, pp.b, pp.c);
+  const parts = [
+    ...(d.shapes ?? []).flatMap((s) => (s.t === "sphere" ? [sphereLatex(s.c, s.r)] : [])),
+    ...(d.surfaces ?? []).map((s) => s.latex),
+    ...(d.planes ?? []).map((pl) => planeLatex(pl.normal, pl.d)),
+  ];
+  // 원기둥은 처음 식 그대로 (축이 정해져 있어 손잡이로 움직이지 않는다)
+  return parts.length ? parts.join(",\\quad ") : d.caption;
+}
+
+
+// ─────────────────────────────────────────────────────────── 손잡이 (끌어서 옮기기)
+
+/** 끌 수 있는 점 — 벡터 끝 · 점 · 구의 중심과 반지름 · 평면 */
+export interface SpaceHandle {
+  key: string;
+  at: P2;
+  label: string;
+}
+
+/** 평면 위에서 원점에 가장 가까운 점 (평면 손잡이 자리) */
+const planeFoot = (n: readonly number[], d: number): V3 => {
+  const nn = n[0]! ** 2 + n[1]! ** 2 + n[2]! ** 2 || 1;
+  return [(n[0]! * d) / nn, (n[1]! * d) / nn, (n[2]! * d) / nn];
+};
+
+export function spaceHandles(data: SpaceData, view: View3, scale: number, cx: number, cy: number): SpaceHandle[] {
+  const { S } = projector(data, view, scale, cx, cy);
+  const out: SpaceHandle[] = [];
+  (data.vectors ?? []).forEach((v, i) => out.push({ key: `v${i}`, at: S(v.to), label: v.label ?? "" }));
+  (data.points ?? []).forEach((p, i) => out.push({ key: `p${i}`, at: S(p.at), label: p.label ?? "" }));
+  (data.shapes ?? []).forEach((s, i) => {
+    if (s.t !== "sphere") return;
+    out.push({ key: `s${i}c`, at: S(s.c), label: "중심" });
+    out.push({ key: `s${i}r`, at: S([s.c[0], s.c[1], s.c[2] + s.r]), label: "r" });
+  });
+  (data.planes ?? []).forEach((pl, i) => out.push({ key: `n${i}`, at: S(planeFoot(pl.normal, pl.d)), label: "평면" }));
+  return out;
+}
+
+/** 화면에서 (dx, dy) px 끈 것 → 수학 좌표의 움직임 (화면과 나란한 평면 안에서) */
+export function screenDeltaToMath(data: SpaceData, view: View3, scale: number, dx: number, dy: number): V3 {
+  // 그리기 좌표에서의 움직임 (보는 방향 성분 0) → 회전을 되돌린다
+  const X = dx / scale;
+  const Y = -dy / scale;
+  const cp = Math.cos(view.pitch);
+  const sp = Math.sin(view.pitch);
+  const y1 = Y * cp;
+  const z1 = -Y * sp;
+  const cyw = Math.cos(view.yaw);
+  const syw = Math.sin(view.yaw);
+  const r: V3 = [X * cyw - z1 * syw, y1, X * syw + z1 * cyw];
+  // 그리기 좌표 [y, z, x]·축 배율 → 수학 좌표
+  const range = data.view.range;
+  const ax = data.view.axes;
+  const k = ax ? [range / ax.x, range / ax.y, range / ax.z] : [1, 1, 1];
+  return [r[2] / k[0]!, r[0] / k[1]!, r[1] / k[2]!];
+}
+
+const snap = (v: number, step: number) => {
+  const r = Math.round(v / step) * step;
+  return Number((Object.is(r, -0) ? 0 : r).toFixed(3));
+};
+const add3 = (a: readonly number[], b: readonly number[]): V3 => [a[0]! + b[0]!, a[1]! + b[1]!, a[2]! + b[2]!];
+
+/**
+ * 손잡이 하나를 delta(수학 좌표)만큼 옮긴 새 그림. start = 끌기 시작할 때의 그림 (누적 오차 없이 늘 거기서 계산).
+ * 벡터·점은 0.5 간격, 반지름은 0.1, 평면은 d를 0.5 간격으로 맞춘다. 아래 식도 다시 쓴다.
+ */
+export function applyHandleDrag(start: SpaceData, key: string, delta: readonly number[]): SpaceData {
+  const d: SpaceData = structuredClone(start);
+  const i = Number(key.slice(1).replace(/[cr]$/, ""));
+  if (key[0] === "v" && d.vectors?.[i]) {
+    const to = add3(start.vectors![i]!.to, delta).map((v) => snap(v, 0.5)) as V3;
+    d.vectors[i] = { ...d.vectors[i]!, to };
+    // 평행육면체의 a, b, c 화살표면 입체도 함께
+    const pp = d.shapes?.findIndex((s) => s.t === "parallelepiped") ?? -1;
+    if (pp >= 0 && i < 3) {
+      const s = d.shapes![pp]!;
+      if (s.t === "parallelepiped") d.shapes![pp] = { ...s, [(["a", "b", "c"] as const)[i]!]: to };
+    }
+  } else if (key[0] === "p" && d.points?.[i]) {
+    d.points[i] = { ...d.points[i]!, at: add3(start.points![i]!.at, delta).map((v) => snap(v, 0.5)) as V3 };
+  } else if (key[0] === "s" && d.shapes?.[i]?.t === "sphere") {
+    const s0 = start.shapes![i]!;
+    if (s0.t !== "sphere") return start;
+    if (key.endsWith("c")) d.shapes[i] = { ...s0, c: add3(s0.c, delta).map((v) => snap(v, 0.5)) as V3 };
+    else {
+      const tip = add3([s0.c[0], s0.c[1], s0.c[2] + s0.r], delta);
+      d.shapes[i] = { ...s0, r: Math.max(0.1, snap(Math.hypot(tip[0] - s0.c[0], tip[1] - s0.c[1], tip[2] - s0.c[2]), 0.1)) };
+    }
+  } else if (key[0] === "n" && d.planes?.[i]) {
+    const pl = start.planes![i]!;
+    const p = add3(planeFoot(pl.normal, pl.d), delta);
+    d.planes[i] = { ...pl, d: snap(pl.normal[0] * p[0] + pl.normal[1] * p[1] + pl.normal[2] * p[2], 0.5) };
+  } else return start;
+  const caption = spaceCaption(d);
+  if (caption) d.caption = caption;
+  return d;
+}

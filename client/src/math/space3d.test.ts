@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildFromInput } from "./build";
 import { buildSpace, triple } from "./space3d";
-import { drawSpace, spaceFaces } from "../solid/space";
+import { applyHandleDrag, drawSpace, screenDeltaToMath, spaceFaces, spaceHandles } from "../solid/space";
 
 const space = (input: string) => {
   const r = buildSpace(input);
@@ -80,6 +80,47 @@ describe("공간 곡면·입체 알아보기", () => {
     // 범위를 줄이면(축 패널) 넘치는 곳은 비운다
     const small = { ...bowl, view: { range: 3, axes: { x: 3, y: 3, z: 4 } } };
     expect(spaceFaces(small, view, 30, 150, 150, [(x, y) => x * x + y * y]).length).toBeLessThan(26 * 26);
+  });
+
+  it("손잡이 끌기: 화면에서 끈 만큼 점이 화면에서 움직인다 (돌려 놓은 상태에서도)", () => {
+    const built = buildFromInput("A(1,2,3)");
+    if (!built.ok || built.ir.kind !== "space3d") throw new Error("공간 그림 아님");
+    const d = built.ir.data;
+    const view = { yaw: -0.9, pitch: 0.5 };
+    const [h] = spaceHandles(d, view, 30, 150, 150);
+    const delta = screenDeltaToMath(d, view, 30, 40, -30);
+    const moved = { ...d, points: [{ at: [1 + delta[0], 2 + delta[1], 3 + delta[2]] as [number, number, number] }] };
+    const [h2] = spaceHandles(moved, view, 30, 150, 150);
+    expect((h2?.at[0] ?? 0) - (h?.at[0] ?? 0)).toBeCloseTo(40);
+    expect((h2?.at[1] ?? 0) - (h?.at[1] ?? 0)).toBeCloseTo(-30);
+  });
+
+  it("평행육면체 화살표를 끌면 입체와 부피도 함께, 0.5 간격으로", () => {
+    const d = space("평행육면체 (2,0,0),(1,2,0),(0,1,2)");
+    const next = applyHandleDrag(d, "v2", [0, 0, 1.2]);
+    const pp = next.shapes?.[0];
+    expect(pp?.t === "parallelepiped" && pp.c).toEqual([0, 1, 3]);
+    expect(next.vectors?.[2]?.to).toEqual([0, 1, 3]);
+    expect(next.caption).toContain("=12");
+    expect(d.caption).toContain("=8"); // 시작 그림은 그대로
+  });
+
+  it("구 중심·반지름, 평면을 끌면 아래 식도 새로", () => {
+    const s = space("x^2+y^2+z^2=4");
+    const moved = applyHandleDrag(s, "s0c", [1, 0, 0]);
+    expect(moved.caption).toBe("(x-1)^2+y^2+z^2=4");
+    const bigger = applyHandleDrag(s, "s0r", [0, 0, 1]);
+    expect(bigger.caption).toBe("x^2+y^2+z^2=9");
+    const pl = applyHandleDrag(space("x+2y+z=4"), "n0", [0, 0.4, 0]);
+    expect(pl.caption).toBe("x+2y+z=5");
+  });
+
+  it("곡면의 계수 글자는 슬라이더로 (처음 값 1)", () => {
+    const d = space("z=a\\sin(bx)");
+    expect(d.params?.map((p) => [p.name, p.value])).toEqual([
+      ["a", 1],
+      ["b", 1],
+    ]);
   });
 
   it("공간 식이 아닌 것은 건드리지 않는다", () => {

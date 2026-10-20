@@ -1,5 +1,8 @@
 import { IR_VERSION, type SceneIR } from "@sketchlab/shared";
 import { equationResidual } from "./latex";
+import { parallelepipedCaption } from "../solid/space";
+
+export { parallelepipedCaption, planeLatex, sphereLatex, spaceCaption, triple } from "../solid/space";
 
 /**
  * 좌표공간 속 곡면·입체 (6단계) — 입력한 식을 공간좌표 그림으로.
@@ -15,7 +18,7 @@ import { equationResidual } from "./latex";
 
 type V3 = [number, number, number];
 type Shape = NonNullable<Extract<SceneIR, { kind: "space3d" }>["data"]["shapes"]>[number];
-type Piece = { kind: "plane"; normal: V3; d: number; latex: string } | { kind: "shape"; shape: Shape; latex: string } | { kind: "surface"; latex: string; zmax: number };
+type Piece = { kind: "plane"; normal: V3; d: number; latex: string } | { kind: "shape"; shape: Shape; latex: string } | { kind: "surface"; latex: string; zmax: number; params: string[] };
 
 const meta = (): Pick<SceneIR, "version" | "confidence" | "source"> => ({ version: IR_VERSION, confidence: 1, source: "manual" });
 
@@ -90,9 +93,12 @@ function classify(eq: string, needZ: boolean): Piece | { error: string } | null 
   const r = equationResidual(eq);
   if (!r) return null;
   if (needZ && !r.vars.includes("z")) return null;
-  if (r.vars.some((v) => !["x", "y", "z"].includes(v))) return { error: "공간 식에는 x, y, z만 쓸 수 있어요" };
-  const F = r.F(["x", "y", "z"]) as (x: number, y: number, z: number) => number;
-  const q = quadraticFit(F);
+  const params = r.vars.filter((v) => !["x", "y", "z"].includes(v)).sort();
+  if (params.length > 4) return { error: "계수 글자는 4개까지예요" };
+  // 계수는 처음엔 1 (슬라이더로 바꾼다)
+  const Fp = r.F(["x", "y", "z", ...params]);
+  const F = (x: number, y: number, z: number) => Fp(x, y, z, ...params.map(() => 1));
+  const q = params.length ? null : quadraticFit(F);
   if (q) {
     const { A, B, c } = q;
     const a = (i: number, j: number) => (A[i] as number[])[j] as number;
@@ -145,9 +151,9 @@ function classify(eq: string, needZ: boolean): Piece | { error: string } | null 
         const z = -f0 / (F(x, y, 1) - f0);
         if (Number.isFinite(z)) zmax = Math.max(zmax, Math.abs(z));
       }
-    return { kind: "surface", latex: r.latex, zmax };
+    return { kind: "surface", latex: r.latex, zmax, params };
   }
-  return { error: "공간 곡면은 z = f(x, y) 꼴, 평면, 구, 원기둥만 그릴 수 있어요" };
+  return { error: params.length ? "계수 글자는 z = f(x, y) 꼴 곡면에서만 쓸 수 있어요" : "공간 곡면은 z = f(x, y) 꼴, 평면, 구, 원기둥만 그릴 수 있어요" };
 }
 
 const VEC = String.raw`\(\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*\)`;
@@ -160,16 +166,13 @@ export function parseParallelepiped(input: string): [V3, V3, V3] | null {
   return [n.slice(0, 3) as V3, n.slice(3, 6) as V3, n.slice(6, 9) as V3];
 }
 
-export const triple = (a: V3, b: V3, c: V3): number => a[0] * (b[1] * c[2] - b[2] * c[1]) - a[1] * (b[0] * c[2] - b[2] * c[0]) + a[2] * (b[0] * c[1] - b[1] * c[0]);
 
 /** 공간 식 → IR. 공간 식이 아니면 null, 공간 식인데 못 그리면 { error } */
 export function buildSpace(input: string): SceneIR | { error: string } | null {
   const pp = parseParallelepiped(input);
   if (pp) {
     const [a, b, c] = pp;
-    const v = triple(a, b, c);
     const reach = Math.max(...[0, 1, 2].map((i) => Math.abs(a[i]!) + Math.abs(b[i]!) + Math.abs(c[i]!)));
-    const vec = (p: V3) => `(${p.map(fmt).join(", ")})`;
     return {
       ...meta(),
       kind: "space3d",
@@ -181,11 +184,7 @@ export function buildSpace(input: string): SceneIR | { error: string } | null {
           { from: [0, 0, 0], to: b, label: "b" },
           { from: [0, 0, 0], to: c, label: "c" },
         ],
-        caption:
-          `\\begin{gathered}\\vec a=${vec(a)},\\ \\vec b=${vec(b)},\\ \\vec c=${vec(c)}\\\\` +
-          `V=\\left|\\vec a\\cdot(\\vec b\\times\\vec c)\\right|=${fmt(Math.abs(v))}` +
-          (Math.abs(v) < 1e-9 ? "\\ (\\text{세 벡터가 한 평면 위})" : "") +
-          "\\end{gathered}",
+        caption: parallelepipedCaption(a, b, c),
         showProjections: false,
       },
     };
@@ -208,6 +207,7 @@ export function buildSpace(input: string): SceneIR | { error: string } | null {
     3,
     ...shapes.map((s) => (s.t === "sphere" ? Math.max(...s.c.map(Math.abs)) + s.r : s.t === "cylinder" ? Math.max(...s.c.map(Math.abs)) + s.r : 3)),
   );
+  const paramNames = [...new Set(pieces.flatMap((p) => (p.kind === "surface" ? p.params : [])))].sort().slice(0, 4);
   // 곡면만 있으면: x, y는 ±3, z는 곡면 높이에 맞춰 (보기 좋은 수로 올림, 너무 크면 잘라서)
   const surfaceOnly = pieces.every((p) => p.kind === "surface");
   const zmax = Math.max(...pieces.map((p) => (p.kind === "surface" ? p.zmax : 0)));
@@ -226,6 +226,7 @@ export function buildSpace(input: string): SceneIR | { error: string } | null {
       ...(pieces.some((p) => p.kind === "plane") ? { planes: pieces.flatMap((p) => (p.kind === "plane" ? [{ normal: p.normal, d: p.d }] : [])) } : {}),
       caption: pieces.map((p) => p.latex).join(",\\quad "),
       showProjections: false,
+      ...(paramNames.length ? { params: paramNames.map((name) => ({ name, value: 1, min: -5, max: 5, step: 0.1 })) } : {}),
     },
   };
 }

@@ -196,6 +196,33 @@ function PlotBox({ item, ir, interactive }: { item: ObjectItem; ir: PlotIR; inte
   const picked = !dist ? (data.bars ?? []).filter((b) => b.on) : [];
   const live = interactive ? "auto" : "none";
 
+  /** 곡선 따라가기 — 곡선을 누른 채 끌면 그 점의 좌표 (저장하지 않는 표시) */
+  const [trace, setTrace] = useState<{ i: number; x: number } | null>(null);
+  const startTrace = (i: number) => (e: React.PointerEvent<SVGPathElement>) => {
+    e.stopPropagation();
+    const svg = e.currentTarget.ownerSVGElement;
+    if (!svg) return;
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      /* 캡처를 못 해도 된다 */
+    }
+    const r = svg.getBoundingClientRect();
+    const xAt = (clientX: number) => view.xmin + ((clientX - r.left) / r.width) * (view.xmax - view.xmin);
+    setTrace({ i, x: xAt(e.clientX) });
+    const move = (ev: PointerEvent) => setTrace({ i, x: Math.min(view.xmax, Math.max(view.xmin, xAt(ev.clientX))) });
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+  };
+  const traced = trace ? drawn.trace[trace.i] : undefined;
+  const ty = traced && trace ? traced.f(trace.x) : NaN;
+
   /** 막대 톡 → 고르기·풀기 (Undo 1단계) */
   const toggleBar = (i: number) => {
     const now = currentPlot(item.id) ?? ir;
@@ -348,6 +375,31 @@ function PlotBox({ item, ir, interactive }: { item: ObjectItem; ir: PlotIR; inte
             <path key={`c${i}`} d={c.d} stroke={c.color} strokeDasharray={c.dash ? "7 5" : undefined} pathLength={fresh && !c.dash ? 1 : undefined} className={fresh && !c.dash ? "sl-draw" : undefined} />
           ))}
         </g>
+        {/* 곡선 따라가기: 곡선 근처만 터치를 받는다 (나머지는 그대로 필기) */}
+        {interactive &&
+          drawn.trace.map((t, i) => (
+            <path key={`tr${i}`} d={t.d} fill="none" stroke="transparent" strokeWidth={18} style={{ pointerEvents: "stroke", cursor: "crosshair", touchAction: "none" }} onPointerDown={startTrace(i)} />
+          ))}
+        {traced && trace && Number.isFinite(ty) && box.y(ty) >= -4 && box.y(ty) <= H + 4 && (
+          <g style={{ pointerEvents: "none" }}>
+            <line x1={box.x(trace.x)} x2={box.x(trace.x)} y1={box.y(ty)} y2={ay} stroke={traced.color} strokeDasharray="3 3" strokeWidth={1} />
+            <line x1={box.x(trace.x)} x2={ax} y1={box.y(ty)} y2={box.y(ty)} stroke={traced.color} strokeDasharray="3 3" strokeWidth={1} />
+            <circle cx={box.x(trace.x)} cy={box.y(ty)} r={5} fill={traced.color} stroke={theme.color.bg} strokeWidth={2} />
+            <text
+              x={box.x(trace.x) + (box.x(trace.x) > W - 110 ? -10 : 10)}
+              y={box.y(ty) + (box.y(ty) < 24 ? 20 : -10)}
+              textAnchor={box.x(trace.x) > W - 110 ? "end" : "start"}
+              fontSize={13}
+              fontFamily={labelFont}
+              fill={theme.color.ink}
+              stroke={theme.color.bg}
+              strokeWidth={3}
+              paintOrder="stroke"
+            >
+              ({fmtSum(Number(trace.x.toFixed(3)))}, {fmtSum(Number(ty.toFixed(3)))})
+            </text>
+          </g>
+        )}
         {/* 자료 (산점도의 점 · 꺾은선) */}
         <g clipPath={`url(#${clipId})`}>
           {(data.series ?? []).map((sr, i) => {
@@ -468,11 +520,13 @@ interface Drawn {
   horizontal: number[];
   valueLatex: string | null;
   error: string | null;
+  /** 따라가기(트레이스)용: y = f(x) 꼴 곡선마다 함수와 그 경로 */
+  trace: Array<{ d: string; f: Fn; color: string }>;
 }
 
 function renderCurves(data: PlotData, view: View, W: number, H: number, params: Record<string, number>): Drawn {
   const box = toBox(view, W, H);
-  const out: Drawn = { curves: [], shades: [], regions: [], vertical: [], horizontal: [], valueLatex: null, error: null };
+  const out: Drawn = { curves: [], shades: [], regions: [], vertical: [], horizontal: [], valueLatex: null, error: null, trace: [] };
   const names = Object.keys(params).sort();
   const values = names.map((n) => params[n] as number);
   const explicitFns: Array<Fn | null> = [];
@@ -487,6 +541,7 @@ function renderCurves(data: PlotData, view: View, W: number, H: number, params: 
       explicitFns[i] = g;
       const sampled = sampleFunction(g, view, { widthPx: W, heightPx: H });
       out.curves.push({ d: pathFrom(sampled.runs, box.x, box.y), color });
+      out.trace.push({ d: pathFrom(sampled.runs, box.x, box.y), f: g, color });
       const asym = findAsymptotes(g, view, sampled);
       // 축 위에 겹치는 점근선(y = 1/x의 x = 0, y = 0)은 축이 대신한다 — 실선 위 점선은 지저분하다
       out.vertical.push(...asym.vertical.filter((x) => x !== 0));
