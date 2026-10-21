@@ -72,7 +72,7 @@ export function PenOptions(): ReactElement {
             const on = style.brush === k;
             return (
               <button key={k} type="button" role="radio" aria-checked={on} aria-label={label} title={label} onClick={() => set({ penBrush: k })} style={{ display: "grid", justifyItems: "center", gap: 2, padding: 0, border: "none", background: "transparent", cursor: "pointer", color: on ? theme.color.ink : theme.color.asymptote, fontSize: 10.5, whiteSpace: "nowrap" }}>
-                <PenGlyph brush={k} color={on ? current : "#A9AFB7"} active={on} />
+                <PenGlyph brush={k} color={on ? current : (pen.penColors[k] ?? "#A9AFB7")} active={on} />
                 <span style={{ marginBottom: 4 }}>{label}</span>
               </button>
             );

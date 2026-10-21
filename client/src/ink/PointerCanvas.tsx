@@ -548,8 +548,8 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
       g.setAttribute("fill", a.fill);
       g.setAttribute("opacity", String(a.opacity ?? 1));
       g.style.mixBlendMode = a.mixBlendMode ?? "";
-      if (a.filter) g.setAttribute("filter", a.filter);
-      else g.removeAttribute("filter");
+      if (a.mask) g.setAttribute("mask", a.mask);
+      else g.removeAttribute("mask");
       for (const [attr, v] of [
         ["stroke", a.stroke],
         ["stroke-width", a.strokeWidth],
@@ -610,11 +610,13 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
       const { x, y } = toWorld(event.clientX, event.clientY, rect, view());
       dot.setAttribute("cx", String(x));
       dot.setAttribute("cy", String(y));
+      // 펜 끝 표시는 화면에서 늘 같은 작은 점 (확대해도 커지지 않는다)
+      dot.setAttribute("r", String(ink.hoverRadius / view().k));
       dot.setAttribute("visibility", "visible");
     };
     const hideHover = (): void => {
       hoverRef.current?.setAttribute("visibility", "hidden");
-      hoverRef.current?.setAttribute("r", String(ink.hoverRadius));
+      hoverRef.current?.setAttribute("r", String(ink.hoverRadius / view().k));
     };
 
     // ── 그리고 멈추기 ──────────────────────────────────────
@@ -1378,6 +1380,7 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
         fill="none"
         stroke={theme.color.accent}
         strokeWidth={1}
+        vectorEffect="non-scaling-stroke"
         visibility="hidden"
         pointerEvents="none"
       />

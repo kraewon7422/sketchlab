@@ -94,7 +94,7 @@ export const ink = {
   /** 멈춤 스냅을 허용하는 최소 획 길이 px — 점·짧은 획 오작동 방지 */
   holdMinLength: 30,
   /** S Pen 호버 커서 반지름 px */
-  hoverRadius: 4,
+  hoverRadius: 2,
   /** 탭 판정: 이동 px 미만 + 시간 ms 미만이면 그리기가 아니라 탭(객체 선택) */
   tapMaxMove: 6,
   tapMaxMs: 350,

@@ -57,6 +57,9 @@ export interface PenSettings {
   /** 도구 막대 순서 · 숨긴 도구 (삼성노트 "도구 모음 편집") */
   toolOrder: ToolKey[];
   hiddenTools: ToolKey[];
+  /** 펜 종류마다 마지막 색·굵기 (삼성노트처럼 펜을 바꾸면 그 펜의 색·굵기로) */
+  penColors: Partial<Record<PenBrush, string>>;
+  penWidths: Partial<Record<PenBrush, number>>;
   /** 연필 투명도 0.1~1 (삼성노트 연필의 두 번째 슬라이더) */
   pencilOpacity: number;
   /** 손글씨 자동 정리 (AI) — 켜면 쓰는 손글씨 묶음에 파란 상자가 보이고 ✨로 정리할 묶음을 알려 준다. 기본 끔 */
@@ -144,6 +147,8 @@ const DEFAULTS: PenSettings = {
   laserColorMode: "rainbow",
   laserColor: "#FF2D2D",
   laserStyle: "glow",
+  penColors: { fountain: "#1F3FF5", calligraphy: "#262626", ballpoint: "#262626", pencil: "#666666", brush: "#3FE36A" },
+  penWidths: {},
   pencilOpacity: 0.8,
   autoTidy: false,
   styleWidth: 2.75,
@@ -213,6 +218,16 @@ function load(): PenSettings {
       laserColorMode: v.laserColorMode === "single" ? "single" : "rainbow",
       laserColor: hex(v.laserColor, DEFAULTS.laserColor),
       laserStyle: v.laserStyle === "outline" || v.laserStyle === "dot" ? v.laserStyle : "glow",
+      penColors: (() => {
+        const out: Partial<Record<PenBrush, string>> = { ...DEFAULTS.penColors };
+        for (const k of PEN_BRUSH_KEYS) if (v.penColors?.[k]) out[k] = hex(v.penColors[k], out[k] ?? DEFAULTS.penColor);
+        return out;
+      })(),
+      penWidths: (() => {
+        const out: Partial<Record<PenBrush, number>> = {};
+        for (const k of PEN_BRUSH_KEYS) if (typeof v.penWidths?.[k] === "number") out[k] = clamp(v.penWidths[k], penOpts.penWidth);
+        return out;
+      })(),
       pencilOpacity: typeof v.pencilOpacity === "number" ? Math.min(1, Math.max(0.1, v.pencilOpacity)) : DEFAULTS.pencilOpacity,
       autoTidy: v.autoTidy === true,
       styleWidth: clamp(v.styleWidth, { ...penOpts.penWidth, default: DEFAULTS.styleWidth }),
@@ -227,10 +242,10 @@ function load(): PenSettings {
 
 function persist(s: PenSettings): void {
   try {
-    const { kind, penColor, highlightColor, penWidth, highlightWidth, recentPen, recentHighlight, smoothing, eraserMode, eraserSize, shapeKind, shapeSquare, presets, penOnly, dark, lassoStyle, tapeColor, tapeWidth, tapePattern, penBrush, penLine, highlightBrush, highlightOpacity, straightPen, straightHighlight, straightTape, toolOrder, hiddenTools, laserColorMode, laserColor, laserStyle, pencilOpacity, autoTidy, styleWidth, styleColor, eraseHighlightOnly, eraseTapeOnly } = s;
+    const { kind, penColor, highlightColor, penWidth, highlightWidth, recentPen, recentHighlight, smoothing, eraserMode, eraserSize, shapeKind, shapeSquare, presets, penOnly, dark, lassoStyle, tapeColor, tapeWidth, tapePattern, penBrush, penLine, highlightBrush, highlightOpacity, straightPen, straightHighlight, straightTape, toolOrder, hiddenTools, laserColorMode, laserColor, laserStyle, pencilOpacity, autoTidy, styleWidth, styleColor, eraseHighlightOnly, eraseTapeOnly, penColors, penWidths } = s;
     localStorage.setItem(
       KEY,
-      JSON.stringify({ kind, penColor, highlightColor, penWidth, highlightWidth, recentPen, recentHighlight, smoothing, eraserMode, eraserSize, shapeKind, shapeSquare, presets, penOnly, dark, lassoStyle, tapeColor, tapeWidth, tapePattern, penBrush, penLine, highlightBrush, highlightOpacity, straightPen, straightHighlight, straightTape, toolOrder, hiddenTools, laserColorMode, laserColor, laserStyle, pencilOpacity, autoTidy, styleWidth, styleColor, eraseHighlightOnly, eraseTapeOnly }),
+      JSON.stringify({ kind, penColor, highlightColor, penWidth, highlightWidth, recentPen, recentHighlight, smoothing, eraserMode, eraserSize, shapeKind, shapeSquare, presets, penOnly, dark, lassoStyle, tapeColor, tapeWidth, tapePattern, penBrush, penLine, highlightBrush, highlightOpacity, straightPen, straightHighlight, straightTape, toolOrder, hiddenTools, laserColorMode, laserColor, laserStyle, pencilOpacity, autoTidy, styleWidth, styleColor, eraseHighlightOnly, eraseTapeOnly, penColors, penWidths }),
     );
   } catch {
     /* 저장이 막혀도 이번 세션 동안은 그대로 쓴다 */
@@ -240,7 +255,23 @@ function persist(s: PenSettings): void {
 export const penStore = createStore<PenState>((set, get) => ({
   ...load(),
   set(patch) {
-    set(patch);
+    const s = get();
+    const next = { ...patch };
+    if (patch.penBrush && patch.penBrush !== s.penBrush) {
+      // 다른 펜으로 바꾸면: 지금 펜의 색·굵기를 기억해 두고, 새 펜은 그 펜이 마지막에 쓴 색·굵기로
+      const colors = { ...s.penColors, [s.penBrush]: s.penColor };
+      const widths = { ...s.penWidths, [s.penBrush]: s.penWidth };
+      next.penColors = colors;
+      next.penWidths = widths;
+      if (patch.penColor === undefined) next.penColor = colors[patch.penBrush] ?? s.penColor;
+      if (patch.penWidth === undefined) next.penWidth = widths[patch.penBrush] ?? s.penWidth;
+    } else {
+      // 같은 펜의 색·굵기를 바꾸면 그 펜의 기억도 함께
+      const brush = patch.penBrush ?? s.penBrush;
+      if (patch.penColor !== undefined) next.penColors = { ...s.penColors, ...next.penColors, [brush]: patch.penColor };
+      if (patch.penWidth !== undefined) next.penWidths = { ...s.penWidths, ...next.penWidths, [brush]: patch.penWidth };
+    }
+    set(next);
     persist(get());
   },
   pickColor(color) {
@@ -251,7 +282,7 @@ export const penStore = createStore<PenState>((set, get) => ({
     const presets: readonly string[] = [...penOpts.palette, ...(highlighter ? penOpts.highlightColors : penOpts.colors)];
     const recent = highlighter ? s.recentHighlight : s.recentPen;
     const nextRecent = presets.includes(c) ? recent : [c, ...recent.filter((r) => r !== c)].slice(0, RECENT_MAX);
-    set(highlighter ? { highlightColor: c, recentHighlight: nextRecent } : { penColor: c, recentPen: nextRecent });
+    set(highlighter ? { highlightColor: c, recentHighlight: nextRecent } : { penColor: c, recentPen: nextRecent, penColors: { ...s.penColors, [s.penBrush]: c } });
     persist(get());
   },
 }));

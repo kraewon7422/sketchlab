@@ -20,10 +20,18 @@ describe("펜 종류·선 모양", () => {
   });
 
   it("캘리그래피: 펜촉 방향(↗)과 같은 방향의 획은 가늘고, 수직 방향의 획은 굵다", () => {
-    const thin = extent(strokeD(line(0, 100, 100, 0), { tool: "pen", width: 4, brush: "calligraphy" }));
-    const thick = extent(strokeD(line(0, 0, 100, 100), { tool: "pen", width: 4, brush: "calligraphy" }));
-    // 두 획 모두 길이 같은 대각선 — 외곽 상자 크기 차이 = 굵기 차이
-    expect(thick.w + thick.h).toBeGreaterThan(thin.w + thin.h + 6);
+    // 획에 수직인 방향으로 잰 두께 (가운데 부분만 — 양 끝의 펜촉 자국은 빼고)
+    const across = (d: string, along: [number, number], c: [number, number]) => {
+      const pts = [...d.matchAll(/(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/g)].map((m) => [Number(m[1]), Number(m[2])] as [number, number]);
+      const [ux, uy] = along;
+      const mid = pts.filter(([x, y]) => Math.abs((x - c[0]) * ux + (y - c[1]) * uy) < 30);
+      const off = mid.map(([x, y]) => (x - c[0]) * -uy + (y - c[1]) * ux);
+      return Math.max(...off) - Math.min(...off);
+    };
+    const k = Math.SQRT1_2;
+    const thin = across(strokeD(line(0, 100, 100, 0), { tool: "pen", width: 4, brush: "calligraphy" }), [k, -k], [50, 50]);
+    const thick = across(strokeD(line(0, 0, 100, 100), { tool: "pen", width: 4, brush: "calligraphy" }), [k, k], [50, 50]);
+    expect(thick).toBeGreaterThan(thin * 4);
   });
 
   it("사각 촉 형광펜: 가로획은 굵고 세로획은 가늘다", () => {
@@ -49,12 +57,27 @@ describe("펜 종류·선 모양", () => {
     expect(endH(taper)).toBeLessThan(endH(full) * 0.6);
   });
 
-  it("연필은 알갱이 필터 + 고른 투명도, 브러시는 부드러운 가장자리 필터", () => {
+  it("연필·브러시는 종이에 고정된 결(가리개) + 연필은 고른 투명도", () => {
     const pencil = strokeAttrs({ tool: "pen", brush: "pencil", opacity: 0.65 });
-    expect(pencil.filter).toBe("url(#sl-pencil)");
+    expect(pencil.mask).toBe("url(#sl-pencil-mask)");
     expect(pencil.opacity).toBe(0.65);
-    expect(strokeAttrs({ tool: "pen", brush: "brush", width: 20 }).filter).toMatch(/^url\(#sl-soft-\d\)$/);
-    expect(strokeAttrs({ tool: "pen", brush: "ballpoint" }).filter).toBeUndefined();
+    expect(strokeAttrs({ tool: "pen", brush: "brush", width: 20 }).mask).toBe("url(#sl-brush-mask)");
+    expect(strokeAttrs({ tool: "pen", brush: "ballpoint" }).mask).toBeUndefined();
+  });
+
+  it("캘리그래피: 납작한 펜촉 — 필압과 상관없이 같은 굵기, 둥근 마개 없음", () => {
+    const soft = strokeD(line(0, 0, 0, 200, 0.1), { tool: "pen", width: 4, brush: "calligraphy" });
+    const hard = strokeD(line(0, 0, 0, 200, 0.9), { tool: "pen", width: 4, brush: "calligraphy" });
+    expect(soft).toBe(hard);
+    expect(soft).not.toContain("A"); // 원호(둥근 끝)가 없다
+  });
+
+  it("브러시·만년필: 세게 누르면 굵게, 살살 대면 가늘게", () => {
+    for (const brush of ["brush", "fountain"] as const) {
+      const soft = extent(strokeD(line(0, 0, 200, 0, 0.1), { tool: "pen", width: 6, brush })).h;
+      const hard = extent(strokeD(line(0, 0, 200, 0, 0.9), { tool: "pen", width: 6, brush })).h;
+      expect(hard).toBeGreaterThan(soft * 3);
+    }
   });
 
   it("파선·점선은 중심선을 굵기만큼 긋는다 (칠하지 않는다)", () => {

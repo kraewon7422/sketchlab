@@ -115,7 +115,7 @@ export async function objectToSvg(item: CanvasItem): Promise<Rendered> {
     const h = Math.ceil(maxY - minY + pad * 2);
     const body = new XMLSerializer().serializeToString(clone);
     const inner = rot ? `<g transform="rotate(${rot} ${(b.minX + b.maxX) / 2} ${(b.minY + b.maxY) / 2})">${body}</g>` : body;
-    const defs = /url\(#sl-(pencil|soft)/.test(body) ? `<defs>${inkFilterMarkup()}</defs>` : "";
+    const defs = /url\(#sl-(pencil|brush)-mask/.test(body) ? `<defs>${inkFilterMarkup()}</defs>` : "";
     const svg = `<svg xmlns="${SVGNS}" width="${w}" height="${h}" viewBox="${minX - pad} ${minY - pad} ${w} ${h}">${defs}${inner}</svg>`;
     return { svg, width: w, height: h };
   }
