@@ -37,7 +37,7 @@ function Starting(): ReactElement {
           <p style={{ margin: "8px 0" }}>
             <b>다른 SketchLab 탭·창을 모두 닫으면</b> 이 화면이 저절로 열려요. 노트는 안전해요.
           </p>
-          <p style={{ margin: 0, fontSize: 13, color: theme.color.asymptote }}>그래도 안 되면: Chrome 창을 모두 닫아 Chrome을 완전히 껐다 켠 뒤 이 페이지를 다시 여세요 (또는 Shift + Esc → kraewon7422.github.io 줄 → 프로세스 종료)</p>
+          <p style={{ margin: 0, fontSize: 13, color: theme.color.asymptote }}>그래도 안 되면: Chrome 창을 모두 닫아 Chrome을 완전히 껐다 켠 뒤 이 페이지를 다시 여세요 (또는 Shift + Esc → {location.host} 줄 → 프로세스 종료)</p>
         </div>
       )}
     </div>
