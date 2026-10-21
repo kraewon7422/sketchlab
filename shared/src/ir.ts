@@ -392,6 +392,37 @@ const Figure = z.object({
   p: z.record(z.string().max(16), z.number()).optional(),
 });
 
+export const CIRCUIT_PARTS = ["battery", "ac", "switch", "resistor", "rheostat", "capacitor", "inductor", "bulb", "ammeter", "voltmeter", "node", "in", "out", "and", "or", "not", "nand", "nor", "xor", "dff"] as const;
+
+/**
+ * 회로도 — 전기(직류·교류·축전기 충전) 또는 논리(게이트·가산기·기억 소자).
+ * 부품은 격자 칸 (x, y)에 놓이고 rot × 90° 돌아간다. 전선은 "부품id:단자번호" 두 개를 잇는다.
+ *   value: 전지·교류 V · 저항·가변저항·전구 Ω · 축전기 μF · 코일 mH   on: 스위치 닫힘·논리 입력 1
+ *   pos: 가변저항 미끄럼 위치 0~1   freq: 교류 Hz
+ */
+const Circuit = z.object({
+  mode: z.enum(["electric", "logic"]),
+  parts: z
+    .array(
+      z.object({
+        id: z.string().max(24),
+        type: z.enum(CIRCUIT_PARTS),
+        x: z.number().int().min(0).max(80),
+        y: z.number().int().min(0).max(60),
+        rot: z.number().int().min(0).max(3).optional(),
+        value: z.number().positive().optional(),
+        on: z.boolean().optional(),
+        pos: z.number().min(0).max(1).optional(),
+        freq: z.number().positive().max(100).optional(),
+        label: z.string().max(24).optional(),
+      }),
+    )
+    .max(120),
+  wires: z.array(z.object({ a: z.string().max(40), b: z.string().max(40) })).max(300),
+  w: z.number().int().min(4).max(80),
+  h: z.number().int().min(3).max(60),
+});
+
 /** 코드 셀이 낸 결과 한 조각 — 글(print)·표(table)·그래프(plot)·그림(R plot 등, PNG data URL)·웹 페이지(HTML 셀) */
 export const CodeOutputItem = z.discriminatedUnion("t", [
   z.object({ t: z.literal("text"), text: z.string().max(20000), error: z.boolean().optional() }),
@@ -456,6 +487,7 @@ export const SceneIRSchema = z.discriminatedUnion("kind", [
   z.object({ ...meta, kind: z.literal("nnet"), data: NNet }),
   z.object({ ...meta, kind: z.literal("code"), data: Code }),
   z.object({ ...meta, kind: z.literal("figure"), data: Figure }),
+  z.object({ ...meta, kind: z.literal("circuit"), data: Circuit }),
 ]);
 
 /**

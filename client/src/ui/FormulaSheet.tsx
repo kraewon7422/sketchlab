@@ -211,6 +211,19 @@ export default function FormulaSheet({ onClose, area, onOpenAiSettings }: Formul
       onClose();
       return;
     }
+    if (r.ir.kind === "circuit") {
+      // 회로: 격자판 (가로 칸 + 1) × (세로 칸 + 1) + 시간 그래프·진리표 + 단추 줄
+      const cw = Math.min(r.ir.data.mode === "logic" ? 440 : 480, area.width - theme.space[6] * 2);
+      const d = r.ir.data;
+      const dynamic = d.parts.some((p) => p.type === "capacitor" || p.type === "inductor" || p.type === "ac");
+      const below = d.mode === "logic" ? 40 + 22 * (d.parts.filter((p) => p.type === "in").length <= 5 ? 1 + (1 << d.parts.filter((p) => p.type === "in").length) : 2) : dynamic ? 150 : 30;
+      const ch = Math.round((cw / (d.w + 1)) * (d.h + 1)) + below + 150;
+      const pos = freeSpot(cw, ch, area);
+      const cid = sessionStore.getState().addObject(r.ir, { x: pos.x, y: pos.y, scale: cw }, { minX: pos.x, minY: pos.y, maxX: pos.x + cw, maxY: pos.y + ch });
+      markFresh(cid);
+      onClose();
+      return;
+    }
     if (r.ir.kind === "venn") {
       // 벤 다이어그램: 상자 폭 × 0.72 + 아래 식
       const vw = Math.min(420, area.width - theme.space[6] * 2);

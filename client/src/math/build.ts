@@ -13,6 +13,7 @@ import { parseTensor } from "./tensor";
 import { parseNNet } from "./nnet";
 import { parseSpecial, SPECIAL_LATEX, type SpecialName } from "./special";
 import { parseFigure } from "./figures";
+import { circuitFromInput } from "./circuitExamples";
 
 /** 도넛 ↔ 머그잔 (위상수학) */
 export const TOPOLOGY = /^\s*(?:위상수학|위상|토폴로지|topology|도넛\s*(?:↔|<->|-|와|과)?\s*(?:컵|머그잔?)|donut\s*(?:↔|<->|-|and)?\s*(?:cup|mug))\s*$/i;
@@ -57,6 +58,9 @@ export function buildFromInput(input: string): BuildResult {
   // 유명한 그림 (뫼비우스 띠·만델브로·라이프 게임 …)
   const fig = parseFigure(input);
   if (fig) return { ok: true, analysis: { kind: "formula", latex: input }, ir: { ...meta(), kind: "figure", data: fig } };
+  // 회로도 (직렬·병렬·RC·교류 / 논리 게이트·가산기·래치)
+  const circuit = circuitFromInput(input);
+  if (circuit) return { ok: true, analysis: { kind: "formula", latex: input }, ir: { ...meta(), kind: "circuit", data: circuit } };
   // 유명한 곡선 (제타 임계선·푸리에 사각파·테일러 sin)
   const sp = parseSpecial(input);
   if (sp) return { ok: true, analysis: { kind: "formula", latex: SPECIAL_LATEX[sp] }, ir: specialPlot(sp) };

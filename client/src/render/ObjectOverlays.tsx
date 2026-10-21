@@ -36,8 +36,10 @@ const CodeObject = lazy(() => import("./CodeObject"));
 
 /** 유명한 그림 (뫼비우스·만델브로·라이프 게임 …) */
 const FigureObject = lazy(() => import("./FigureObject"));
+/** 회로도 (전기·논리) */
+const CircuitObject = lazy(() => import("./CircuitObject"));
 
-const OVERLAY_KINDS = new Set(["plot2d", "formula", "chemEq", "solid3d", "space3d", "chem", "text", "venn", "table", "tensor", "topology", "nnet", "code", "figure"]);
+const OVERLAY_KINDS = new Set(["plot2d", "formula", "chemEq", "solid3d", "space3d", "chem", "text", "venn", "table", "tensor", "topology", "nnet", "code", "figure", "circuit"]);
 
 /**
  * 객체 하나를 감싼다 — 손으로 다루는 부분(슬라이더·돌리기·톡) 위에서도 고를 수 있게:
@@ -149,6 +151,8 @@ export function ObjectOverlays({ interactive }: { interactive: boolean }): React
               <NNetObject key={item.id} item={item} interactive={interactive && !selection.includes(item.id)} />
             ) : item.ir.kind === "figure" ? (
               <FigureObject key={item.id} item={item} interactive={interactive && !selection.includes(item.id)} />
+            ) : item.ir.kind === "circuit" ? (
+              <CircuitObject key={item.id} item={item} interactive={interactive && !selection.includes(item.id)} />
             ) : item.ir.kind === "code" ? (
               <CodeObject key={item.id} item={item} interactive={interactive && !selection.includes(item.id)} />
             ) : (
