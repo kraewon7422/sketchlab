@@ -17,6 +17,8 @@ export const ORDER = "order";
 export const MEDIA = "media";
 
 let dbPromise: Promise<IDBPDatabase> | null = null;
+/** "내 데이터 모두 지우기" 뒤 — 새로 고칠 때까지 아무것도 저장하지 않는다 (지운 저장소가 되살아나지 않게) */
+let halted = false;
 
 /**
  * 저장소를 새 형식으로 올리려는데 예전 버전의 SketchLab(다른 탭·설치한 앱 창)이 연결을 쥐고 있어 기다리는 중인지.
@@ -39,6 +41,7 @@ export function onDbBlocked(fn: (blocked: boolean) => void): () => void {
 }
 
 export function getDB(): Promise<IDBPDatabase> | null {
+  if (halted) return null;
   if (typeof indexedDB === "undefined") {
     debugLog.warn("persistence", "IndexedDB를 쓸 수 없는 환경입니다. 저장이 비활성화됩니다.");
     return null;
@@ -69,7 +72,26 @@ export function getDB(): Promise<IDBPDatabase> | null {
 /** 테스트 전용 — 새 가짜 DB로 다시 열게 */
 export function __resetDB(): void {
   dbPromise = null;
+  halted = false;
   setBlocked(false);
+}
+
+/**
+ * 기기 안 저장소를 통째로 지운다 — 연결을 닫고, 이후 저장을 멈추고, 데이터베이스를 지운다.
+ * 다른 탭이 열려 있어 막히면 그 탭이 닫히는 대로 지워진다 (기다리지 않고 돌아온다).
+ */
+export async function deleteDatabase(): Promise<"deleted" | "blocked"> {
+  halted = true;
+  const open = dbPromise;
+  dbPromise = null;
+  if (open) (await open.catch(() => null))?.close();
+  if (typeof indexedDB === "undefined") return "deleted";
+  return new Promise((resolve) => {
+    const req = indexedDB.deleteDatabase(DB_NAME);
+    req.onsuccess = () => resolve("deleted");
+    req.onerror = () => resolve("blocked");
+    req.onblocked = () => resolve("blocked");
+  });
 }
 
 /** 쪽 키의 항목들 범위 ("<쪽 키>|" 로 시작하는 모든 키) */

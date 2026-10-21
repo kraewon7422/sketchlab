@@ -44,6 +44,7 @@ import { useLayoutMode } from "./layoutMode";
 import { backupNow, backupOverdue, chooseBackupFolder, downloadFullBackup, folderBackupSupported, useBackup } from "../store/autoBackup";
 import { driveAvailable } from "../sync/drive";
 import { connect, disconnect, syncNow, syncSoon, useSync } from "../sync/sync";
+import { deleteAllData } from "../store/wipeData";
 
 /**
  * 노트 보관함 — 삼성노트 PC 폴더 화면처럼.
@@ -527,6 +528,76 @@ function Sidebar({ section, onGo, onNewFolder, counts }: { section: Section; onG
           )}
         </div>
       )}
+      <WipeBox />
+    </div>
+  );
+}
+
+/**
+ * 내 데이터 모두 지우기 — 이 기기의 노트·사진·설정, (고르면) Drive 앱 폴더까지.
+ * 되돌릴 수 없으니 "지우기"를 직접 써야 단추가 켜진다.
+ */
+function WipeBox(): ReactElement {
+  const status = useSync((s) => s.status);
+  const connected = driveAvailable() && status !== "off";
+  const [open, setOpen] = useState(false);
+  const [drive, setDrive] = useState(false);
+  const [typed, setTyped] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const ok = typed.trim() === "지우기" && !busy;
+  const run = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await deleteAllData({ drive: connected && drive });
+      // 다른 탭이 열려 있으면 그 탭을 닫아야 마저 지워진다
+      if (r.blocked) setError("다른 SketchLab 탭(또는 설치한 앱 창)을 모두 닫으면 마저 지워져요");
+      else window.location.reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "지우지 못했어요");
+      setBusy(false);
+    }
+  };
+  const danger = "#C0392B";
+  if (!open)
+    return (
+      <button type="button" onClick={() => setOpen(true)} style={{ margin: "10px 8px 0", padding: "6px 10px", border: "none", background: "transparent", color: theme.color.asymptote, fontSize: 12.5, textDecoration: "underline", cursor: "pointer", textAlign: "left" }}>
+        내 데이터 모두 지우기
+      </button>
+    );
+  return (
+    <div role="dialog" aria-label="내 데이터 모두 지우기" style={{ margin: "12px 8px 0", padding: 12, borderRadius: 12, border: `1px solid ${danger}`, background: "#FDF1EF", fontSize: 12.5, lineHeight: 1.5, color: theme.color.ink, wordBreak: "keep-all" }}>
+      <div style={{ fontWeight: 700, color: danger }}>내 데이터 모두 지우기</div>
+      <div style={{ marginTop: 4 }}>이 기기의 모든 노트·쪽·사진·PDF와 펜·AI 설정(키 포함), Drive 연결 정보가 지워져요. 되돌릴 수 없어요 — 먼저 백업해 두세요.</div>
+      {connected && (
+        <label style={{ display: "flex", gap: 6, alignItems: "flex-start", marginTop: 6, cursor: "pointer" }}>
+          <input type="checkbox" checked={drive} onChange={(e) => setDrive(e.target.checked)} style={{ marginTop: 3 }} />
+          <span>Google Drive에 저장된 SketchLab 노트도 지우기 (앱 전용 폴더만 — 다른 Drive 파일은 앱이 볼 수도 없어요)</span>
+        </label>
+      )}
+      <div style={{ marginTop: 6 }}>
+        계속하려면 <b>지우기</b>라고 써 주세요
+      </div>
+      <input value={typed} onChange={(e) => setTyped(e.target.value)} aria-label="확인 글자" placeholder="지우기" style={{ marginTop: 4, width: "100%", boxSizing: "border-box", padding: "6px 8px", border: `1px solid ${theme.color.sub}`, borderRadius: 8, fontSize: 13 }} />
+      {error && <div style={{ marginTop: 6, color: danger }}>{error}</div>}
+      <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+        <button type="button" disabled={!ok} onClick={() => void run()} style={{ padding: "6px 10px", border: "none", borderRadius: 8, background: danger, color: "#fff", fontSize: 12.5, cursor: ok ? "pointer" : "default", opacity: ok ? 1 : 0.4 }}>
+          {busy ? "지우는 중…" : "모두 지우기"}
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => {
+            setOpen(false);
+            setTyped("");
+            setError(null);
+          }}
+          style={{ padding: "6px 10px", border: `1px solid ${theme.color.sub}`, borderRadius: 8, background: theme.color.bg, color: theme.color.ink, fontSize: 12.5, cursor: "pointer" }}
+        >
+          취소
+        </button>
+      </div>
     </div>
   );
 }

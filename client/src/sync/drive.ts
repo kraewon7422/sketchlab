@@ -202,6 +202,25 @@ export function driveRemote(token: string, userId: string, f: Fetch = fetch): Re
   };
 }
 
+/**
+ * 앱 폴더를 통째로 비운다 ("내 데이터 모두 지우기") — 이 앱이 Drive에 만든 파일만 (앱 폴더 밖은 볼 수도 없다).
+ * 반환: 지운 파일 수
+ */
+export async function wipeDriveAppFolder(token: string, f: Fetch = fetch): Promise<number> {
+  let n = 0;
+  // 지우면서 목록이 줄어드니, 빌 때까지 처음부터 다시 읽는다 (한 번에 1000개)
+  for (let round = 0; round < 50; round++) {
+    const r = (await (await driveFetch(token, `${API}/files?spaces=appDataFolder&fields=files(id)&pageSize=1000`, {}, f)).json()) as { files?: Array<{ id: string }> };
+    const ids = (r.files ?? []).map((x) => x.id);
+    if (ids.length === 0) break;
+    for (const id of ids) {
+      await driveFetch(token, `${API}/files/${id}`, { method: "DELETE" }, f);
+      n++;
+    }
+  }
+  return n;
+}
+
 /** 연결되어 있고 출입증이 살아 있으면 그 Remote, 아니면 null */
 export function currentDriveRemote(): Remote | null {
   const token = validToken();
