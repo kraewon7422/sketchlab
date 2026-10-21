@@ -197,6 +197,13 @@ function SpaceBox({ item, ir, interactive }: { item: ObjectItem; ir: SpaceIR; in
         {/* 손잡이 — 끌어서 옮긴다 (빈 곳을 끌면 그대로 돌리기) */}
         {handles.map((h) => (
           <g key={h.key} style={{ cursor: "move", touchAction: "none" }} onPointerDown={grab(h.key)}>
+            {/* 방향 손잡이 (법선·직선 방향): 발에서 손잡이까지 점선 화살 */}
+            {h.from && <line x1={h.from[0]} y1={h.from[1]} x2={h.at[0]} y2={h.at[1]} stroke={theme.color.accent} strokeWidth={1.6} strokeDasharray="5 3" style={{ pointerEvents: "none" }} />}
+            {h.from && (
+              <text x={h.at[0] + 9} y={h.at[1] - 9} fontSize={11} fill={theme.color.accent} stroke={theme.color.bg} strokeWidth={3} paintOrder="stroke" style={{ pointerEvents: "none" }}>
+                {h.label}
+              </text>
+            )}
             <circle cx={h.at[0]} cy={h.at[1]} r={14} fill="transparent" />
             <circle cx={h.at[0]} cy={h.at[1]} r={6.5} fill={theme.color.bg} stroke={theme.color.accent} strokeWidth={2.5} />
           </g>

@@ -355,6 +355,7 @@ export function spaceCaption(d: SpaceData): string | undefined {
     ...(d.shapes ?? []).flatMap((s) => (s.t === "sphere" ? [sphereLatex(s.c, s.r)] : [])),
     ...(d.surfaces ?? []).map((s) => s.latex),
     ...(d.planes ?? []).map((pl) => planeLatex(pl.normal, pl.d)),
+    ...(d.lines ?? []).map((l) => lineLatex(l.point, l.dir)),
   ];
   // 원기둥은 처음 식 그대로 (축이 정해져 있어 손잡이로 움직이지 않는다)
   return parts.length ? parts.join(",\\quad ") : d.caption;
@@ -368,6 +369,27 @@ export interface SpaceHandle {
   key: string;
   at: P2;
   label: string;
+  /** 방향 손잡이: 이 점에서 손잡이까지 화살표를 그린다 (평면의 법선 · 직선의 방향) */
+  from?: P2;
+}
+
+/** 방향 손잡이 길이 (보는 범위의 40 %) */
+const arm = (data: SpaceData) => data.view.range * 0.4;
+const unit = (v: readonly number[]): V3 => {
+  const n = Math.hypot(v[0]!, v[1]!, v[2]!) || 1;
+  return [v[0]! / n, v[1]! / n, v[2]! / n];
+};
+/** 직선 x = p + t·u 를 식으로 (대칭방정식, 성분이 0이면 x = p 꼴) */
+export function lineLatex(p: readonly number[], u: readonly number[]): string {
+  const f = (v: number) => String(Number(v.toFixed(2)));
+  const part = (name: string, p0: number, u0: number) => {
+    const top = p0 === 0 ? name : `${name}${p0 > 0 ? "-" : "+"}${f(Math.abs(p0))}`;
+    return u0 === 1 ? top : `\\frac{${top}}{${f(u0)}}`;
+  };
+  const names = ["x", "y", "z"];
+  const zero = names.filter((_, i) => u[i] === 0).map((n) => `${n}=${f(p[names.indexOf(n)]!)}`);
+  const rest = names.flatMap((n, i) => (u[i] === 0 ? [] : [part(n, p[i]!, u[i]!)]));
+  return [rest.join("="), ...zero].filter(Boolean).join(",\\ ");
 }
 
 /** 평면 위에서 원점에 가장 가까운 점 (평면 손잡이 자리) */
@@ -386,7 +408,16 @@ export function spaceHandles(data: SpaceData, view: View3, scale: number, cx: nu
     out.push({ key: `s${i}c`, at: S(s.c), label: "중심" });
     out.push({ key: `s${i}r`, at: S([s.c[0], s.c[1], s.c[2] + s.r]), label: "r" });
   });
-  (data.planes ?? []).forEach((pl, i) => out.push({ key: `n${i}`, at: S(planeFoot(pl.normal, pl.d)), label: "평면" }));
+  (data.planes ?? []).forEach((pl, i) => {
+    const foot = planeFoot(pl.normal, pl.d);
+    out.push({ key: `n${i}`, at: S(foot), label: "평면" });
+    // 법선 끝 — 끌면 평면이 돌아간다 (발은 그대로)
+    out.push({ key: `m${i}`, at: S(add3(foot, unit(pl.normal).map((v) => v * arm(data)))), label: "법선", from: S(foot) });
+  });
+  (data.lines ?? []).forEach((l, i) => {
+    out.push({ key: `l${i}p`, at: S(l.point), label: "점" });
+    out.push({ key: `l${i}d`, at: S(add3(l.point, unit(l.dir).map((v) => v * arm(data)))), label: "방향", from: S(l.point) });
+  });
   return out;
 }
 
@@ -421,7 +452,7 @@ const add3 = (a: readonly number[], b: readonly number[]): V3 => [a[0]! + b[0]!,
  */
 export function applyHandleDrag(start: SpaceData, key: string, delta: readonly number[]): SpaceData {
   const d: SpaceData = structuredClone(start);
-  const i = Number(key.slice(1).replace(/[cr]$/, ""));
+  const i = Number(key.slice(1).replace(/[crpd]$/, ""));
   if (key[0] === "v" && d.vectors?.[i]) {
     const to = add3(start.vectors![i]!.to, delta).map((v) => snap(v, 0.5)) as V3;
     d.vectors[i] = { ...d.vectors[i]!, to };
@@ -440,6 +471,23 @@ export function applyHandleDrag(start: SpaceData, key: string, delta: readonly n
     else {
       const tip = add3([s0.c[0], s0.c[1], s0.c[2] + s0.r], delta);
       d.shapes[i] = { ...s0, r: Math.max(0.1, snap(Math.hypot(tip[0] - s0.c[0], tip[1] - s0.c[1], tip[2] - s0.c[2]), 0.1)) };
+    }
+  } else if (key[0] === "m" && d.planes?.[i]) {
+    // 법선 방향 바꾸기: 끝점을 끈 만큼 → 새 법선 (0.5 간격), 평면은 발(foot)을 지나게
+    const pl = start.planes![i]!;
+    const foot = planeFoot(pl.normal, pl.d);
+    const tip = add3(add3(foot, unit(pl.normal).map((v) => v * arm(start))), delta);
+    const n = [tip[0] - foot[0], tip[1] - foot[1], tip[2] - foot[2]].map((v) => snap((v / arm(start)) * 2, 0.5)) as V3;
+    if (n.every((v) => v === 0)) return start;
+    d.planes[i] = { ...pl, normal: n, d: snap(n[0] * foot[0] + n[1] * foot[1] + n[2] * foot[2], 0.01) };
+  } else if (key[0] === "l" && d.lines?.[i]) {
+    const l = start.lines![i]!;
+    if (key.endsWith("p")) d.lines[i] = { ...l, point: add3(l.point, delta).map((v) => snap(v, 0.5)) as V3 };
+    else {
+      const tip = add3(add3(l.point, unit(l.dir).map((v) => v * arm(start))), delta);
+      const u = [tip[0] - l.point[0], tip[1] - l.point[1], tip[2] - l.point[2]].map((v) => snap((v / arm(start)) * 2, 0.5)) as V3;
+      if (u.every((v) => v === 0)) return start;
+      d.lines[i] = { ...l, dir: u };
     }
   } else if (key[0] === "n" && d.planes?.[i]) {
     const pl = start.planes![i]!;

@@ -14,6 +14,8 @@ import { toBox } from "../math/view";
 import { TUPPER_H, TUPPER_W, tupperGrid } from "../math/tupper";
 import { discreteCaption, rangeCaption } from "../math/stats";
 import { special } from "../math/special";
+import { buildFromInput } from "../math/build";
+import { mirrorLatex, numbersToParams, paramsToNumbers, shiftLatex, shiftNames, type Mirror } from "../math/graphTransform";
 import { sessionStore } from "../store/session";
 import { isFresh } from "./Shape2DView";
 import { plot, stroke, theme } from "./theme";
@@ -271,6 +273,93 @@ function PlotBox({ item, ir, interactive }: { item: ObjectItem; ir: PlotIR; inte
     window.addEventListener("pointercancel", up);
   };
 
+  // ───────── 그래프 바꾸기: 계수 조정 · 평행이동 · 대칭이동 (식 하나짜리 함수 그래프만)
+  const [moving, setMoving] = useState(false);
+  const only = data.functions.length === 1 ? data.functions[0] : undefined;
+  const plain = !!only && (only.kind === "explicit" || only.kind === "implicit") && !dist && !(data.bars ?? []).length && !(data.special ?? []).length && !data.tupper && !(data.series ?? []).length;
+  /** 새 식으로 다시 짓되, 보는 범위와 남은 문자 값은 그대로 (label이 있으면 기록) */
+  const rebuild = (latex: string, values: Record<string, Partial<Param>>, label: string, from?: PlotIR): PlotIR | null => {
+    const r = buildFromInput(latex);
+    if (!r.ok || r.ir.kind !== "plot2d") return null;
+    const base = from ?? currentPlot(item.id) ?? ir;
+    const keep = Object.fromEntries((base.data.params ?? []).map((p) => [p.name, p]));
+    const params = (r.ir.data.params ?? []).map((p) => ({ ...p, ...(keep[p.name] ?? {}), ...(values[p.name] ?? {}) }));
+    const { params: _drop, ...rest } = r.ir.data;
+    void _drop;
+    const next: PlotIR = { ...r.ir, data: { ...rest, view: base.data.view, ...(params.length ? { params } : {}) } };
+    if (label) sessionStore.getState().commitObjectIR(item.id, base, next, label);
+    return next;
+  };
+  const tools =
+    plain && only
+      ? (() => {
+          const names = (data.params ?? []).map((p) => p.name);
+          const toP = numbersToParams(only.latex, names);
+          const sh = only.kind === "explicit" ? shiftNames(only.latex, names) : null;
+          return {
+            toParams: toP && names.length < 4 ? () => void rebuild(toP.latex, Object.fromEntries(toP.params.map((p) => [p.name, p])), "계수 조정") : null,
+            toNumbers: names.length ? () => void rebuild(paramsToNumbers(only.latex, data.params ?? []), {}, "숫자로 되돌리기") : null,
+            canShift: !!sh && (names.length <= 2 || names.includes(sh.h)),
+            mirror: (how: Mirror) => {
+              const m = mirrorLatex(only.latex, how);
+              if (m) rebuild(m, {}, "대칭이동");
+            },
+          };
+        })()
+      : null;
+
+  /** 판을 끌면 h·k가 바뀐다 (끄는 동안 미리보기, 놓으면 한 번 기록) */
+  const startShift = (e: React.PointerEvent<SVGRectElement>) => {
+    e.stopPropagation();
+    const start = currentPlot(item.id) ?? ir;
+    const f = start.data.functions[0];
+    if (!f) return;
+    const names = shiftNames(f.latex, (start.data.params ?? []).map((p) => p.name));
+    const shifted = names && shiftLatex(f.latex, names);
+    if (!names || !shifted) return;
+    // 처음 끌 때 y=f(x) → y=f(x−h)+k (h = k = 0)
+    const lim = { min: Math.floor(Math.min(-5, view.xmin, view.ymin)), max: Math.ceil(Math.max(5, view.xmax, view.ymax)), step: 0.1 };
+    const base = shifted === f.latex ? start : rebuild(shifted, { [names.h]: { value: 0, ...lim }, [names.k]: { value: 0, ...lim } }, "", start);
+    if (!base) return;
+    const get = (n: string) => (base.data.params ?? []).find((p) => p.name === n)?.value ?? 0;
+    const h0 = get(names.h);
+    const k0 = get(names.k);
+    const svg = e.currentTarget.ownerSVGElement;
+    if (!svg) return;
+    const r = svg.getBoundingClientRect();
+    const sx = (view.xmax - view.xmin) / r.width;
+    const sy = (view.ymax - view.ymin) / r.height;
+    const x0 = e.clientX;
+    const y0 = e.clientY;
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      /* 캡처를 못 해도 끌기는 된다 */
+    }
+    // 0.1 단위, 정수 가까이면 정수로
+    const snap = (v: number) => {
+      const q = Math.round(v * 10) / 10;
+      return Math.abs(q - Math.round(q)) < 0.15 ? Math.round(q) : q;
+    };
+    const at = (ev: { clientX: number; clientY: number }): PlotIR => {
+      const h = snap(h0 + (ev.clientX - x0) * sx);
+      const k = snap(k0 - (ev.clientY - y0) * sy);
+      const set = (p: Param, v: number) => ({ ...p, value: v, min: Math.min(p.min, v), max: Math.max(p.max, v) });
+      return { ...base, data: { ...base.data, params: (base.data.params ?? []).map((p) => (p.name === names.h ? set(p, h) : p.name === names.k ? set(p, k) : p)) } };
+    };
+    sessionStore.getState().previewObjectIR(item.id, base);
+    const move = (ev: PointerEvent) => sessionStore.getState().previewObjectIR(item.id, at(ev));
+    const up = (ev: PointerEvent) => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+      sessionStore.getState().commitObjectIR(item.id, start, at(ev), "평행이동");
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+  };
+
   return (
     <div
       data-overlay-id={item.id}
@@ -477,6 +566,8 @@ function PlotBox({ item, ir, interactive }: { item: ObjectItem; ir: PlotIR; inte
           </text>
         </g>
         )}
+        {/* 끌어서 평행이동 — 이 모드일 때만 그래프 판 전체가 손가락을 받는다 */}
+        {interactive && moving && <rect x={0} y={0} width={W} height={H} fill={theme.color.accent} fillOpacity={0.04} style={{ pointerEvents: "auto", cursor: "move", touchAction: "none" }} onPointerDown={startShift} />}
       </svg>
 
       <div style={{ marginTop: theme.space[2], color: theme.color.ink, textAlign: "center" }}>
@@ -495,9 +586,57 @@ function PlotBox({ item, ir, interactive }: { item: ObjectItem; ir: PlotIR; inte
       </div>
 
       {(data.params ?? []).length > 0 && <Sliders item={item} ir={ir} />}
+      {interactive && tools && (
+        <div data-export-skip style={{ marginTop: theme.space[2], display: "grid", gap: 6, justifyItems: "center", pointerEvents: "auto" }}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, justifyContent: "center" }}>
+            {tools.toParams && (
+              <button type="button" style={toolBtn(false)} onClick={tools.toParams}>
+                계수 조정
+              </button>
+            )}
+            {tools.toNumbers && (
+              <button type="button" style={toolBtn(false)} onClick={tools.toNumbers}>
+                숫자로 되돌리기
+              </button>
+            )}
+            {tools.canShift && (
+              <button type="button" style={toolBtn(moving)} onClick={() => setMoving((v) => !v)}>
+                {moving ? "옮기기 끝" : "끌어서 평행이동"}
+              </button>
+            )}
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, justifyContent: "center", alignItems: "center", fontSize: 12.5, color: theme.color.asymptote }}>
+            대칭이동
+            {MIRRORS.map(([how, label]) => (
+              <button key={how} type="button" style={toolBtn(false)} onClick={() => tools.mirror(how)}>
+                {label}
+              </button>
+            ))}
+          </div>
+          {moving && <div style={{ fontSize: 12, color: theme.color.asymptote }}>그래프 판을 끌면 x축으로 h, y축으로 k만큼 옮겨져요</div>}
+        </div>
+      )}
     </div>
   );
 }
+
+const MIRRORS: Array<[Mirror, string]> = [
+  ["xAxis", "x축"],
+  ["yAxis", "y축"],
+  ["origin", "원점"],
+  ["yEqualsX", "y=x"],
+];
+const toolBtn = (on: boolean) =>
+  ({
+    padding: "4px 10px",
+    border: `1px solid ${on ? theme.color.accent : theme.color.sub}`,
+    borderRadius: 999,
+    background: on ? theme.color.accent : theme.color.bg,
+    color: on ? "#fff" : theme.color.ink,
+    fontSize: 12.5,
+    cursor: "pointer",
+    whiteSpace: "nowrap",
+  }) as const;
 
 /** 스토어의 지금 IR (끄는 동안 매 프레임 바뀐다 — props는 한 박자 늦다) */
 function currentPlot(id: string): PlotIR | null {

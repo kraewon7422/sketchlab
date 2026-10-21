@@ -128,3 +128,29 @@ describe("공간 곡면·입체 알아보기", () => {
     expect(buildSpace("2x+3y=7, x-y=1")).toBeNull();
   });
 });
+
+describe("평면 방향·직선 손잡이", () => {
+  it("법선 끝을 끌면 평면이 돌아가고, 발(원점에서 가장 가까운 점)은 그대로", () => {
+    const d = space("z=2");
+    const keys = spaceHandles(d, { yaw: 0, pitch: 0 }, 30, 150, 150).map((h) => h.key);
+    expect(keys).toContain("m0");
+    const pl0 = d.planes![0]!;
+    // 법선 (0,0,1) 끝 = 발 + 0.4·range 위 → x쪽으로 끌면 기운다
+    const next = applyHandleDrag(d, "m0", [d.view.range * 0.4, 0, 0]);
+    const pl = next.planes![0]!;
+    expect(pl.normal).not.toEqual(pl0.normal);
+    expect(pl.normal[0]).toBeGreaterThan(0);
+    // 발 (0,0,2) 은 여전히 평면 위
+    expect(pl.normal[2] * 2).toBeCloseTo(pl.d);
+    expect(next.caption).toBeTruthy();
+  });
+  it("직선: 점·방향 손잡이", () => {
+    const d = { ...space("z=0"), planes: [], lines: [{ point: [0, 0, 0] as [number, number, number], dir: [1, 0, 0] as [number, number, number] }] };
+    const keys = spaceHandles(d, { yaw: 0, pitch: 0 }, 30, 150, 150).map((h) => h.key);
+    expect(keys).toEqual(expect.arrayContaining(["l0p", "l0d"]));
+    expect(applyHandleDrag(d, "l0p", [1, 2, 0]).lines![0]!.point).toEqual([1, 2, 0]);
+    const turned = applyHandleDrag(d, "l0d", [0, d.view.range * 0.4, 0]).lines![0]!;
+    expect(turned.dir[1]).toBeGreaterThan(0);
+    expect(applyHandleDrag(d, "l0d", [0, d.view.range * 0.4, 0]).caption).toContain("frac");
+  });
+});
