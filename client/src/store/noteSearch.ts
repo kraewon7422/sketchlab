@@ -42,6 +42,7 @@ const KIND_LABEL: Record<string, string> = {
   topology: "위상수학",
   nnet: "신경망",
   circuit: "회로",
+  naming: "이름 퍼즐",
   image: "사진",
   shape2d: "도형",
 };
@@ -81,6 +82,8 @@ export function textOf(item: CanvasItem): string | null {
       return `${name} 뉴런 ${ir.data.layers.join("-")}`;
     case "image":
       return `${name} ${ir.data.name ?? ""}`;
+    case "naming":
+      return `${name} 유기 화합물 IUPAC 명명법`;
     case "circuit":
       return `${name} ${ir.data.mode === "logic" ? "논리 게이트" : "전기 회로도"} ${ir.data.parts.map((p) => `${p.type} ${p.label ?? ""}`).join(" ")}`;
     default:

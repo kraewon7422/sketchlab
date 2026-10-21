@@ -211,6 +211,16 @@ export default function FormulaSheet({ onClose, area, onOpenAiSettings }: Formul
       onClose();
       return;
     }
+    if (r.ir.kind === "naming") {
+      // 이름 퍼즐: 구조식 + 답 줄 + 조각 (실제 높이는 객체가 맞춘다)
+      const nw = Math.min(440, area.width - theme.space[6] * 2);
+      const nh = 420;
+      const pos = freeSpot(nw, nh, area);
+      const nid = sessionStore.getState().addObject(r.ir, { x: pos.x, y: pos.y, scale: nw }, { minX: pos.x, minY: pos.y, maxX: pos.x + nw, maxY: pos.y + nh });
+      markFresh(nid);
+      onClose();
+      return;
+    }
     if (r.ir.kind === "circuit") {
       // 회로: 격자판 (가로 칸 + 1) × (세로 칸 + 1) + 시간 그래프·진리표 + 단추 줄
       const cw = Math.min(r.ir.data.mode === "logic" ? 440 : 480, area.width - theme.space[6] * 2);

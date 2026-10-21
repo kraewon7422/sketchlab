@@ -38,8 +38,10 @@ const CodeObject = lazy(() => import("./CodeObject"));
 const FigureObject = lazy(() => import("./FigureObject"));
 /** 회로도 (전기·논리) */
 const CircuitObject = lazy(() => import("./CircuitObject"));
+/** 유기 화합물 이름 퍼즐 (구조식은 RDKit — 퍼즐을 처음 열 때) */
+const NamingObject = lazy(() => import("./NamingObject"));
 
-const OVERLAY_KINDS = new Set(["plot2d", "formula", "chemEq", "solid3d", "space3d", "chem", "text", "venn", "table", "tensor", "topology", "nnet", "code", "figure", "circuit"]);
+const OVERLAY_KINDS = new Set(["plot2d", "formula", "chemEq", "solid3d", "space3d", "chem", "text", "venn", "table", "tensor", "topology", "nnet", "code", "figure", "circuit", "naming"]);
 
 /**
  * 객체 하나를 감싼다 — 손으로 다루는 부분(슬라이더·돌리기·톡) 위에서도 고를 수 있게:
@@ -151,6 +153,8 @@ export function ObjectOverlays({ interactive }: { interactive: boolean }): React
               <NNetObject key={item.id} item={item} interactive={interactive && !selection.includes(item.id)} />
             ) : item.ir.kind === "figure" ? (
               <FigureObject key={item.id} item={item} interactive={interactive && !selection.includes(item.id)} />
+            ) : item.ir.kind === "naming" ? (
+              <NamingObject key={item.id} item={item} interactive={interactive && !selection.includes(item.id)} />
             ) : item.ir.kind === "circuit" ? (
               <CircuitObject key={item.id} item={item} interactive={interactive && !selection.includes(item.id)} />
             ) : item.ir.kind === "code" ? (

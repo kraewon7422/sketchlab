@@ -170,5 +170,18 @@ export const GROUPS: Array<{ title: string; examples: Example[]; solids?: true; 
       ["D 플립플롭", "D 플립플롭"],
     ],
   },
+  {
+    title: "유기 화합물 이름 (IUPAC)",
+    examples: [
+      ["이름 퍼즐 (오늘의 문제)", "이름 퍼즐"],
+      ["이름 퍼즐 (중급)", "이름 퍼즐 중급"],
+      ["3-methylbutan-1-ol", "3-methylbutan-1-ol"],
+      ["4-에틸-2-메틸헥세인", "4-에틸-2-메틸헥세인"],
+      ["but-3-en-2-ol", "but-3-en-2-ol"],
+      ["펜테인-2,4-다이온", "펜테인-2,4-다이온"],
+      ["2-methylpropanoic acid", "2-methylpropanoic acid"],
+      ["buta-1,3-diene", "buta-1,3-diene"],
+    ],
+  },
   { title: "화학 구조식", examples: [], chem: true },
 ];

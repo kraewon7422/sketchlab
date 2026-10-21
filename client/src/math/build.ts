@@ -14,6 +14,7 @@ import { parseNNet } from "./nnet";
 import { parseSpecial, SPECIAL_LATEX, type SpecialName } from "./special";
 import { parseFigure } from "./figures";
 import { circuitFromInput } from "./circuitExamples";
+import { todaySeed } from "../chem/namingPuzzle";
 
 /** 도넛 ↔ 머그잔 (위상수학) */
 export const TOPOLOGY = /^\s*(?:위상수학|위상|토폴로지|topology|도넛\s*(?:↔|<->|-|와|과)?\s*(?:컵|머그잔?)|donut\s*(?:↔|<->|-|and)?\s*(?:cup|mug))\s*$/i;
@@ -58,6 +59,9 @@ export function buildFromInput(input: string): BuildResult {
   // 유명한 그림 (뫼비우스 띠·만델브로·라이프 게임 …)
   const fig = parseFigure(input);
   if (fig) return { ok: true, analysis: { kind: "formula", latex: input }, ir: { ...meta(), kind: "figure", data: fig } };
+  // 유기 화합물 이름 퍼즐 (오늘의 문제)
+  const puzzle = /^\s*(이름|명명법|iupac|naming)\s*(퍼즐|퀴즈|puzzle|quiz)\s*(중급|중|medium)?\s*$/i.exec(input);
+  if (puzzle) return { ok: true, analysis: { kind: "formula", latex: input }, ir: { ...meta(), kind: "naming", data: { level: puzzle[3] ? "medium" : "easy", seed: todaySeed(), lang: "en", guesses: [] } } };
   // 회로도 (직렬·병렬·RC·교류 / 논리 게이트·가산기·래치)
   const circuit = circuitFromInput(input);
   if (circuit) return { ok: true, analysis: { kind: "formula", latex: input }, ir: { ...meta(), kind: "circuit", data: circuit } };

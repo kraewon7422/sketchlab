@@ -423,6 +423,16 @@ const Circuit = z.object({
   h: z.number().int().min(3).max(60),
 });
 
+/**
+ * 유기 화합물 이름 퍼즐 (Naming Daily처럼) — 문제는 seed로 정해지고(날짜 = 오늘의 문제), 낸 답만 저장한다.
+ */
+const NamingPuzzle = z.object({
+  level: z.enum(["easy", "medium"]),
+  seed: z.number().int(),
+  lang: z.enum(["en", "ko"]),
+  guesses: z.array(z.array(z.string().max(40)).max(16)).max(6),
+});
+
 /** 코드 셀이 낸 결과 한 조각 — 글(print)·표(table)·그래프(plot)·그림(R plot 등, PNG data URL)·웹 페이지(HTML 셀) */
 export const CodeOutputItem = z.discriminatedUnion("t", [
   z.object({ t: z.literal("text"), text: z.string().max(20000), error: z.boolean().optional() }),
@@ -488,6 +498,7 @@ export const SceneIRSchema = z.discriminatedUnion("kind", [
   z.object({ ...meta, kind: z.literal("code"), data: Code }),
   z.object({ ...meta, kind: z.literal("figure"), data: Figure }),
   z.object({ ...meta, kind: z.literal("circuit"), data: Circuit }),
+  z.object({ ...meta, kind: z.literal("naming"), data: NamingPuzzle }),
 ]);
 
 /**
