@@ -18,6 +18,7 @@
     "@sketchlab/shared": "*",
     "idb": "^8.0.3",
     "immer": "^11.1.15",
+    "JSCPP": "^2.0.9",
     "jszip": "^3.10.2",
     "katex": "^0.19.0",
     "lucide-react": "^1.28.0",
@@ -26,6 +27,7 @@
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "read-excel-file": "^9.3.12",
+    "webr": "^0.6.0",
     "zod": "4.4.3",
     "zustand": "^5.0.14"
   },

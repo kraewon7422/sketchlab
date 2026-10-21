@@ -68,6 +68,8 @@ export default defineConfig({
   worker: { format: "es" },
   // Pyodide는 스스로 파일을 불러오는 꾸러미라 미리 묶지 않는다
   optimizeDeps: { exclude: ["pyodide"] },
+  // C·C++ 실행기(JSCPP → printf 꾸러미)가 Node의 stream을 찾는다 — 브라우저에선 빈 Stream으로 (code/streamShim.ts)
+  resolve: { alias: { stream: path.resolve(path.dirname(createRequire(import.meta.url).resolve("./package.json")), "src/code/streamShim.ts") } },
   server: {
     // 태블릿·폰이 LAN IP로 붙을 수 있도록 0.0.0.0 바인딩
     host: true,

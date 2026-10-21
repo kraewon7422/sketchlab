@@ -16,6 +16,19 @@ import { theme } from "./theme";
  */
 
 type CodeIR = Extract<SceneIR, { kind: "code" }>;
+type Lang = CodeIR["data"]["lang"];
+/** 언어 이름표 (글자·배경·글자색) */
+const LANG_BADGE: Record<Lang, [string, string, string]> = {
+  python: ["Python", "#E7F0FB", "#2B5D99"],
+  js: ["JS", "#FFF4D6", "#8A6100"],
+  r: ["R", "#E3F1FF", "#1E5AA8"],
+  c: ["C", "#ECEFF4", "#3C4A63"],
+  cpp: ["C++", "#E8EDFB", "#2F4FA2"],
+  java: ["Java · 온라인", "#FDECE4", "#A6461F"],
+  html: ["HTML", "#FDE9E3", "#B23A16"],
+};
+/** 처음 불러올 때 안내 */
+const LOADING: Partial<Record<Lang, string>> = { python: "파이썬 준비 중… (처음 한 번, 몇 초)", r: "R 준비 중… (처음 한 번, 약 20 MB · 10~30초)" };
 const MONO = "'JetBrains Mono', 'D2Coding', Consolas, 'Courier New', monospace";
 
 /** 셀마다 실행 상태 (화면에만) */
@@ -120,8 +133,8 @@ function CodeBox({ item, ir, interactive }: { item: ObjectItem; ir: CodeIR; inte
           }}
           style={{ flex: "1 1 auto", minWidth: 0, border: "none", background: "transparent", fontSize: 13.5, fontWeight: 600, color: theme.color.ink, pointerEvents: live, padding: 0 }}
         />
-        <span style={{ flex: "0 0 auto", fontSize: 11.5, fontWeight: 600, padding: "2px 8px", borderRadius: 999, background: data.lang === "python" ? "#E7F0FB" : "#FFF4D6", color: data.lang === "python" ? "#2B5D99" : "#8A6100" }}>
-          {data.lang === "python" ? "Python" : "JS"}
+        <span style={{ flex: "0 0 auto", fontSize: 11.5, fontWeight: 600, padding: "2px 8px", borderRadius: 999, background: LANG_BADGE[data.lang][1], color: LANG_BADGE[data.lang][2] }}>
+          {LANG_BADGE[data.lang][0]}
         </span>
         {(
           <>
@@ -132,7 +145,7 @@ function CodeBox({ item, ir, interactive }: { item: ObjectItem; ir: CodeIR; inte
               <FastForward size={16} />
             </button>
             <button type="button" onClick={run} disabled={busy} style={{ ...btn, background: theme.color.accent, color: "#fff", opacity: busy ? 0.6 : 1 }}>
-              <Play size={14} fill="#fff" /> 실행
+              <Play size={14} fill="#fff" /> {data.lang === "html" ? "보기" : "실행"}
             </button>
           </>
         )}
@@ -182,7 +195,7 @@ function CodeBox({ item, ir, interactive }: { item: ObjectItem; ir: CodeIR; inte
       {(busy || out) && (
         <div data-code-output style={{ borderTop: `1px dashed ${theme.color.sub}`, padding: "8px 12px 10px", display: "grid", gap: 8 }}>
           {busy ? (
-            <div style={{ fontSize: 12.5, color: theme.color.accent }}>{status === "loading" ? "파이썬 준비 중… (처음 한 번, 몇 초)" : "실행 중…"}</div>
+            <div style={{ fontSize: 12.5, color: theme.color.accent }}>{status === "loading" ? (LOADING[data.lang] ?? "준비 중…") : data.lang === "java" ? "온라인에서 컴파일·실행 중…" : "실행 중…"}</div>
           ) : (
             out && (
               <>
@@ -226,6 +239,19 @@ function OutputView({ o, width, live }: { o: CodeOutput; width: number; live: "a
           </tbody>
         </table>
       </div>
+    );
+  if (o.t === "image")
+    // R plot() 등 — 상자 폭에 맞춰
+    return <img src={o.src} alt="코드가 그린 그림" width={Math.min(width, o.w)} style={{ display: "block", height: "auto", borderRadius: 6, border: `1px solid ${theme.color.sub}` }} />;
+  if (o.t === "html")
+    // HTML 셀: 샌드박스 안에서만 (노트·저장소·다른 사이트에 손대지 못한다)
+    return (
+      <iframe
+        title="HTML 결과"
+        sandbox="allow-scripts"
+        srcDoc={o.html}
+        style={{ width: "100%", height: 240, border: `1px solid ${theme.color.sub}`, borderRadius: 6, background: "#fff", pointerEvents: "auto", resize: "vertical" }}
+      />
     );
   return <MiniChart o={o} width={width} />;
 }

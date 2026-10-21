@@ -17,7 +17,7 @@
   <body>
     <main>
       <h1>SketchLab 개인정보 처리방침</h1>
-      <p class="muted">시행일: 2026년 10월 20일</p>
+      <p class="muted">시행일: 2026년 10월 21일</p>
 
       <h2>요약</h2>
       <p>SketchLab에는 운영 서버가 없습니다. 쓴 노트는 사용하는 기기 안에, 그리고 직접 연결한 경우 <b>사용자 자신의 Google Drive</b>에만 저장됩니다. 앱을 만든 사람은 사용자의 이메일, 이름, 노트를 받거나 볼 수 없습니다.</p>
@@ -37,6 +37,13 @@
       <h2>AI 기능 (선택)</h2>
       <p>손글씨 인식, 검산, 비슷한 문제 만들기 같은 AI 기능은 사용자가 직접 설정한 AI 서비스(OpenRouter 또는 내 PC의 Ollama)를 사용할 때만 작동합니다. 그때 고른 그림이나 글이 그 서비스로 전송되며, 사용자의 API 키는 그 기기에만 저장됩니다. 설정하지 않으면 아무것도 전송되지 않습니다.</p>
 
+      <h2>코드 블록 (선택)</h2>
+      <ul>
+        <li>Python, JavaScript, R, HTML 코드와 대부분의 C·C++ 코드는 사용자의 기기 안에서만 실행됩니다.</li>
+        <li><b>Java</b> 코드, 그리고 기기 안 실행기가 지원하지 않는 기능(vector, string 등)을 쓰는 C·C++ 코드는 실행을 위해 무료 공개 컴파일러 <b>wandbox.org</b>로 전송됩니다. 이때 코드 셀의 내용만 보내지며, 그 밖의 노트나 계정 정보는 보내지 않습니다. 그 코드를 실행할 때만 전송됩니다.</li>
+        <li>R은 처음 실행할 때 실행기 파일을 webr.r-wasm.org에서, 파이썬 꾸러미(numpy 등)는 처음 import할 때 cdn.jsdelivr.net에서 받아 옵니다. 이때 사용자의 코드나 노트는 보내지 않습니다.</li>
+      </ul>
+
       <h2>그 밖에</h2>
       <ul>
         <li>광고, 분석 도구, 추적 쿠키를 쓰지 않습니다.</li>
@@ -48,7 +55,7 @@
       <hr />
 
       <h1>SketchLab Privacy Policy</h1>
-      <p class="muted">Effective: October 20, 2026</p>
+      <p class="muted">Effective: October 21, 2026</p>
 
       <h2>Summary</h2>
       <p>SketchLab has no server. Your notes are stored on your own device and, if you choose to connect it, in <b>your own Google Drive</b>. The developer never receives or can see your email, name or notes.</p>
@@ -67,6 +74,13 @@
 
       <h2>AI features (optional)</h2>
       <p>AI features such as handwriting recognition, step checking and practice problems only run with an AI service you configure yourself (OpenRouter, or Ollama on your own PC). The selected drawing or text is then sent to that service, and your API key is stored only on your device. Nothing is sent if you don't configure one.</p>
+
+      <h2>Code blocks (optional)</h2>
+      <ul>
+        <li>Python, JavaScript, R and HTML code, and most C/C++ code, run only on your own device.</li>
+        <li><b>Java</b> code, and C/C++ code that uses features the on-device runner does not support (such as vector or string), is sent to the free public compiler <b>wandbox.org</b> to be run. Only the contents of that code cell are sent — no other notes or account information — and only when you run it.</li>
+        <li>R downloads its runtime from webr.r-wasm.org the first time it runs, and Python packages (such as numpy) are downloaded from cdn.jsdelivr.net the first time they are imported. Your code and notes are not sent in these downloads.</li>
+      </ul>
 
       <h2>Other</h2>
       <ul>

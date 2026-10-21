@@ -392,7 +392,7 @@ const Figure = z.object({
   p: z.record(z.string().max(16), z.number()).optional(),
 });
 
-/** 코드 셀이 낸 결과 한 조각 — 글(print)·표(table)·그래프(plot) */
+/** 코드 셀이 낸 결과 한 조각 — 글(print)·표(table)·그래프(plot)·그림(R plot 등, PNG data URL)·웹 페이지(HTML 셀) */
 export const CodeOutputItem = z.discriminatedUnion("t", [
   z.object({ t: z.literal("text"), text: z.string().max(20000), error: z.boolean().optional() }),
   z.object({ t: z.literal("table"), rows: z.array(z.array(z.string().max(200)).max(20)).max(60) }),
@@ -403,6 +403,8 @@ export const CodeOutputItem = z.discriminatedUnion("t", [
     ys: z.array(z.number()).max(5000),
     label: z.string().max(80).optional(),
   }),
+  z.object({ t: z.literal("image"), src: z.string().max(1_500_000), w: z.number().positive(), h: z.number().positive() }),
+  z.object({ t: z.literal("html"), html: z.string().max(20000) }),
 ]);
 export type CodeOutput = z.infer<typeof CodeOutputItem>;
 
@@ -412,7 +414,8 @@ export type CodeOutput = z.infer<typeof CodeOutputItem>;
  */
 const Code = z.object({
   name: z.string().max(40),
-  lang: z.enum(["js", "python"]),
+  /** 기기 안: js·python(Pyodide)·r(webR)·c·cpp(JSCPP, 안 되면 온라인)·html(샌드박스) / 온라인: java(Wandbox) */
+  lang: z.enum(["js", "python", "r", "c", "cpp", "java", "html"]),
   source: z.string().max(20000),
   output: z
     .object({
