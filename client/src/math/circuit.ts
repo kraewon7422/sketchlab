@@ -152,7 +152,7 @@ export const UNIT: Partial<Record<PartType, string>> = { battery: "V", ac: "V", 
 
 const R_SOURCE = 0.05; // 전지 내부 저항
 const G_CLOSED = 1e4; // 닫힌 스위치 (0.1 mΩ)
-const G_OPEN = 1e-9;
+const G_OPEN = 1e-12; // 열린 스위치 (새는 전류가 축전기를 몇 분 만에 채우지 않게)
 const G_AMMETER = 1e3; // 1 mΩ
 const G_VOLTMETER = 1e-7; // 10 MΩ
 const G_MIN = 1e-9; // 떠 있는 마디가 풀리게
