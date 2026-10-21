@@ -1,3 +1,6 @@
+import { toSmiles } from "./iupac";
+import { parseName } from "./iupacParse";
+
 /**
  * 화학 구조식 입력 (마스터스펙 v4 §13) — 이름("벤젠", "ethanol") 또는 SMILES("c1ccccc1").
  * 이름 목록은 교과서에 자주 나오는 분자만. 그 밖은 SMILES로 입력한다.
@@ -156,6 +159,14 @@ export function chemFromInput(input: string): { smiles: string; name?: string; g
   if (!t) return null;
   const named = BY_NAME.get(key(t));
   if (named) return named;
+  // IUPAC 이름 (사슬 분자) — "3-methylbutan-1-ol", "2-메틸프로페인"
+  const p = parseName(t);
+  if (p) {
+    const smiles = toSmiles(p.mol);
+    if (p.exact || !p.naming) return { smiles };
+    // 규칙에 어긋난 이름: 구조는 그리고, 캡션에 바로잡은 이름
+    return { smiles, name: `“${t}” → 올바른 이름: ${p.naming.ko} (${p.naming.en})` };
+  }
   const prefixed = /^smiles\s*:\s*(\S+)$/i.exec(t);
   if (prefixed) return { smiles: prefixed[1] as string };
   return looksLikeSmiles(t) ? { smiles: t, guessed: true } : null;

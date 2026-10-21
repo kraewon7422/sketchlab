@@ -136,7 +136,7 @@ export function ObjectOverlays({ interactive }: { interactive: boolean }): React
             ) : item.ir.kind === "space3d" ? (
               <SpaceObject key={item.id} item={item} interactive={interactive && !selection.includes(item.id)} />
             ) : item.ir.kind === "chem" ? (
-              <ChemObject key={item.id} item={item} />
+              <ChemObject key={item.id} item={item} interactive={interactive && !selection.includes(item.id)} />
             ) : item.ir.kind === "text" ? (
               <TextObject key={item.id} item={item} />
             ) : item.ir.kind === "venn" ? (

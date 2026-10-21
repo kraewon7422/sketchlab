@@ -25,6 +25,8 @@ export interface ChemDrawing {
   lines: Array<[P2, P2]>;
   labels: AtomLabel[];
   circles: Array<{ c: P2; r: number }>;
+  /** 원자 자리 (SMILES 차례 = RDKit 차례, 완전 구조식이면 H가 뒤에 붙는다) — 번호 붙이기·톡 편집용 */
+  atoms: P2[];
   width: number;
   height: number;
 }
@@ -231,6 +233,7 @@ export function layoutMolecule(json: string, opt: LayoutOptions): ChemDrawing {
     lines: lines.map(([p, q]) => [shift(p), shift(q)]),
     labels: labels.map((l) => ({ ...l, at: shift(l.at) })),
     circles: circles.map((c) => ({ ...c, c: shift(c.c) })),
+    atoms: pos.map(shift),
     width: Math.max(...xs) + margin - minX,
     height: Math.max(...ys) + margin - minY,
   };
