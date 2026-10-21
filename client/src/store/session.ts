@@ -45,6 +45,12 @@ interface HistoryEntry {
   mergeKey?: string;
 }
 
+/** 지우개가 지울 것만 고르기 (삼성노트: 형광펜만 지우기 · 테이프만 지우기) */
+export interface EraseOnly {
+  highlight: boolean;
+  tape: boolean;
+}
+
 export interface SessionState extends Doc {
   history: { undo: HistoryEntry[]; redo: HistoryEntry[] };
 
@@ -110,7 +116,9 @@ export interface SessionState extends Doc {
    *   area:   원 안 부분만 잘라 낸다 (영역 지우기)
    * gestureKey가 같으면 한 번 문지른 것으로 보고 Undo 1단계로 합친다.
    */
-  eraseAt(x: number, y: number, radius: number, mode?: "stroke" | "area", gestureKey?: string): number;
+  eraseAt(x: number, y: number, radius: number, mode?: "stroke" | "area", gestureKey?: string, only?: EraseOnly): number;
+  /** 스타일 변경 도구: 반경 안에 닿은 획의 색·굵기를 바꾼다 (같은 gestureKey = Undo 1단계). 바꾼 획 수 */
+  restyleAt(x: number, y: number, radius: number, color: string, width: number, gestureKey?: string): number;
   /** 페이지 모두 지우기 (Undo 가능) */
   clearAll(): void;
   setSelection(ids: string[]): void;
@@ -402,8 +410,11 @@ export const sessionStore: StoreApi<SessionState> = createStore<SessionState>((s
       });
     },
 
-    eraseAt(x, y, radius, mode = "stroke", gestureKey) {
+    eraseAt(x, y, radius, mode = "stroke", gestureKey, only) {
       let removed = 0;
+      // 형광펜만 / 테이프만 지우기 (삼성노트 지우개 옵션) — 둘 다 켜면 둘 다
+      const filtered = !!only && (only.highlight || only.tape);
+      const strokeOk = (s: Stroke) => !filtered || (!!only?.highlight && s.tool === "highlighter");
 
       commit("지우개", (draft) => {
         const survivors: CanvasItem[] = [];
@@ -415,12 +426,12 @@ export const sessionStore: StoreApi<SessionState> = createStore<SessionState>((s
           }
           if (item.kind === "object") {
             // 인식된 객체는 선에 닿으면 통째로 지운다 (획 단위 지우개와 같은 감각). Undo로 복구.
-            if (item.ir.kind === "shape2d" && distanceToShape2D(item.ir.data, item.transform, x, y) <= radius) {
+            if (!filtered && item.ir.kind === "shape2d" && distanceToShape2D(item.ir.data, item.transform, x, y) <= radius) {
               removed += 1;
               continue;
             }
             // 마스킹 테이프도 지우개가 닿으면 통째로 뗀다 (두 지우개 방식 모두)
-            if (item.ir.kind === "tape" && onTape(item.ir.data, item.transform, x, y, radius)) {
+            if ((!filtered || !!only?.tape) && item.ir.kind === "tape" && onTape(item.ir.data, item.transform, x, y, radius)) {
               removed += 1;
               continue;
             }
@@ -435,6 +446,10 @@ export const sessionStore: StoreApi<SessionState> = createStore<SessionState>((s
             // 원 안 부분만 잘라 내고, 남은 조각은 새 획으로 (색·굵기·종류는 그대로)
             kept = [];
             for (const s of item.strokes) {
+              if (!strokeOk(s)) {
+                kept.push(s);
+                continue;
+              }
               const pieces = cutStroke(s.points, x, y, radius + (s.width ?? 2.6) / 2);
               if (pieces === null) {
                 kept.push(s);
@@ -444,7 +459,7 @@ export const sessionStore: StoreApi<SessionState> = createStore<SessionState>((s
               for (const pts of pieces) kept.push({ ...s, id: newId("s"), points: pts, bbox: bboxOfPoints(pts) });
             }
           } else {
-            kept = item.strokes.filter((s) => distanceToPolyline(x, y, s.points) > radius);
+            kept = item.strokes.filter((s) => !strokeOk(s) || distanceToPolyline(x, y, s.points) > radius);
             removed += item.strokes.length - kept.length;
           }
 
@@ -468,6 +483,27 @@ export const sessionStore: StoreApi<SessionState> = createStore<SessionState>((s
       }, gestureKey);
 
       return removed;
+    },
+
+    restyleAt(x, y, radius, color, width, gestureKey) {
+      let changed = 0;
+      commit("스타일 변경", (draft) => {
+        for (const item of draft.items) {
+          if (item.kind !== "ink" || item.locked) continue;
+          let touched = false;
+          for (const s of item.strokes) {
+            if (s.color === color && s.width === width) continue;
+            // 굵은 획은 가장자리만 스쳐도 닿은 것으로
+            if (distanceToPolyline(x, y, s.points) > radius + (s.width ?? 2.6) / 2) continue;
+            s.color = color;
+            s.width = width;
+            changed += 1;
+            touched = true;
+          }
+          if (touched) item.bbox = unionBBoxes(item.strokes.map((s) => s.bbox));
+        }
+      }, gestureKey);
+      return changed;
     },
 
     clearAll() {

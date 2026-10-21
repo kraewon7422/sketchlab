@@ -1,3 +1,4 @@
+import { Switch } from "./penControls";
 import type { ReactElement } from "react";
 import { penOpts, theme } from "../render/theme";
 import { penStore, usePen } from "../store/pen";
@@ -11,6 +12,8 @@ import { sessionStore } from "../store/session";
  * 그래프·화학 구조식·입체·수식·글 상자는 어느 쪽으로도 지워지지 않는다 (선택해서 [삭제]).
  */
 export function EraserOptions(): ReactElement {
+  const eraseHighlightOnly = usePen((s) => s.eraseHighlightOnly);
+  const eraseTapeOnly = usePen((s) => s.eraseTapeOnly);
   const mode = usePen((s) => s.eraserMode);
   const size = usePen((s) => s.eraserSize);
 
@@ -62,6 +65,9 @@ export function EraserOptions(): ReactElement {
         />
       </label>
 
+      <Switch label="형광펜만 지우기" checked={eraseHighlightOnly} onChange={(v) => penStore.getState().set({ eraseHighlightOnly: v })} />
+      <Switch label="테이프만 지우기" checked={eraseTapeOnly} onChange={(v) => penStore.getState().set({ eraseTapeOnly: v })} />
+
       <button
         type="button"
         onClick={() => sessionStore.getState().clearAll()}
@@ -75,7 +81,7 @@ export function EraserOptions(): ReactElement {
           cursor: "pointer",
         }}
       >
-        페이지 모두 지우기
+        손글씨 모두 지우기
       </button>
       <span style={{ fontSize: 12, color: theme.color.asymptote, marginTop: -theme.space[2] }}>되돌리기(↶)로 다시 살릴 수 있어요</span>
     </div>

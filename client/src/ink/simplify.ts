@@ -12,6 +12,14 @@ import type { Point } from "./types";
  * 재귀가 아니라 명시적 스택으로 구현한 이유: 획이 아주 길면(빠른 필기 수천 점)
  * 최악의 경우 재귀 깊이가 점 개수만큼 깊어져 스택이 터질 수 있다.
  */
+/**
+ * 획을 줄일 때의 허용 오차 (월드 px) — 그릴 때의 확대 배율 k에 맞춘다.
+ * 화면에서 0.6px 이하로만 어긋나게: 크게 확대해 쓴 획은 그만큼 촘촘히 남는다 (축소해 쓴 획은 0.6 그대로).
+ */
+export function simplifyEpsilonAt(k: number, base = 0.6): number {
+  return base / Math.max(1, k);
+}
+
 export function simplifyRDP(points: readonly Point[], epsilon: number): Point[] {
   if (points.length <= 2 || epsilon <= 0) return [...points];
 

@@ -27,6 +27,8 @@ export interface SmoothOptions {
   pressure?: (p: number) => number;
   /** 획 양 끝을 이 길이(px)에 걸쳐 가늘게 (붓) */
   taper?: number;
+  /** 획 끝 쪽 이 비율(0~1)에 걸쳐 점점 가늘게 — "끝이 가는 선" */
+  taperEnd?: number;
   /** 납작한 펜촉: 획 방향에 따라 굵기가 바뀐다 (캘리그래피·사각 형광펜). angle = 펜촉 방향(라디안), min = 가장 가늘 때 배율 */
   nib?: { angle: number; min: number };
 }
@@ -169,7 +171,7 @@ export function smoothStrokePath(points: readonly Point[], options: SmoothOption
   if (!first) return "";
   if (points.length === 1) return dot(first.x, first.y, radiusAt(first.p, half));
 
-  const dense = densify(points, half, options.spacing ?? 1.5, options.pressure);
+  const dense = densify(points, half, options.spacing ?? Math.min(1.5, Math.max(0.08, half * 0.5)), options.pressure);
   if (options.taper && dense.length > 2) {
     // 붓: 시작과 끝을 가늘게 (전체 길이의 1/3을 넘지 않게)
     const acc = [0];
@@ -177,6 +179,17 @@ export function smoothStrokePath(points: readonly Point[], options: SmoothOption
     const L = acc[acc.length - 1] as number;
     const t = Math.min(options.taper, L / 3);
     if (t > 0) dense.forEach((d, i) => (d.r *= 0.15 + 0.85 * Math.min(1, (acc[i] as number) / t, (L - (acc[i] as number)) / t)));
+  }
+  if (options.taperEnd && dense.length > 2) {
+    // 끝이 가는 선: 마지막 taperEnd 비율 동안 굵기가 0.12배까지 줄어든다
+    const acc = [0];
+    for (let i = 1; i < dense.length; i++) acc.push((acc[i - 1] as number) + Math.hypot((dense[i] as Sample).x - (dense[i - 1] as Sample).x, (dense[i] as Sample).y - (dense[i - 1] as Sample).y));
+    const L = acc[acc.length - 1] as number;
+    const from = L * (1 - options.taperEnd);
+    if (L > 0) dense.forEach((d, i) => {
+      const a = acc[i] as number;
+      if (a > from) d.r *= 1 - 0.88 * ((a - from) / (L - from)) ** 1.2;
+    });
   }
   if (dense.length < 2) {
     const a = dense[0] ?? { x: first.x, y: first.y, r: radiusAt(first.p, half) };

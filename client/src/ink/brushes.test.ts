@@ -32,12 +32,29 @@ describe("펜 종류·선 모양", () => {
     expect(h.h).toBeGreaterThan(v.w * 2);
   });
 
-  it("만년필·붓은 필압에 따라 굵기가 크게 바뀐다", () => {
-    for (const brush of ["fountain", "brush"] as const) {
-      const soft = extent(strokeD(line(0, 0, 200, 0, 0.1), { tool: "pen", width: 4, brush })).h;
-      const hard = extent(strokeD(line(0, 0, 200, 0, 0.9), { tool: "pen", width: 4, brush })).h;
-      expect(hard).toBeGreaterThan(soft * 2.5);
-    }
+  it("삼성노트처럼: 만년필은 필압에 살짝, 펜은 늘 같은 굵기", () => {
+    const h = (brush: "fountain" | "ballpoint", p: number) => extent(strokeD(line(0, 0, 200, 0, p), { tool: "pen", width: 4, brush })).h;
+    expect(h("fountain", 0.9)).toBeGreaterThan(h("fountain", 0.1) * 1.4);
+    expect(h("ballpoint", 0.9)).toBeCloseTo(h("ballpoint", 0.1), 1);
+  });
+
+  it("끝이 가는 선: 끝 쪽이 가늘어진다", () => {
+    const full = strokeD(line(0, 0, 200, 0, 0.5), { tool: "pen", width: 6, brush: "ballpoint" });
+    const taper = strokeD(line(0, 0, 200, 0, 0.5), { tool: "pen", width: 6, brush: "ballpoint", line: "taper" });
+    // 끝(x ≥ 180)의 위아래 폭
+    const endH = (d: string) => {
+      const ys = [...d.matchAll(/(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/g)].filter((m) => Number(m[1]) >= 185).map((m) => Number(m[2]));
+      return Math.max(...ys) - Math.min(...ys);
+    };
+    expect(endH(taper)).toBeLessThan(endH(full) * 0.6);
+  });
+
+  it("연필은 알갱이 필터 + 고른 투명도, 브러시는 부드러운 가장자리 필터", () => {
+    const pencil = strokeAttrs({ tool: "pen", brush: "pencil", opacity: 0.65 });
+    expect(pencil.filter).toBe("url(#sl-pencil)");
+    expect(pencil.opacity).toBe(0.65);
+    expect(strokeAttrs({ tool: "pen", brush: "brush", width: 20 }).filter).toMatch(/^url\(#sl-soft-\d\)$/);
+    expect(strokeAttrs({ tool: "pen", brush: "ballpoint" }).filter).toBeUndefined();
   });
 
   it("파선·점선은 중심선을 굵기만큼 긋는다 (칠하지 않는다)", () => {

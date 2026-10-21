@@ -108,9 +108,20 @@ export const penOpts = {
   colorNames: ["검정", "파랑", "빨강", "초록", "주황", "보라"],
   highlightColors: ["#FACC15", "#4ADE80", "#F472B6", "#60A5FA"],
   highlightNames: ["노랑", "연두", "분홍", "하늘"],
-  /** 굵기 슬라이더 범위 px (필압 0.5 기준) */
-  penWidth: { min: 0.8, max: 12, default: 2.6 },
-  highlightWidth: { min: 6, max: 48, default: 18 },
+  /**
+   * 굵기 px (필압 0.5 기준) — 화면에는 삼성노트처럼 1~100 단계로 보인다 (store/pen.ts widthToLevel).
+   *   펜: 단계 L → 0.25 + 0.5·L px (1 → 0.75, 5 → 2.75, 100 → 50.25)
+   *   형광펜: 단계 L → 1 + 0.9·L px (1 → 1.9, 20 → 19, 100 → 91)
+   */
+  penWidth: { min: 0.75, max: 50.25, default: 2.75 },
+  highlightWidth: { min: 1.9, max: 91, default: 19 },
+  /** 삼성노트 색 판 (4줄 × 8) — 마지막 줄은 최근 색 */
+  palette: [
+    "#E8212E", "#F5C12E", "#F3EE16", "#3EF2CF", "#3E9BF0", "#1F3FF5", "#9122F0", "#262626",
+    "#E7746B", "#CF3B3B", "#173A45", "#3E8B7B", "#5F86B0", "#4F3F98", "#A35A2E", "#D2B49A",
+    "#F5E25A", "#E23C6B", "#72E58A", "#7B85F2", "#D9D9D9", "#666666", "#F2B90F", "#3FE36A",
+    "#6EA8E6", "#94AEE0", "#B2D79F", "#B39A12", "#E06666", "#7632A3", "#C459AE", "#BD7A62",
+  ],
   /** 무지개 줄의 채도·밝기 — 펜은 진하게, 형광펜은 밝게 */
   rainbowPen: { s: 80, l: 42 },
   rainbowHighlight: { s: 90, l: 62 },

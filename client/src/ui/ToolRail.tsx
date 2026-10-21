@@ -1,11 +1,11 @@
-import { Bandage, Bot, ImagePlus, WandSparkles, Eraser, Highlighter, Keyboard, Lasso, NotebookText, Pen, Redo2, Shapes, SquareFunction, Undo2 } from "lucide-react";
+import { ALargeSmall, Bandage, Bot, ImagePlus, WandSparkles, Eraser, Highlighter, Keyboard, Lasso, NotebookText, Pen, Redo2, Shapes, SquareFunction, Undo2 } from "lucide-react";
 import { useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
 import { theme } from "../render/theme";
 import { penStore, usePen, type ToolKey } from "../store/pen";
 import { sessionStore, useSession } from "../store/session";
 import type { LayoutMode } from "./layoutMode";
 import { eyedropperStore } from "./eyedropper";
-import { PenOptions } from "./PenPalette";
+import { PenOptions, StyleOptions } from "./PenPalette";
 
 /**
  * 도구 레일 — 노트 앱처럼 (삼성노트·GoodNotes의 세로 도구 막대).
@@ -28,6 +28,7 @@ export const TOOL_META: Record<ToolKey, [string, typeof Pen]> = {
   shape: ["도형", Shapes],
   tape: ["마스킹 테이프", Bandage],
   laser: ["레이저 포인터", WandSparkles],
+  style: ["스타일 변경", ALargeSmall],
 };
 
 /** 패널 이름 — 도구마다 하나 + 쪽(속지·쪽 목록·내보내기) */
@@ -63,7 +64,7 @@ export function ToolRail({ tool, onTool, mode, onFormula, onAi, onFiles, disable
   const toolOrder = usePen((s) => s.toolOrder);
   const hiddenTools = usePen((s) => s.hiddenTools);
 
-  const allPanels: ToolPanels = { pen: () => <PenOptions />, highlighter: () => <PenOptions />, ...panels };
+  const allPanels: ToolPanels = { pen: () => <PenOptions />, highlighter: () => <PenOptions />, style: () => <StyleOptions />, ...panels };
 
   // 바깥을 누르면 패널을 닫는다 — 닫으려고 캔버스를 톡 친 것은 점이 찍히지 않게 삼킨다
   useEffect(() => {

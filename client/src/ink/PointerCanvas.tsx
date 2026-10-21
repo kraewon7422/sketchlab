@@ -8,7 +8,7 @@ import { viewportStore } from "../store/viewport";
 import { paperOf, usePages } from "../store/pages";
 import { inView, useVisibleRect } from "../store/culling";
 import { PageBackground } from "../render/PageBackground";
-import { currentStrokeStyle, penStore } from "../store/pen";
+import { currentStrokeStyle, penStore, usePen } from "../store/pen";
 import { createStabilizer } from "./stabilize";
 import { GroupHint, InkItemView } from "./InkLayer";
 import { hitItem, itemAabb, itemsInLasso, itemsTouchedByLasso, selectionBox } from "./editing";
@@ -22,12 +22,16 @@ import { IR_VERSION } from "@sketchlab/shared";
 import { primitivePolyline } from "../render/shape2dGeometry";
 import { markFresh } from "../render/Shape2DView";
 import { distance, toWorld, zoomAbout, type View } from "./geometry";
-import { simplifyRDP } from "./simplify";
-import { isLineDrawn, strokeAttrs, strokeD } from "./brushes";
+import { simplifyEpsilonAt, simplifyRDP } from "./simplify";
+import { snapShape } from "./holdShape";
+import { isLineDrawn, strokeAttrs, strokeD, inkFilterMarkup } from "./brushes";
 import { createPalmRejector } from "./palmRejection";
 import type { InkItem, Point } from "./types";
 
-export type Tool = "pen" | "eraser" | "lasso" | "text" | "shape" | "tape" | "laser";
+/** 질감 필터 정의 (한 번만 만든다) */
+const INK_FILTERS = inkFilterMarkup();
+
+export type Tool = "pen" | "eraser" | "lasso" | "text" | "shape" | "tape" | "laser" | "style";
 
 /**
  * S Pen 측면 버튼(2) 또는 지우개 버튼(32)이 눌린 상태인가 (v4 §6.1).
@@ -136,6 +140,10 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
       /** 멈춤 판정 기준점 — 이보다 ink.holdTolerance 이상 움직이면 타이머를 다시 건다 */
       anchor: Point;
       held: boolean;
+      /** 그리기 시작할 때의 확대 배율 — 크게 확대해 쓴 획은 더 촘촘히 남긴다 */
+      k: number;
+      /** 멈춰서 반듯해진 도형 (삼성노트처럼 잉크 그대로) — 떼면 이 점들로 저장 */
+      snap?: Point[] | undefined;
     } | null = null;
     /** 지우개 드래그 중인 포인터 */
     let erasingPointerId: number | null = null;
@@ -540,6 +548,8 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
       g.setAttribute("fill", a.fill);
       g.setAttribute("opacity", String(a.opacity ?? 1));
       g.style.mixBlendMode = a.mixBlendMode ?? "";
+      if (a.filter) g.setAttribute("filter", a.filter);
+      else g.removeAttribute("filter");
       for (const [attr, v] of [
         ["stroke", a.stroke],
         ["stroke-width", a.strokeWidth],
@@ -619,6 +629,17 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
       holdTimer = setTimeout(() => {
         holdTimer = null;
         if (!drawing || drawing.length < ink.holdMinLength) return;
+        if (!penStore.getState().autoTidy) {
+          // 삼성노트처럼: 멈추면 그 자리에서 반듯한 도형으로 바뀌어 보이고, 떼면 그대로 잉크로 남는다
+          const snapped = snapShape(drawing.points);
+          if (!snapped) return;
+          drawing.held = true;
+          drawing.snap = snapped.points;
+          livePrefixRef.current?.setAttribute("d", "");
+          liveTailRef.current?.setAttribute("d", strokeD(snapped.points, drawing.style));
+          navigator.vibrate?.(8);
+          return;
+        }
         drawing.held = true;
         // 확정됐다는 신호: 진행 중 획 색을 강조색으로. 놓으면 도형으로 바뀐다.
         colorLive(theme.color.accent);
@@ -688,17 +709,31 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
       if (!rect) return;
       const v = view();
       const { x, y } = toWorld(event.clientX, event.clientY, rect, v);
-      const { eraserMode, eraserSize } = penStore.getState();
+      const { eraserMode, eraserSize, eraseHighlightOnly, eraseTapeOnly, styleColor, styleWidth } = penStore.getState();
+      const session = sessionStore.getState();
+      if (toolRef.current === "style") {
+        // 스타일 변경: 펜 끝이 스친 획에 고른 굵기·색 (화면에서 반경 10px)
+        const rs = 10 / v.k;
+        showEraser(x, y, rs);
+        const from = lastErase && Math.hypot(x - lastErase.x, y - lastErase.y) * v.k < 150 ? lastErase : { x, y }; // 화면에서 150px 넘게 튄 자리는 잇지 않는다
+        const steps = Math.max(1, Math.ceil(Math.hypot(x - from.x, y - from.y) / (rs / 2)));
+        for (let i = 1; i <= steps; i++) {
+          const t = i / steps;
+          session.restyleAt(from.x + (x - from.x) * t, from.y + (y - from.y) * t, rs, styleColor, styleWidth, eraseGesture);
+        }
+        lastErase = { x, y };
+        return;
+      }
       // 지우개 반경은 화면 기준 — 확대해도 손에 느껴지는 크기가 같게
       const r = eraserSize / v.k;
       showEraser(x, y, r);
-      const session = sessionStore.getState();
+      const only = { highlight: eraseHighlightOnly, tape: eraseTapeOnly };
       // 빠른 손놀림: 직전 자리와 사이를 반지름의 절반 간격으로 메운다
-      const from = lastErase ?? { x, y };
+      const from = lastErase && Math.hypot(x - lastErase.x, y - lastErase.y) * v.k < 150 ? lastErase : { x, y }; // 화면에서 150px 넘게 튄 자리는 잇지 않는다
       const steps = Math.max(1, Math.ceil(Math.hypot(x - from.x, y - from.y) / (r / 2)));
       for (let i = 1; i <= steps; i++) {
         const t = i / steps;
-        session.eraseAt(from.x + (x - from.x) * t, from.y + (y - from.y) * t, r, eraserMode, eraseGesture);
+        session.eraseAt(from.x + (x - from.x) * t, from.y + (y - from.y) * t, r, eraserMode, eraseGesture, only);
       }
       lastErase = { x, y };
     };
@@ -939,7 +974,7 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
         return;
       }
 
-      if (toolRef.current === "eraser" || isBarrelPressed(event)) {
+      if (toolRef.current === "eraser" || toolRef.current === "style" || isBarrelPressed(event)) {
         erasingPointerId = event.pointerId;
         eraseStart = { x: event.clientX, y: event.clientY, t: event.timeStamp, moved: 0 };
         eraseCount += 1;
@@ -973,6 +1008,7 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
         length: 0,
         anchor: first,
         held: false,
+        k: view().k,
       };
       armHold();
       armLongPress(event);
@@ -1097,6 +1133,13 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
           if (drawing.held) {
             drawing.held = false;
             colorLive(drawing.style.color);
+            if (drawing.snap) {
+              // 다시 움직였다 → 반듯한 도형을 풀고 손글씨 그대로 이어 그린다
+              drawing.snap = undefined;
+              frozenUpTo = 0;
+              livePrefixRef.current?.setAttribute("d", "");
+              schedulePaint();
+            }
           }
           armHold();
         }
@@ -1129,9 +1172,16 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
       }
       if (state.selection.length > 0) state.setSelection([]);
 
+      // 멈춰서 반듯해진 도형: 그 점들 그대로 (같은 펜, 같은 묶음)
+      if (captured.snap) {
+        sessionStore.getState().addStroke(createStroke(captured.snap, Date.now(), captured.style));
+        clearLive();
+        return;
+      }
       // 직선 자동 보정이 켜져 있고 거의 곧게 그었으면 곧은 선으로 (필압 변화는 남기려고 단순화는 건너뛴다)
       const straight = captured.style.straight && !captured.held ? straightenStroke(captured.points) : null;
-      const simplified = straight ?? simplifyRDP(captured.points, ink.simplifyEpsilon);
+      // 줄이는 허용 오차는 "화면에서" 0.6px — 1000 % 확대해 쓴 글씨가 손을 떼는 순간 각지지 않게
+      const simplified = straight ?? simplifyRDP(captured.points, simplifyEpsilonAt(captured.k));
       if (simplified.length > 0) {
         // 형광펜 획은 형광펜 획끼리만 묶인다 (session.addStroke) — ✨로 형광펜 도형으로 정리된다
         const groupId = sessionStore.getState().addStroke(createStroke(simplified, Date.now(), captured.style), { newGroup: captured.held });
@@ -1266,6 +1316,9 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
     (i): i is InkItem => i.id === activeGroupId && i.kind === "ink",
   );
 
+  // 손글씨 자동 정리(AI)가 꺼져 있으면 쓰는 묶음에 파란 상자를 그리지 않는다 (삼성노트처럼 기본 끔)
+  const autoTidy = usePen((s) => s.autoTidy);
+
   return (
     <svg
       ref={svgRef}
@@ -1277,12 +1330,14 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
         display: "block",
         // 브라우저의 스크롤·핀치 기본동작을 끄고 우리가 전부 처리한다 (함정 #1).
         touchAction: "none",
-        cursor: tool === "eraser" ? "cell" : tool === "text" ? "text" : "crosshair",
+        cursor: tool === "eraser" || tool === "style" ? "cell" : tool === "text" ? "text" : "crosshair",
       }}
     >
       <g ref={worldRef}>
+      {/* 연필 알갱이·브러시 번짐 필터 — 같은 그룹 안이라 쪽 내보내기에도 함께 담긴다 */}
+      <defs dangerouslySetInnerHTML={{ __html: INK_FILTERS }} />
       <PageBackground kind={background} paper={paper} visible={visible} />
-      {activeGroup && <GroupHint item={activeGroup} />}
+      {activeGroup && autoTidy && <GroupHint item={activeGroup} />}
 
       {items.filter((item) => inView(itemAabb(item), visible)).map((item) =>
         item.kind === "ink" ? (

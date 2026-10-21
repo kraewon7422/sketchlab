@@ -57,6 +57,16 @@ export interface PenSettings {
   /** 도구 막대 순서 · 숨긴 도구 (삼성노트 "도구 모음 편집") */
   toolOrder: ToolKey[];
   hiddenTools: ToolKey[];
+  /** 연필 투명도 0.1~1 (삼성노트 연필의 두 번째 슬라이더) */
+  pencilOpacity: number;
+  /** 손글씨 자동 정리 (AI) — 켜면 쓰는 손글씨 묶음에 파란 상자가 보이고 ✨로 정리할 묶음을 알려 준다. 기본 끔 */
+  autoTidy: boolean;
+  /** 스타일 변경 도구: 쓸고 지나간 획에 입힐 굵기(px)·색 */
+  styleWidth: number;
+  styleColor: string;
+  /** 지우개: 형광펜만 / 테이프만 지우기 */
+  eraseHighlightOnly: boolean;
+  eraseTapeOnly: boolean;
   /** 레이저 포인터 (삼성노트처럼): 레인보우 / 단일 색상, 모양 = 빛나는 선 · 윤곽선 · 점 */
   laserColorMode: "rainbow" | "single";
   laserColor: string;
@@ -66,8 +76,18 @@ export interface PenSettings {
 export type LaserStyle = "glow" | "outline" | "dot";
 
 /** 도구 막대의 그리기 도구 (순서를 바꾸고 숨길 수 있는 것) */
-export type ToolKey = "text" | "pen" | "highlighter" | "eraser" | "lasso" | "shape" | "tape" | "laser";
-export const TOOL_KEYS: readonly ToolKey[] = ["text", "pen", "highlighter", "eraser", "lasso", "shape", "tape", "laser"];
+export type ToolKey = "text" | "pen" | "highlighter" | "eraser" | "lasso" | "shape" | "tape" | "laser" | "style";
+export const TOOL_KEYS: readonly ToolKey[] = ["text", "pen", "highlighter", "eraser", "lasso", "shape", "tape", "laser", "style"];
+
+/** 굵기 px ↔ 화면 단계 1~100 (삼성노트) */
+export function widthToLevel(kind: PenKind, px: number): number {
+  const L = kind === "highlighter" ? (px - 1) / 0.9 : (px - 0.25) / 0.5;
+  return Math.min(100, Math.max(1, Math.round(L)));
+}
+export function levelToWidth(kind: PenKind, level: number): number {
+  const L = Math.min(100, Math.max(1, Math.round(level)));
+  return kind === "highlighter" ? 1 + 0.9 * L : 0.25 + 0.5 * L;
+}
 
 export interface PenPreset {
   kind: PenKind;
@@ -124,10 +144,16 @@ const DEFAULTS: PenSettings = {
   laserColorMode: "rainbow",
   laserColor: "#FF2D2D",
   laserStyle: "glow",
+  pencilOpacity: 0.8,
+  autoTidy: false,
+  styleWidth: 2.75,
+  styleColor: "#262626",
+  eraseHighlightOnly: false,
+  eraseTapeOnly: false,
 };
 
 const PEN_BRUSH_KEYS: readonly PenBrush[] = ["ballpoint", "fountain", "calligraphy", "pencil", "brush"];
-const LINE_KEYS: readonly LineStyle[] = ["solid", "thin", "dashed", "dotted"];
+const LINE_KEYS: readonly LineStyle[] = ["solid", "taper", "thin", "dashed", "dotted"];
 
 const SHAPES: readonly ShapeKind[] = ["line", "arrow", "rect", "ellipse", "triangle", "axes"];
 
@@ -187,6 +213,12 @@ function load(): PenSettings {
       laserColorMode: v.laserColorMode === "single" ? "single" : "rainbow",
       laserColor: hex(v.laserColor, DEFAULTS.laserColor),
       laserStyle: v.laserStyle === "outline" || v.laserStyle === "dot" ? v.laserStyle : "glow",
+      pencilOpacity: typeof v.pencilOpacity === "number" ? Math.min(1, Math.max(0.1, v.pencilOpacity)) : DEFAULTS.pencilOpacity,
+      autoTidy: v.autoTidy === true,
+      styleWidth: clamp(v.styleWidth, { ...penOpts.penWidth, default: DEFAULTS.styleWidth }),
+      styleColor: hex(v.styleColor, DEFAULTS.styleColor),
+      eraseHighlightOnly: v.eraseHighlightOnly === true,
+      eraseTapeOnly: v.eraseTapeOnly === true,
     };
   } catch {
     return DEFAULTS;
@@ -195,10 +227,10 @@ function load(): PenSettings {
 
 function persist(s: PenSettings): void {
   try {
-    const { kind, penColor, highlightColor, penWidth, highlightWidth, recentPen, recentHighlight, smoothing, eraserMode, eraserSize, shapeKind, shapeSquare, presets, penOnly, dark, lassoStyle, tapeColor, tapeWidth, tapePattern, penBrush, penLine, highlightBrush, highlightOpacity, straightPen, straightHighlight, straightTape, toolOrder, hiddenTools, laserColorMode, laserColor, laserStyle } = s;
+    const { kind, penColor, highlightColor, penWidth, highlightWidth, recentPen, recentHighlight, smoothing, eraserMode, eraserSize, shapeKind, shapeSquare, presets, penOnly, dark, lassoStyle, tapeColor, tapeWidth, tapePattern, penBrush, penLine, highlightBrush, highlightOpacity, straightPen, straightHighlight, straightTape, toolOrder, hiddenTools, laserColorMode, laserColor, laserStyle, pencilOpacity, autoTidy, styleWidth, styleColor, eraseHighlightOnly, eraseTapeOnly } = s;
     localStorage.setItem(
       KEY,
-      JSON.stringify({ kind, penColor, highlightColor, penWidth, highlightWidth, recentPen, recentHighlight, smoothing, eraserMode, eraserSize, shapeKind, shapeSquare, presets, penOnly, dark, lassoStyle, tapeColor, tapeWidth, tapePattern, penBrush, penLine, highlightBrush, highlightOpacity, straightPen, straightHighlight, straightTape, toolOrder, hiddenTools, laserColorMode, laserColor, laserStyle }),
+      JSON.stringify({ kind, penColor, highlightColor, penWidth, highlightWidth, recentPen, recentHighlight, smoothing, eraserMode, eraserSize, shapeKind, shapeSquare, presets, penOnly, dark, lassoStyle, tapeColor, tapeWidth, tapePattern, penBrush, penLine, highlightBrush, highlightOpacity, straightPen, straightHighlight, straightTape, toolOrder, hiddenTools, laserColorMode, laserColor, laserStyle, pencilOpacity, autoTidy, styleWidth, styleColor, eraseHighlightOnly, eraseTapeOnly }),
     );
   } catch {
     /* 저장이 막혀도 이번 세션 동안은 그대로 쓴다 */
@@ -215,7 +247,8 @@ export const penStore = createStore<PenState>((set, get) => ({
     const c = color.toUpperCase();
     const s = get();
     const highlighter = s.kind === "highlighter";
-    const presets: readonly string[] = highlighter ? penOpts.highlightColors : penOpts.colors;
+    // 색 판에 있는 색은 "최근 색"에 올리지 않는다
+    const presets: readonly string[] = [...penOpts.palette, ...(highlighter ? penOpts.highlightColors : penOpts.colors)];
     const recent = highlighter ? s.recentHighlight : s.recentPen;
     const nextRecent = presets.includes(c) ? recent : [c, ...recent.filter((r) => r !== c)].slice(0, RECENT_MAX);
     set(highlighter ? { highlightColor: c, recentHighlight: nextRecent } : { penColor: c, recentPen: nextRecent });
@@ -240,5 +273,14 @@ export function currentStrokeStyle(s: PenSettings = penStore.getState()): {
   const highlighter = s.kind === "highlighter";
   return highlighter
     ? { tool: s.kind, color: s.highlightColor, width: s.highlightWidth, brush: s.highlightBrush, line: "solid", opacity: s.highlightOpacity, straight: s.straightHighlight }
-    : { tool: s.kind, color: s.penColor, width: s.penWidth, brush: s.penBrush, line: s.penLine, straight: s.straightPen };
+    : {
+        tool: s.kind,
+        color: s.penColor,
+        width: s.penWidth,
+        brush: s.penBrush,
+        // 선 모양은 펜·연필만 (나머지 펜은 늘 실선)
+        line: s.penBrush === "ballpoint" || s.penBrush === "pencil" ? s.penLine : "solid",
+        ...(s.penBrush === "pencil" ? { opacity: s.pencilOpacity } : {}),
+        straight: s.straightPen,
+      };
 }
