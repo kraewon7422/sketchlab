@@ -8,7 +8,25 @@ import type { Point } from "./types";
  *   필압과 상관없이 굵기는 펜촉 크기 그대로 (떼는 순간 가늘어지지 않는다).
  */
 
-const r2 = (n: number) => Math.round(n * 100) / 100;
+const r2 = (n: number) => Math.round(n * 1000) / 1000;
+
+/** 볼록 껍질 (Andrew monotone chain) — 반시계 방향 */
+function convexHull(pts: Array<[number, number]>): Array<[number, number]> {
+  const p = [...pts].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const cross = (o: [number, number], a: [number, number], b: [number, number]) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const lower: Array<[number, number]> = [];
+  for (const q of p) {
+    while (lower.length >= 2 && cross(lower[lower.length - 2] as [number, number], lower[lower.length - 1] as [number, number], q) <= 0) lower.pop();
+    lower.push(q);
+  }
+  const upper: Array<[number, number]> = [];
+  for (let i = p.length - 1; i >= 0; i--) {
+    const q = p[i] as [number, number];
+    while (upper.length >= 2 && cross(upper[upper.length - 2] as [number, number], upper[upper.length - 1] as [number, number], q) <= 0) upper.pop();
+    upper.push(q);
+  }
+  return [...lower.slice(0, -1), ...upper.slice(0, -1)];
+}
 
 /** centripetal 이 아닌 균일 Catmull-Rom으로 촘촘히 (간격 step) */
 function resample(points: readonly Point[], step: number): Array<[number, number]> {
@@ -46,27 +64,19 @@ export function nibStrokePath(points: readonly Point[], width: number, angle: nu
   const tx = (-Math.sin(angle) * thin) / 2;
   const ty = (Math.cos(angle) * thin) / 2;
   const quad = (ax: number, ay: number, bx: number, by: number): string => {
-    // 선분 a→b 를 펜촉으로 쓸어 생긴 평행사변형 + 얇은 두께 → 육각형
-    const pts: Array<[number, number]> = [
-      [ax - hx - tx, ay - hy - ty],
-      [ax + hx - tx, ay + hy - ty],
-      [bx + hx - tx, by + hy - ty],
-      [bx + hx + tx, by + hy + ty],
-      [bx - hx + tx, by - hy + ty],
-      [ax - hx + tx, ay - hy + ty],
-    ];
-    // 같은 방향으로 감기 (넓이 부호)
-    let area = 0;
-    for (let i = 0; i < pts.length; i++) {
-      const [x1, y1] = pts[i] as [number, number];
-      const [x2, y2] = pts[(i + 1) % pts.length] as [number, number];
-      area += x1 * y2 - x2 * y1;
-    }
-    if (area < 0) pts.reverse();
-    return `M${pts.map(([x, y]) => `${r2(x)},${r2(y)}`).join("L")}Z`;
+    // 선분 a→b 를 (두께 있는) 펜촉으로 쓸어 생긴 자리 = 양 끝 펜촉 모서리 8점의 볼록 껍질.
+    // 볼록 다각형은 늘 같은 방향으로 감기므로 겹쳐 칠해도(nonzero) 구멍·줄무늬가 생기지 않는다.
+    const corners: Array<[number, number]> = [];
+    for (const [cx, cy] of [
+      [ax, ay],
+      [bx, by],
+    ] as const)
+      for (const sn of [-1, 1]) for (const st of [-1, 1]) corners.push([cx + sn * hx + st * tx, cy + sn * hy + st * ty]);
+    const hull = convexHull(corners);
+    return `M${hull.map(([x, y]) => `${r2(x)},${r2(y)}`).join("L")}Z`;
   };
   if (points.length === 1) return quad(first.x, first.y, first.x + 0.01, first.y);
-  const s = resample(points, Math.max(0.3, width / 8));
+  const s = resample(points, Math.max(0.12, width / 30));
   let d = "";
   for (let i = 0; i + 1 < s.length; i++) {
     const [ax, ay] = s[i] as [number, number];

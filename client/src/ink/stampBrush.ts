@@ -1,3 +1,4 @@
+import { strokeD } from "./brushes";
 import { grainValues } from "./grain";
 import type { Point } from "./types";
 
@@ -277,6 +278,13 @@ export function renderStampStroke(points: readonly Point[], brush: StampBrush, c
   ctx.setTransform(s, 0, 0, s, -minX * s, -minY * s);
 
   const r = rand(seed);
+  if (brush.wet && !brush.shape) {
+    // 수채화: 물감 한 번 = 끊김 없는 한 덩어리 (도장 구슬이 보이지 않게) — 필압 따라 굵어지는 매끈한 외곽선
+    ctx.globalAlpha = 0.5;
+    ctx.fillStyle = color;
+    ctx.fill(new Path2D(strokeD(points, { tool: "pen", brush: "brush", width })));
+    ctx.globalAlpha = 1;
+  } else
   for (const d of dabs) {
     const sz = size(d.p) * (1 - brush.jitter / 2 + brush.jitter * r());
     if (sz <= 0.05) continue;
@@ -298,7 +306,7 @@ export function renderStampStroke(points: readonly Point[], brush: StampBrush, c
     blur.height = ch;
     const bctx = blur.getContext("2d");
     if (bctx) {
-      bctx.filter = `blur(${Math.max(1.5, width * 0.22 * s)}px)`;
+      bctx.filter = `blur(${Math.max(1.5, width * 0.18 * s)}px)`;
       bctx.drawImage(canvas, 0, 0);
       const A = ctx.getImageData(0, 0, cw, ch);
       const B = bctx.getImageData(0, 0, cw, ch);
@@ -306,7 +314,7 @@ export function renderStampStroke(points: readonly Point[], brush: StampBrush, c
         const a = A.data[i] as number;
         const edge = Math.max(0, a - (B.data[i] as number));
         // 안쪽은 맑게(옅게), 물감이 밀려난 가장자리는 진하게
-        A.data[i] = Math.min(255, a * 0.6 + edge * 4.5);
+        A.data[i] = Math.min(255, a * 0.8 + edge * 2.2);
       }
       ctx.putImageData(A, 0, 0);
     }
