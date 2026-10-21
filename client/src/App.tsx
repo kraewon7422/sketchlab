@@ -16,6 +16,7 @@ import { useLayoutMode } from "./ui/layoutMode";
 import { aiConfigured, modelName } from "./ai/settings";
 import { ToolRail, type RailTool } from "./ui/ToolRail";
 import { EraserOptions } from "./ui/EraserOptions";
+import { LaserOptions } from "./ui/LaserOptions";
 import { TextPanel } from "./ui/TextPanel";
 import { PagePanel } from "./ui/PagePanel";
 import { ShapeOptions } from "./ui/ShapeOptions";
@@ -170,7 +171,7 @@ export function App(): ReactElement {
   const toolbar = <ToolRail tool={tool} onTool={setTool} mode={mode} onFormula={openSheet} onFiles={(f) => void insertFiles(f)} onAi={() => {
         setSheetArea(null); // ƒ 시트가 열려 있으면 닫고 AI 설정을 연다
         setAiOpen(true);
-      }} panels={{ eraser: () => <EraserOptions />, text: () => <TextPanel />, shape: () => <ShapeOptions />, lasso: () => <LassoOptions />, tape: () => <TapeOptions />, page: () => <PagePanel onMessage={showToast} /> }} forcePanel={editingText && tool === "text" ? "text" : null} />;
+      }} panels={{ eraser: () => <EraserOptions />, laser: () => <LaserOptions />, text: () => <TextPanel />, shape: () => <ShapeOptions />, lasso: () => <LassoOptions />, tape: () => <TapeOptions />, page: () => <PagePanel onMessage={showToast} /> }} forcePanel={editingText && tool === "text" ? "text" : null} />;
 
   return (
     <div

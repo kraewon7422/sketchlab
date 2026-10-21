@@ -57,7 +57,13 @@ export interface PenSettings {
   /** 도구 막대 순서 · 숨긴 도구 (삼성노트 "도구 모음 편집") */
   toolOrder: ToolKey[];
   hiddenTools: ToolKey[];
+  /** 레이저 포인터 (삼성노트처럼): 레인보우 / 단일 색상, 모양 = 빛나는 선 · 윤곽선 · 점 */
+  laserColorMode: "rainbow" | "single";
+  laserColor: string;
+  laserStyle: LaserStyle;
 }
+
+export type LaserStyle = "glow" | "outline" | "dot";
 
 /** 도구 막대의 그리기 도구 (순서를 바꾸고 숨길 수 있는 것) */
 export type ToolKey = "text" | "pen" | "highlighter" | "eraser" | "lasso" | "shape" | "tape" | "laser";
@@ -115,6 +121,9 @@ const DEFAULTS: PenSettings = {
   straightTape: false,
   toolOrder: [...TOOL_KEYS],
   hiddenTools: [],
+  laserColorMode: "rainbow",
+  laserColor: "#FF2D2D",
+  laserStyle: "glow",
 };
 
 const PEN_BRUSH_KEYS: readonly PenBrush[] = ["ballpoint", "fountain", "calligraphy", "pencil", "brush"];
@@ -175,6 +184,9 @@ function load(): PenSettings {
       })(),
       // 펜은 숨길 수 없다 (그리기의 기본)
       hiddenTools: Array.isArray(v.hiddenTools) ? v.hiddenTools.filter((t): t is ToolKey => TOOL_KEYS.includes(t as ToolKey) && t !== "pen") : [],
+      laserColorMode: v.laserColorMode === "single" ? "single" : "rainbow",
+      laserColor: hex(v.laserColor, DEFAULTS.laserColor),
+      laserStyle: v.laserStyle === "outline" || v.laserStyle === "dot" ? v.laserStyle : "glow",
     };
   } catch {
     return DEFAULTS;
@@ -183,10 +195,10 @@ function load(): PenSettings {
 
 function persist(s: PenSettings): void {
   try {
-    const { kind, penColor, highlightColor, penWidth, highlightWidth, recentPen, recentHighlight, smoothing, eraserMode, eraserSize, shapeKind, shapeSquare, presets, penOnly, dark, lassoStyle, tapeColor, tapeWidth, tapePattern, penBrush, penLine, highlightBrush, highlightOpacity, straightPen, straightHighlight, straightTape, toolOrder, hiddenTools } = s;
+    const { kind, penColor, highlightColor, penWidth, highlightWidth, recentPen, recentHighlight, smoothing, eraserMode, eraserSize, shapeKind, shapeSquare, presets, penOnly, dark, lassoStyle, tapeColor, tapeWidth, tapePattern, penBrush, penLine, highlightBrush, highlightOpacity, straightPen, straightHighlight, straightTape, toolOrder, hiddenTools, laserColorMode, laserColor, laserStyle } = s;
     localStorage.setItem(
       KEY,
-      JSON.stringify({ kind, penColor, highlightColor, penWidth, highlightWidth, recentPen, recentHighlight, smoothing, eraserMode, eraserSize, shapeKind, shapeSquare, presets, penOnly, dark, lassoStyle, tapeColor, tapeWidth, tapePattern, penBrush, penLine, highlightBrush, highlightOpacity, straightPen, straightHighlight, straightTape, toolOrder, hiddenTools }),
+      JSON.stringify({ kind, penColor, highlightColor, penWidth, highlightWidth, recentPen, recentHighlight, smoothing, eraserMode, eraserSize, shapeKind, shapeSquare, presets, penOnly, dark, lassoStyle, tapeColor, tapeWidth, tapePattern, penBrush, penLine, highlightBrush, highlightOpacity, straightPen, straightHighlight, straightTape, toolOrder, hiddenTools, laserColorMode, laserColor, laserStyle }),
     );
   } catch {
     /* 저장이 막혀도 이번 세션 동안은 그대로 쓴다 */

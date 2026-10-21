@@ -192,7 +192,22 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
      * 매끄럽게: 사이 점(coalesced)까지 모두 쓰고, 점과 점의 가운데를 잇는 2차 곡선으로 그린 뒤
      * 곡선을 화면 4px 조각으로 잘라 조각마다 색을 조금씩(2.4°) 바꾼다 → 띠 없이 이어지는 무지개.
      */
-    let laser: { pointerId: number; pts: Array<{ x: number; y: number }>; drawn: { x: number; y: number }; dist: number; el: SVGGElement } | null = null;
+    let laser: {
+      pointerId: number;
+      pts: Array<{ x: number; y: number }>;
+      drawn: { x: number; y: number };
+      dist: number;
+      /** 자국 전체 (빛 번짐 필터) — 손을 떼면 이것째로 사라진다 */
+      el: SVGGElement;
+      /** 색 조각들 */
+      line: SVGGElement;
+      /** 윤곽선 모양: 가운데 흰 선 */
+      core: SVGGElement | null;
+      /** 점 모양: 펜촉을 따라다니는 빛나는 점 (자국 없음) */
+      dot: SVGCircleElement | null;
+      /** 그은 길이(화면 px) → 색 (레인보우는 빨강부터 무지개, 단일 색상은 그 색) */
+      colorAt: (dist: number) => string;
+    } | null = null;
     /**
      * 길게 누르기 = 그 자리의 것 고르기 (손글씨·사진·그래프 모두, 어느 도구에서든).
      * 거의 움직이지 않고 LONG_PRESS_MS 동안 누르고 있으면 → 그리던 것은 버리고 고른 뒤, 계속 끌면 옮겨진다.
@@ -224,8 +239,13 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
         L.dist += step;
         const seg = document.createElementNS("http://www.w3.org/2000/svg", "path");
         seg.setAttribute("d", `M${prev.x},${prev.y}L${q.x},${q.y}`);
-        seg.setAttribute("stroke", laserHue((L.dist - step / 2) / LASER_CYCLE_PX));
-        L.el.appendChild(seg);
+        seg.setAttribute("stroke", L.colorAt(L.dist - step / 2));
+        L.line.appendChild(seg);
+        if (L.core) {
+          const c2 = document.createElementNS("http://www.w3.org/2000/svg", "path");
+          c2.setAttribute("d", `M${prev.x},${prev.y}L${q.x},${q.y}`);
+          L.core.appendChild(c2);
+        }
         prev = q;
       }
       L.drawn = to;
@@ -852,20 +872,50 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
       }
 
       if (toolRef.current === "laser") {
-        const el = document.createElementNS("http://www.w3.org/2000/svg", "g");
-        el.setAttribute("fill", "none");
-        el.setAttribute("stroke-width", String(ink.laserWidth / view().k));
-        el.setAttribute("stroke-linecap", "round");
-        el.setAttribute("stroke-linejoin", "round");
-        el.style.filter = `drop-shadow(0 0 ${3 / view().k}px rgba(255,255,255,0.9))`;
+        // 삼성노트처럼: 빛나는 선 · 윤곽선(가운데가 흰) · 점, 색은 레인보우 또는 단일 색상
+        const NS = "http://www.w3.org/2000/svg";
+        const k = view().k;
+        const { laserStyle, laserColorMode, laserColor } = penStore.getState();
+        const colorAt = (d: number) => (laserColorMode === "rainbow" ? laserHue(d / LASER_CYCLE_PX) : laserColor);
+        // 빛 번짐 크기는 화면 기준 (확대해도 같게)
+        document.getElementById("sl-laser-blur")?.setAttribute("stdDeviation", String(3.5 / k));
+        const el = document.createElementNS(NS, "g");
+        el.setAttribute("filter", "url(#sl-laser-glow)");
         laserRef.current?.appendChild(el);
         const p0 = toWorld(event.clientX, event.clientY, rect, view());
-        // 누르기만 해도 빨간 점이 보이게
-        const dot = document.createElementNS("http://www.w3.org/2000/svg", "path");
-        dot.setAttribute("d", `M${p0.x},${p0.y}l0,0`);
-        dot.setAttribute("stroke", laserHue(0));
-        el.appendChild(dot);
-        laser = { pointerId: event.pointerId, pts: [p0], drawn: p0, dist: 0, el };
+        const group = (stroke: string | null, width: number) => {
+          const g = document.createElementNS(NS, "g");
+          g.setAttribute("fill", "none");
+          if (stroke) g.setAttribute("stroke", stroke);
+          g.setAttribute("stroke-width", String(width / k));
+          g.setAttribute("stroke-linecap", "round");
+          g.setAttribute("stroke-linejoin", "round");
+          el.appendChild(g);
+          return g;
+        };
+        const line = group(null, laserStyle === "outline" ? 7 : ink.laserWidth + 1);
+        const core = laserStyle === "outline" ? group("#FFFFFF", 2.6) : null;
+        let dot: SVGCircleElement | null = null;
+        if (laserStyle === "dot") {
+          dot = document.createElementNS(NS, "circle");
+          dot.setAttribute("cx", String(p0.x));
+          dot.setAttribute("cy", String(p0.y));
+          dot.setAttribute("r", String(7 / k));
+          dot.setAttribute("fill", colorAt(0));
+          dot.setAttribute("stroke", "#FFFFFF");
+          dot.setAttribute("stroke-width", String(2 / k));
+          el.appendChild(dot);
+        } else {
+          // 누르기만 해도 점이 보이게
+          for (const g of [line, core]) {
+            if (!g) continue;
+            const d0 = document.createElementNS(NS, "path");
+            d0.setAttribute("d", `M${p0.x},${p0.y}l0,0`);
+            if (g === line) d0.setAttribute("stroke", colorAt(0));
+            g.appendChild(d0);
+          }
+        }
+        laser = { pointerId: event.pointerId, pts: [p0], drawn: p0, dist: 0, el, line, core, dot, colorAt };
         capture(event.pointerId);
         return;
       }
@@ -963,6 +1013,15 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
           const last = laser.pts[laser.pts.length - 1] as { x: number; y: number };
           if (Math.hypot(p.x - last.x, p.y - last.y) * view().k < 1.5) continue;
           laser.pts.push(p);
+          if (laser.dot) {
+            // 점 모양: 자국 없이 펜촉을 따라다닌다 (레인보우면 움직인 만큼 색이 돈다)
+            laser.dist += Math.hypot(p.x - last.x, p.y - last.y) * view().k;
+            laser.dot.setAttribute("cx", String(p.x));
+            laser.dot.setAttribute("cy", String(p.y));
+            laser.dot.setAttribute("fill", laser.colorAt(laser.dist));
+            laser.drawn = p;
+            continue;
+          }
           // 마지막에서 둘째 점을 조절점으로, 가운데점에서 가운데점까지
           const mid = { x: (last.x + p.x) / 2, y: (last.y + p.y) / 2 };
           laserCurve(laser, laser.drawn, laser.pts.length > 2 ? last : null, mid);
@@ -1120,7 +1179,7 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
         release(event.pointerId);
         // 마지막 가운데점 → 떼는 점까지 남은 끝 조각
         const end = laser.pts[laser.pts.length - 1];
-        if (end && (end.x !== laser.drawn.x || end.y !== laser.drawn.y)) laserCurve(laser, laser.drawn, null, end);
+        if (!laser.dot && end && (end.x !== laser.drawn.x || end.y !== laser.drawn.y)) laserCurve(laser, laser.drawn, null, end);
         fadeLaser(laser.el);
         laser = null;
         return;
@@ -1241,6 +1300,17 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
       {/* 도형 도구 미리보기 */}
       <path ref={shapeRef} fill="none" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" pointerEvents="none" data-export-skip />
       {/* 레이저 포인터 자국 (잠깐 보였다 사라진다) */}
+      {/* 레이저 빛 번짐 — 조각마다 제 색으로 번진다 (흐린 것 두 겹 + 원래 선) */}
+      <defs>
+        <filter id="sl-laser-glow" x="-50%" y="-50%" width="200%" height="200%">
+          <feGaussianBlur id="sl-laser-blur" in="SourceGraphic" stdDeviation="3.5" result="blur" />
+          <feMerge>
+            <feMergeNode in="blur" />
+            <feMergeNode in="blur" />
+            <feMergeNode in="SourceGraphic" />
+          </feMerge>
+        </filter>
+      </defs>
       <g ref={laserRef} pointerEvents="none" data-export-skip />
       {/* 테이프 붙이는 중 미리보기 */}
       <path ref={tapeRef} fill="none" strokeLinejoin="round" strokeLinecap="butt" opacity={0.85} pointerEvents="none" data-export-skip />
