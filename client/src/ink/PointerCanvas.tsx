@@ -106,6 +106,13 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
   holdSnapRef.current = onHoldSnap;
   const textTapRef = useRef(onTextTap);
   textTapRef.current = onTextTap;
+  /** 진행 중인 모든 것(그리기·끌기·올가미·지우기·제스처)을 버린다 — 도구를 바꿀 때 */
+  const resetRef = useRef<(() => void) | null>(null);
+  useEffect(() => {
+    // 도구를 바꾸면 고른 것도 푼다 (삼성노트처럼) — 고른 그래프 위에 쓰면 그래프가 끌려가던 문제
+    resetRef.current?.();
+    sessionStore.getState().setSelection([]);
+  }, [tool]);
 
   useEffect(() => {
     const svg = svgRef.current;
@@ -183,6 +190,19 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
      * 곡선을 화면 4px 조각으로 잘라 조각마다 색을 조금씩(2.4°) 바꾼다 → 띠 없이 이어지는 무지개.
      */
     let laser: { pointerId: number; pts: Array<{ x: number; y: number }>; drawn: { x: number; y: number }; dist: number; el: SVGGElement } | null = null;
+    /**
+     * 길게 누르기 = 그 자리의 것 고르기 (손글씨·사진·그래프 모두, 어느 도구에서든).
+     * 거의 움직이지 않고 LONG_PRESS_MS 동안 누르고 있으면 → 그리던 것은 버리고 고른 뒤, 계속 끌면 옮겨진다.
+     * 잠근 사진(PDF 쪽 배경)은 고르지 않는다 — 그 위에서 펜을 쉬고 있어도 배경이 잡히지 않게.
+     */
+    const LONG_PRESS_MS = 500;
+    let longPress: { pointerId: number; pointerType: string; sx: number; sy: number; timer: ReturnType<typeof setTimeout> } | null = null;
+    const clearLongPress = (): void => {
+      if (longPress) clearTimeout(longPress.timer);
+      longPress = null;
+    };
+    /** 마지막으로 진행 중인 손놀림이 움직인 시각 — 오래 멈춘 상태(놓친 pointerup)를 알아보려고 */
+    let lastActivity = 0;
     const LASER_HOLD_MS = 700;
     const LASER_FADE_MS = 600;
     const LASER_CYCLE_PX = 600;
@@ -313,7 +333,8 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
         state.previewObjectIR(tape.id, { ...tape.ir, data: { ...tape.ir.data, revealed: !tape.ir.data.revealed } });
         return true;
       }
-      // 사진·PDF 쪽은 톡으로 고르지 않는다 (그 위에 점을 찍을 수 있게) — 올가미로 고른다
+      // 사진은 한 번 톡으로 고른다 (사용자 결정 2026-10-21). 잠근 사진(PDF 쪽 배경)은 고르지 않는다 — 그 위에 점을 찍을 수 있게
+      const photo = hitItem(objects.filter((i) => i.ir.kind === "image" && !i.locked), w.x, w.y, 0);
       const hit = hitItem(objects.filter((i) => i.ir.kind !== "tape" && i.ir.kind !== "image"), w.x, w.y, ink.tapSlop / v.k);
       const prev = lastTap;
       const double = !!prev && t - prev.t < DOUBLE_TAP_MS && distance(prev.x, prev.y, clientX, clientY) < DOUBLE_TAP_PX;
@@ -322,13 +343,94 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
         state.setSelection([hit.id]);
         return true;
       }
-      if (state.selection.length > 0 && !(hit && state.selection.includes(hit.id))) {
-        state.setSelection([]);
+      // 톡한 자리의 것 (그래프·도형 등이 사진보다 위에 있다)
+      const under = hit ?? photo;
+      if (state.selection.length > 0 && !(under && state.selection.includes(under.id))) {
+        // 다른 사진을 톡 = 그 사진으로 바꿔 고르기, 그 밖 = 풀기
+        state.setSelection(!hit && photo ? [photo.id] : []);
+        return true;
+      }
+      if (!hit && photo) {
+        if (!state.selection.includes(photo.id)) state.setSelection([photo.id]);
         return true;
       }
       // 객체 위 한 번 톡은 점을 남기지 않는다 (곧 두 번째 톡이 올 수 있다)
       return !!hit;
     };
+
+    const armLongPress = (event: PointerEvent): void => {
+      clearLongPress();
+      const lp = {
+        pointerId: event.pointerId,
+        pointerType: event.pointerType,
+        sx: event.clientX,
+        sy: event.clientY,
+        timer: setTimeout(() => {
+          if (longPress !== lp) return;
+          longPress = null;
+          fireLongPress(lp.pointerId, lp.pointerType, lp.sx, lp.sy, performance.now());
+        }, LONG_PRESS_MS),
+      };
+      longPress = lp;
+    };
+    const fireLongPress = (pointerId: number, pointerType: string, sx: number, sy: number, t: number): void => {
+      if (!rect) return;
+      const v = view();
+      const w = toWorld(sx, sy, rect, v);
+      const state = sessionStore.getState();
+      const pickable = state.items.filter((i) => !(i.kind === "object" && i.ir.kind === "image" && i.locked));
+      const hit = hitItem(pickable, w.x, w.y, ink.tapSlop / v.k);
+      if (!hit) return;
+      // 하던 것을 버린다 (찍힌 점·지우개 자국 없이)
+      if (drawing?.pointerId === pointerId) {
+        drawing = null;
+        clearHold();
+        clearLive();
+      }
+      if (erasingPointerId === pointerId) {
+        erasingPointerId = null;
+        eraseStart = null;
+      }
+      if (manip?.pointerId === pointerId) manip = null;
+      lastTap = null;
+      state.setSelection([hit.id]);
+      navigator.vibrate?.(12);
+      // 손을 떼지 않고 끌면 바로 옮겨진다
+      manip = { kind: "move", pointerId, pointerType, sx, sy, t, moved: 0, ids: [hit.id], base: sessionStore.getState().items, view: { ...v } };
+      capture(pointerId);
+      lastActivity = t;
+    };
+
+    /** 진행 중인 모든 것을 버린다 (도구 바꾸기 · 놓친 pointerup으로 멈춘 상태 풀기) */
+    const resetAll = (): void => {
+      clearLongPress();
+      if (manip) {
+        cancelManip();
+      }
+      if (drawing) {
+        release(drawing.pointerId);
+        drawing = null;
+      }
+      clearHold();
+      if (lasso) release(lasso.pointerId);
+      lasso = null;
+      lassoRef.current?.setAttribute("d", "");
+      if (shapeDrag) release(shapeDrag.pointerId);
+      shapeDrag = null;
+      shapeRef.current?.setAttribute("d", "");
+      if (tapeDrag) release(tapeDrag.pointerId);
+      tapeDrag = null;
+      tapeRef.current?.setAttribute("d", "");
+      if (laser) fadeLaser(laser.el);
+      laser = null;
+      erasingPointerId = null;
+      eraseStart = null;
+      touches.clear();
+      gesture = null;
+      gestureLock = false;
+      clearLive();
+    };
+    resetRef.current = resetAll;
 
     /** 끌던 것을 제자리로 (취소) */
     const cancelManip = (): void => {
@@ -340,6 +442,7 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
     const moveManip = (event: PointerEvent): void => {
       const m = manip;
       if (!m) return;
+      lastActivity = event.timeStamp;
       m.moved = Math.max(m.moved, distance(m.sx, m.sy, event.clientX, event.clientY));
       if (m.moved < ink.tapMaxMove) return; // 손떨림으로 살짝 밀린 것은 탭
       const dx = event.clientX - m.sx;
@@ -630,6 +733,7 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
         touches.set(event.pointerId, { x: event.clientX, y: event.clientY });
         if (touches.size >= 2) {
           // 두 번째 손가락: 그리던 한 손가락 획·끌기는 버리고 이동·확대로
+          clearLongPress();
           cancelManip();
           if (drawing) {
             release(drawing.pointerId);
@@ -656,7 +760,13 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
         return;
       }
 
-      if (manip || lasso || tapeDrag || laser) return;
+      if (manip || lasso || tapeDrag || laser) {
+        // 놓친 pointerup으로 남은 상태 — 2초 넘게 아무 움직임이 없으면 풀고 새로 시작한다
+        if (event.timeStamp - lastActivity < 2000) return;
+        debugLog.warn("ink", "멈춘 손놀림 상태를 풀었습니다");
+        resetAll();
+      }
+      lastActivity = event.timeStamp;
       rect = svg.getBoundingClientRect();
       {
         const v = view();
@@ -680,6 +790,7 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
         if (event.pointerType === "touch" && (rejector.isPenMode() || penStore.getState().penOnly)) {
           manip = { kind: "pan", pointerId: event.pointerId, pointerType: "touch", sx: event.clientX, sy: event.clientY, t: event.timeStamp, moved: 0, ids: [], base: state.items, view: { ...v } };
           capture(event.pointerId);
+          armLongPress(event);
           event.preventDefault();
           return;
         }
@@ -763,6 +874,7 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
         eraseGesture = `erase-${eraseCount}-${Math.round(event.timeStamp)}`;
         lastErase = null;
         capture(event.pointerId);
+        armLongPress(event);
         eraseAtEvent(event);
         return;
       }
@@ -791,6 +903,7 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
         held: false,
       };
       armHold();
+      armLongPress(event);
 
       styleLive(style);
       frozenUpTo = 0;
@@ -799,6 +912,8 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
     };
 
     const onPointerMove = (event: PointerEvent): void => {
+      if (longPress && longPress.pointerId === event.pointerId && distance(longPress.sx, longPress.sy, event.clientX, event.clientY) > ink.tapMaxMove) clearLongPress();
+      if (lasso || tapeDrag || laser || shapeDrag) lastActivity = event.timeStamp;
       if (touches.has(event.pointerId)) {
         touches.set(event.pointerId, { x: event.clientX, y: event.clientY });
         if (gesture) {
@@ -961,6 +1076,7 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
     };
 
     const onPointerUp = (event: PointerEvent): void => {
+      if (longPress?.pointerId === event.pointerId) clearLongPress();
       if (liftTouch(event.pointerId)) return;
       if (manip && manip.pointerId === event.pointerId) {
         finishManip(event);
@@ -1003,6 +1119,7 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
     };
 
     const onPointerCancel = (event: PointerEvent): void => {
+      if (longPress?.pointerId === event.pointerId) clearLongPress();
       liftTouch(event.pointerId);
       if (manip?.pointerId === event.pointerId) cancelManip();
       if (shapeDrag?.pointerId === event.pointerId) {
@@ -1059,6 +1176,8 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
       resizeObserver.disconnect();
       if (frame !== null) cancelAnimationFrame(frame);
       clearHold();
+      clearLongPress();
+      resetRef.current = null;
     };
   }, []);
 

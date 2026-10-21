@@ -69,7 +69,8 @@ export function App(): ReactElement {
       textEditStore.getState().open({ id: null, x, y: y - 16, html: "" });
     }
   }, []);
-  const drawing = tool === "pen" || tool === "highlighter";
+  // 펜·형광펜·지우개에서 그래프·그림·코드를 직접 만질 수 있다 (2026-10-21 사용자 요청)
+  const drawing = tool === "pen" || tool === "highlighter" || tool === "eraser";
   const mode = useLayoutMode();
   const { toast, showToast } = useToast();
   const [sheetArea, setSheetArea] = useState<{ x: number; y: number; width: number; height: number } | null>(null);

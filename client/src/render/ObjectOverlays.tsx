@@ -1,6 +1,6 @@
-import { lazy, Suspense, useLayoutEffect, useRef, type ReactElement } from "react";
+import { lazy, Suspense, useLayoutEffect, useRef, type PointerEvent as RPointerEvent, type ReactElement, type ReactNode } from "react";
 import type { ObjectItem } from "../ink/types";
-import { useSession } from "../store/session";
+import { sessionStore, useSession } from "../store/session";
 import { inView, useVisibleRect } from "../store/culling";
 import { viewportStore } from "../store/viewport";
 import { ErrorBoundary } from "../ErrorBoundary";
@@ -38,7 +38,66 @@ const FigureObject = lazy(() => import("./FigureObject"));
 
 const OVERLAY_KINDS = new Set(["plot2d", "formula", "chemEq", "solid3d", "space3d", "chem", "text", "venn", "table", "tensor", "topology", "nnet", "code", "figure"]);
 
-/** interactive: 펜 도구일 때만 입체를 돌릴 수 있다 (지우개일 땐 터치가 캔버스로 가야 지워진다) */
+/**
+ * 객체 하나를 감싼다 — 손으로 다루는 부분(슬라이더·돌리기·톡) 위에서도 고를 수 있게:
+ *   길게 누르기(0.5초, 거의 안 움직이고) 또는 두 번 톡 → 그 객체 고르기
+ * 그 밖의 곳은 층이 pointer-events: none 이라 캔버스(PointerCanvas)가 같은 규칙으로 처리한다.
+ * 단추·입력칸·슬라이더 위에서는 길게 눌러도 고르지 않는다 (슬라이더를 쥐고 있는 중일 수 있다).
+ */
+const LONG_PRESS_MS = 500;
+const DOUBLE_TAP_MS = 400;
+function ObjectShell({ item, children }: { item: ObjectItem; children: ReactNode }): ReactElement {
+  const press = useRef<{ id: number; x: number; y: number; t: number; timer: ReturnType<typeof setTimeout> } | null>(null);
+  const lastTap = useRef<{ x: number; y: number; t: number } | null>(null);
+  const clear = () => {
+    if (press.current) clearTimeout(press.current.timer);
+    press.current = null;
+  };
+  const select = () => {
+    sessionStore.getState().setSelection([item.id]);
+    navigator.vibrate?.(12);
+  };
+  const onControl = (e: RPointerEvent) => e.target instanceof Element && !!e.target.closest("input, button, textarea, select, [contenteditable='true']");
+  return (
+    <div
+      style={{ position: "absolute", left: 0, top: 0, width: 0, height: 0 }}
+      onPointerDownCapture={(e) => {
+        clear();
+        if (onControl(e)) return;
+        press.current = {
+          id: e.pointerId,
+          x: e.clientX,
+          y: e.clientY,
+          t: e.timeStamp,
+          timer: setTimeout(() => {
+            press.current = null;
+            lastTap.current = null;
+            select();
+          }, LONG_PRESS_MS),
+        };
+      }}
+      onPointerMoveCapture={(e) => {
+        const p = press.current;
+        if (p && p.id === e.pointerId && Math.hypot(e.clientX - p.x, e.clientY - p.y) > 8) clear();
+      }}
+      onPointerUpCapture={(e) => {
+        const p = press.current;
+        clear();
+        if (!p || p.id !== e.pointerId || e.timeStamp - p.t > 350) return;
+        const prev = lastTap.current;
+        if (prev && e.timeStamp - prev.t < DOUBLE_TAP_MS && Math.hypot(e.clientX - prev.x, e.clientY - prev.y) < 24) {
+          lastTap.current = null;
+          select();
+        } else lastTap.current = { x: e.clientX, y: e.clientY, t: e.timeStamp };
+      }}
+      onPointerCancelCapture={clear}
+    >
+      {children}
+    </div>
+  );
+}
+
+/** interactive: 펜·형광펜·지우개 도구일 때 그래프·그림을 직접 만질 수 있다 (고른 것은 끌어서 옮기기만) */
 export function ObjectOverlays({ interactive }: { interactive: boolean }): ReactElement {
   const items = useSession((s) => s.items);
   // 화면 둘레만 그린다 — 내보낼 때는 전부 (withAllRendered)
@@ -63,8 +122,9 @@ export function ObjectOverlays({ interactive }: { interactive: boolean }): React
       <div ref={layerRef} style={{ position: "absolute", left: 0, top: 0, transformOrigin: "0 0", willChange: "transform" }}>
       <ErrorBoundary area="graphs">
         <Suspense fallback={null}>
-          {overlays.map((item) =>
-            item.ir.kind === "solid3d" ? (
+          {overlays.map((item) => (
+            <ObjectShell key={item.id} item={item}>
+            {item.ir.kind === "solid3d" ? (
               <SolidObject key={item.id} item={item} interactive={interactive && !selection.includes(item.id)} />
             ) : item.ir.kind === "space3d" ? (
               <SpaceObject key={item.id} item={item} interactive={interactive && !selection.includes(item.id)} />
@@ -88,8 +148,9 @@ export function ObjectOverlays({ interactive }: { interactive: boolean }): React
               <CodeObject key={item.id} item={item} interactive={interactive && !selection.includes(item.id)} />
             ) : (
               <PlotObject key={item.id} item={item} interactive={interactive && !selection.includes(item.id)} />
-            ),
-          )}
+            )}
+            </ObjectShell>
+          ))}
         </Suspense>
       </ErrorBoundary>
       {/* 마스킹 테이프는 맨 위 — 아래의 손글씨·그래프·구조식을 모두 가린다 */}

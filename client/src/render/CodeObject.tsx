@@ -97,7 +97,8 @@ function CodeBox({ item, ir, interactive }: { item: ObjectItem; ir: CodeIR; inte
     void runCodeItem(item.id);
   };
 
-  const btn = { flex: "0 0 auto", height: 32, minWidth: 32, padding: "0 10px", border: "none", borderRadius: 8, display: "inline-flex", alignItems: "center", gap: 4, fontSize: 13, cursor: "pointer", whiteSpace: "nowrap", pointerEvents: live } as const;
+  // 실행 단추는 어느 도구에서든 늘 보이고 눌린다 (사용자 요청 — 펜일 때만 되면 불편)
+  const btn = { flex: "0 0 auto", height: 32, minWidth: 32, padding: "0 10px", border: "none", borderRadius: 8, display: "inline-flex", alignItems: "center", gap: 4, fontSize: 13, cursor: "pointer", whiteSpace: "nowrap", pointerEvents: "auto" } as const;
   const out = data.output;
   const busy = !!status;
 
@@ -122,7 +123,7 @@ function CodeBox({ item, ir, interactive }: { item: ObjectItem; ir: CodeIR; inte
         <span style={{ flex: "0 0 auto", fontSize: 11.5, fontWeight: 600, padding: "2px 8px", borderRadius: 999, background: data.lang === "python" ? "#E7F0FB" : "#FFF4D6", color: data.lang === "python" ? "#2B5D99" : "#8A6100" }}>
           {data.lang === "python" ? "Python" : "JS"}
         </span>
-        {interactive && (
+        {(
           <>
             <button type="button" aria-label="변수 모두 지우기 (새로 시작)" title="변수 모두 지우기 (새로 시작)" onClick={() => resetKernels()} style={{ ...btn, padding: 0, background: "transparent", color: theme.color.asymptote }}>
               <RotateCcw size={15} />
