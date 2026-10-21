@@ -60,6 +60,8 @@ export interface PenSettings {
   /** 펜 종류마다 마지막 색·굵기 (삼성노트처럼 펜을 바꾸면 그 펜의 색·굵기로) */
   penColors: Partial<Record<PenBrush, string>>;
   penWidths: Partial<Record<PenBrush, number>>;
+  /** 가져온 브러시 중 고른 것 (penBrush = "custom") */
+  penStamp?: string | undefined;
   /** 연필 투명도 0.1~1 (삼성노트 연필의 두 번째 슬라이더) */
   pencilOpacity: number;
   /** 손글씨 자동 정리 (AI) — 켜면 쓰는 손글씨 묶음에 파란 상자가 보이고 ✨로 정리할 묶음을 알려 준다. 기본 끔 */
@@ -157,7 +159,7 @@ const DEFAULTS: PenSettings = {
   eraseTapeOnly: false,
 };
 
-const PEN_BRUSH_KEYS: readonly PenBrush[] = ["ballpoint", "fountain", "calligraphy", "pencil", "brush"];
+const PEN_BRUSH_KEYS: readonly PenBrush[] = ["ballpoint", "fountain", "calligraphy", "pencil", "brush", "custom"];
 const LINE_KEYS: readonly LineStyle[] = ["solid", "taper", "thin", "dashed", "dotted"];
 
 const SHAPES: readonly ShapeKind[] = ["line", "arrow", "rect", "ellipse", "triangle", "axes"];
@@ -228,6 +230,7 @@ function load(): PenSettings {
         for (const k of PEN_BRUSH_KEYS) if (typeof v.penWidths?.[k] === "number") out[k] = clamp(v.penWidths[k], penOpts.penWidth);
         return out;
       })(),
+      ...(typeof v.penStamp === "string" ? { penStamp: v.penStamp } : {}),
       pencilOpacity: typeof v.pencilOpacity === "number" ? Math.min(1, Math.max(0.1, v.pencilOpacity)) : DEFAULTS.pencilOpacity,
       autoTidy: v.autoTidy === true,
       styleWidth: clamp(v.styleWidth, { ...penOpts.penWidth, default: DEFAULTS.styleWidth }),
@@ -242,10 +245,10 @@ function load(): PenSettings {
 
 function persist(s: PenSettings): void {
   try {
-    const { kind, penColor, highlightColor, penWidth, highlightWidth, recentPen, recentHighlight, smoothing, eraserMode, eraserSize, shapeKind, shapeSquare, presets, penOnly, dark, lassoStyle, tapeColor, tapeWidth, tapePattern, penBrush, penLine, highlightBrush, highlightOpacity, straightPen, straightHighlight, straightTape, toolOrder, hiddenTools, laserColorMode, laserColor, laserStyle, pencilOpacity, autoTidy, styleWidth, styleColor, eraseHighlightOnly, eraseTapeOnly, penColors, penWidths } = s;
+    const { kind, penColor, highlightColor, penWidth, highlightWidth, recentPen, recentHighlight, smoothing, eraserMode, eraserSize, shapeKind, shapeSquare, presets, penOnly, dark, lassoStyle, tapeColor, tapeWidth, tapePattern, penBrush, penLine, highlightBrush, highlightOpacity, straightPen, straightHighlight, straightTape, toolOrder, hiddenTools, laserColorMode, laserColor, laserStyle, pencilOpacity, autoTidy, styleWidth, styleColor, eraseHighlightOnly, eraseTapeOnly, penColors, penWidths, penStamp } = s;
     localStorage.setItem(
       KEY,
-      JSON.stringify({ kind, penColor, highlightColor, penWidth, highlightWidth, recentPen, recentHighlight, smoothing, eraserMode, eraserSize, shapeKind, shapeSquare, presets, penOnly, dark, lassoStyle, tapeColor, tapeWidth, tapePattern, penBrush, penLine, highlightBrush, highlightOpacity, straightPen, straightHighlight, straightTape, toolOrder, hiddenTools, laserColorMode, laserColor, laserStyle, pencilOpacity, autoTidy, styleWidth, styleColor, eraseHighlightOnly, eraseTapeOnly, penColors, penWidths }),
+      JSON.stringify({ kind, penColor, highlightColor, penWidth, highlightWidth, recentPen, recentHighlight, smoothing, eraserMode, eraserSize, shapeKind, shapeSquare, presets, penOnly, dark, lassoStyle, tapeColor, tapeWidth, tapePattern, penBrush, penLine, highlightBrush, highlightOpacity, straightPen, straightHighlight, straightTape, toolOrder, hiddenTools, laserColorMode, laserColor, laserStyle, pencilOpacity, autoTidy, styleWidth, styleColor, eraseHighlightOnly, eraseTapeOnly, penColors, penWidths, penStamp }),
     );
   } catch {
     /* 저장이 막혀도 이번 세션 동안은 그대로 쓴다 */
@@ -299,6 +302,7 @@ export function currentStrokeStyle(s: PenSettings = penStore.getState()): {
   brush: PenBrush | HighlightBrush;
   line: LineStyle;
   opacity?: number;
+  stamp?: string;
   straight: boolean;
 } {
   const highlighter = s.kind === "highlighter";
@@ -312,6 +316,7 @@ export function currentStrokeStyle(s: PenSettings = penStore.getState()): {
         // 선 모양은 펜·연필만 (나머지 펜은 늘 실선)
         line: s.penBrush === "ballpoint" || s.penBrush === "pencil" ? s.penLine : "solid",
         ...(s.penBrush === "pencil" ? { opacity: s.pencilOpacity } : {}),
+        ...(s.penBrush === "custom" && s.penStamp ? { stamp: s.penStamp } : {}),
         straight: s.straightPen,
       };
 }

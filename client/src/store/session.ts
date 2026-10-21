@@ -571,7 +571,7 @@ export function __resetSession(): void {
 export function createStroke(
   points: Stroke["points"],
   endedAt: number,
-  style?: { tool: Stroke["tool"]; color: string; width: number; brush?: Stroke["brush"]; line?: Stroke["line"]; opacity?: Stroke["opacity"] },
+  style?: { tool: Stroke["tool"]; color: string; width: number; brush?: Stroke["brush"]; line?: Stroke["line"]; opacity?: Stroke["opacity"]; stamp?: string | undefined },
 ): Stroke {
   return {
     id: newId("stroke"),
@@ -584,6 +584,7 @@ export function createStroke(
     ...(style?.brush && style.brush !== "ballpoint" && style.brush !== "round" ? { brush: style.brush } : {}),
     ...(style?.line && style.line !== "solid" ? { line: style.line } : {}),
     ...(style?.opacity !== undefined ? { opacity: style.opacity } : {}),
+    ...(style?.brush === "custom" && style.stamp ? { stamp: style.stamp } : {}),
   };
 }
 

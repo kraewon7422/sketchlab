@@ -18,7 +18,7 @@ import type { Point } from "./types";
  *   형광펜: 둥근 촉 / 사각 촉(가로획은 굵고 세로획은 가늘게)
  * 저장되는 이름(ballpoint …)은 예전 그대로 — 예전 획도 그대로 열린다. "thin"(가는 선)은 예전 획만.
  */
-export type PenBrush = "ballpoint" | "fountain" | "calligraphy" | "pencil" | "brush";
+export type PenBrush = "ballpoint" | "fountain" | "calligraphy" | "pencil" | "brush" | "custom";
 export type HighlightBrush = "round" | "chisel";
 export type Brush = PenBrush | HighlightBrush;
 export type LineStyle = "solid" | "taper" | "thin" | "dashed" | "dotted";
@@ -28,7 +28,7 @@ export const PEN_BRUSHES: Array<[PenBrush, string]> = [
   ["calligraphy", "캘리그래피 펜"],
   ["ballpoint", "펜"],
   ["pencil", "연필"],
-  ["brush", "브러시"],
+  ["brush", "수채화 브러시"],
 ];
 export const HIGHLIGHT_BRUSHES: Array<[HighlightBrush, string]> = [
   ["round", "둥근 촉"],
@@ -53,6 +53,38 @@ export interface StrokeLook {
   line?: LineStyle | undefined;
   /** 형광펜·연필 투명도 0~1 */
   opacity?: number | undefined;
+  /** 가져온 브러시 id (brush = "custom") */
+  stamp?: string | undefined;
+}
+
+/** 도장 엔진으로 그리는 펜 (연필 · 수채화 · 가져온 브러시) — 다 그은 뒤 그림으로 (stampBrush.ts) */
+export const isRasterBrush = (look: StrokeLook): boolean => look.tool === "pen" && (look.brush === "pencil" || look.brush === "brush" || look.brush === "custom") && look.line !== "dashed" && look.line !== "dotted";
+
+/**
+ * 만년필 손맛: 필압에 비례, 속도에 반비례 (빨리 쓰면 가늘게) + 굵기를 부드럽게 (저역 필터 0.8/0.2)
+ * + 획 끝에서 튕기듯 가늘어짐. 결과는 필압 자리에 넣어 그대로 외곽선 계산에 쓴다.
+ */
+export function fountainDynamics(points: readonly Point[]): Point[] {
+  if (points.length < 3) return [...points];
+  const out: Point[] = [];
+  let w = -1;
+  let total = 0;
+  for (let i = 1; i < points.length; i++) total += Math.hypot((points[i] as Point).x - (points[i - 1] as Point).x, (points[i] as Point).y - (points[i - 1] as Point).y);
+  let run = 0;
+  for (let i = 0; i < points.length; i++) {
+    const p = points[i] as Point;
+    const prev = points[Math.max(0, i - 1)] as Point;
+    const d = Math.hypot(p.x - prev.x, p.y - prev.y);
+    run += d;
+    const v = d / Math.max(1, p.t - prev.t); // px/ms
+    const target = p.p * Math.min(1.3, Math.max(0.55, 1.3 - 0.45 * v));
+    w = w < 0 ? target : w * 0.8 + target * 0.2;
+    // 끝 15 %: 튕기듯 가늘어짐
+    const left = total - run;
+    const flick = total > 0 && left < total * 0.15 ? Math.max(0.2, (left / (total * 0.15)) ** 0.6) : 1;
+    out.push({ ...p, p: w * flick });
+  }
+  return out;
 }
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
@@ -71,6 +103,8 @@ function outlineOptions(look: StrokeLook, baseWidth: number): SmoothOptions {
     case "pencil":
       return { baseWidth, pressure: (p) => clamp(0.75 + 0.5 * p, 0.75, 1.25), ...lineTaper };
     case "brush":
+    case "custom":
+      // (그리는 동안의 미리보기 모양 — 다 그으면 도장 엔진 그림으로 바뀐다)
       return { baseWidth, pressure: (p) => clamp(0.1 + 1.9 * p ** 1.1, 0.1, 2) };
     default:
       // 펜: 고른 굵기
@@ -87,6 +121,7 @@ export function strokeD(points: readonly Point[], look: StrokeLook): string {
   if (isLineDrawn(look)) return centerlinePath(points);
   // 캘리그래피: 납작한 펜촉 (오른쪽 위 −45° 방향으로 놓인 펜촉, 가장 가늘 때 굵기의 12 %)
   if (look.tool === "pen" && look.brush === "calligraphy" && look.line !== "thin") return nibStrokePath(points, w * 1.8, -Math.PI / 4, w * 0.22);
+  if (look.tool === "pen" && look.brush === "fountain") return smoothStrokePath(fountainDynamics(points), outlineOptions(look, w));
   return smoothStrokePath(points, outlineOptions(look, w));
 }
 
@@ -122,8 +157,8 @@ export function strokeAttrs(look: StrokeLook): {
     return { fill: color, opacity: look.opacity ?? penOpts.highlightOpacity, mixBlendMode: "multiply" };
   }
   const mask = strokeMask(look);
-  // 연필은 고른 투명도 (예전 연필 획은 0.82)
-  const opacity = look.brush === "pencil" ? (look.opacity ?? 0.82) : undefined;
+  // 연필은 고른 투명도 (예전 연필 획은 0.82) · 수채화·가져온 브러시의 미리보기는 옅게
+  const opacity = look.brush === "pencil" ? (look.opacity ?? 0.82) : look.brush === "brush" || look.brush === "custom" ? 0.55 : undefined;
   const extra = { ...(opacity !== undefined ? { opacity } : {}), ...(mask ? { mask } : {}) };
   if (isLineDrawn(look)) {
     const w = look.width ?? 2.6;

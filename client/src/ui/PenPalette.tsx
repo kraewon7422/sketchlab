@@ -1,10 +1,11 @@
 import { Plus, Trash2, X } from "lucide-react";
-import { useState, type ReactElement } from "react";
+import { useRef, useState, type ReactElement } from "react";
 import { HIGHLIGHT_BRUSHES, hasLineStyles, LINE_STYLES, PEN_BRUSHES, strokeAttrs, strokeD, type StrokeLook } from "../ink/brushes";
 import type { Point } from "../ink/types";
 import { theme } from "../render/theme";
 import { currentStrokeStyle, levelToWidth, penStore, usePen, widthToLevel, type PenPreset } from "../store/pen";
 import { ColorGrid, LevelSlider, OpacitySlider, PenGlyph, Switch } from "./penControls";
+import { importBrushFile, removeBrush, useBrushes } from "../ink/brushLibrary";
 
 /**
  * 펜·형광펜 옵션 패널 (도구 레일에서 펜/형광펜을 한 번 더 누르면 열린다) — 삼성노트 펜 패널 차례 그대로:
@@ -78,7 +79,9 @@ export function PenOptions(): ReactElement {
             );
           })}
         </div>
-      ) : (
+      ) : null}
+      {!highlighter && <MyBrushes active={pen.penBrush === "custom" ? pen.penStamp : undefined} color={current} onPick={(id) => set({ penBrush: "custom", penStamp: id })} />}
+      {highlighter && (
         <div role="radiogroup" aria-label="형광펜 촉" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
           {HIGHLIGHT_BRUSHES.map(([k, label]) => (
             <button key={k} type="button" role="radio" aria-checked={style.brush === k} aria-label={label} onClick={() => set({ highlightBrush: k === "chisel" ? "chisel" : "round" })} style={{ ...pill(style.brush === k), height: 48, gap: 0, fontSize: 11, color: theme.color.ink }}>
@@ -195,6 +198,72 @@ export function StyleOptions(): ReactElement {
       <div style={{ fontSize: 13, fontWeight: 600, marginBottom: -8 }}>색상</div>
       <ColorGrid value={styleColor} recent={recent} onPick={(c) => set({ styleColor: c.toUpperCase() })} />
       <div style={{ fontSize: 12, color: theme.color.asymptote, wordBreak: "keep-all" }}>바꿀 손글씨 위를 펜으로 쓸고 지나가면 그 획의 크기와 색이 바뀌어요 (되돌리기 가능)</div>
+    </div>
+  );
+}
+
+/**
+ * 내 브러시 — 인터넷에서 받은 브러시(PNG 모양, Procreate .brush/.brushset)를 가져와 펜으로.
+ * 고르면 그 브러시로 쓰고, ×로 뺀다.
+ */
+function MyBrushes({ active, color, onPick }: { active: string | undefined; color: string; onPick: (id: string) => void }): ReactElement {
+  const brushes = useBrushes();
+  const file = useRef<HTMLInputElement>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const take = async (files: FileList | null) => {
+    if (!files?.length) return;
+    setBusy(true);
+    setMsg(null);
+    let n = 0;
+    try {
+      for (const f of Array.from(files)) n += await importBrushFile(f);
+      setMsg(`브러시 ${n}개를 가져왔어요`);
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "가져오지 못했어요");
+    } finally {
+      setBusy(false);
+      if (file.current) file.current.value = "";
+    }
+  };
+  return (
+    <div style={{ display: "grid", gap: 6 }}>
+      <div style={{ fontSize: 12, color: theme.color.asymptote }}>내 브러시</div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+        {brushes.map((b) => (
+          <span key={b.id} style={{ position: "relative" }}>
+            <button
+              type="button"
+              aria-label={`브러시 ${b.name}`}
+              aria-pressed={active === b.id}
+              title={b.name}
+              onClick={() => onPick(b.id)}
+              style={{ width: 40, height: 40, padding: 3, borderRadius: 10, border: `1.5px solid ${active === b.id ? theme.color.accent : theme.color.sub}`, background: "#fff", cursor: "pointer", display: "grid", placeItems: "center" }}
+            >
+              {/* 모양을 지금 색으로 */}
+              <span aria-hidden style={{ width: 30, height: 30, background: color, WebkitMaskImage: b.shape ? `url(${b.shape})` : undefined, maskImage: b.shape ? `url(${b.shape})` : undefined, WebkitMaskSize: "contain", maskSize: "contain", borderRadius: b.shape ? 0 : "50%" }} />
+            </button>
+            <button
+              type="button"
+              aria-label={`브러시 ${b.name} 빼기`}
+              onClick={() => removeBrush(b.id)}
+              style={{ position: "absolute", top: -6, right: -6, width: 18, height: 18, padding: 0, display: "grid", placeItems: "center", border: "none", borderRadius: "50%", background: theme.color.sub, color: theme.color.ink, cursor: "pointer" }}
+            >
+              <X size={11} />
+            </button>
+          </span>
+        ))}
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => file.current?.click()}
+          style={{ height: 40, padding: "0 12px", borderRadius: 10, border: `1px dashed ${theme.color.accent}`, background: "#fff", color: theme.color.accent, fontSize: 12.5, cursor: "pointer" }}
+        >
+          {busy ? "가져오는 중…" : "+ 브러시 가져오기"}
+        </button>
+        <input ref={file} type="file" multiple accept=".png,.jpg,.jpeg,.webp,.brush,.brushset,.zip,image/*" style={{ display: "none" }} onChange={(e) => void take(e.target.files)} />
+      </div>
+      <div style={{ fontSize: 11.5, color: theme.color.asymptote, wordBreak: "keep-all" }}>{msg ?? "브러시 모양 그림(PNG)이나 Procreate 브러시(.brush · .brushset)를 넣으면 펜으로 쓸 수 있어요"}</div>
     </div>
   );
 }

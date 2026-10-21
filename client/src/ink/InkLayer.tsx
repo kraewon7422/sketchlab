@@ -1,6 +1,10 @@
-import { memo } from "react";
+import { memo, useMemo, useState } from "react";
+import { useStore } from "zustand";
 import { ink, theme } from "../render/theme";
-import { strokeAttrs, strokeD } from "./brushes";
+import { viewportStore } from "../store/viewport";
+import { BUILTIN, customBrush, useBrushes } from "./brushLibrary";
+import { isRasterBrush, strokeAttrs, strokeD } from "./brushes";
+import { renderStampStroke } from "./stampBrush";
 import type { InkItem, Stroke } from "./types";
 
 /**
@@ -31,7 +35,36 @@ export function InkStrokes({ strokes }: { strokes: readonly Stroke[] }) {
   );
 }
 
+/** 확대 단계 — 이 단계가 바뀔 때만 도장 브러시 그림을 다시 만든다 */
+const zoomBucket = (k: number) => (k <= 1.25 ? 1 : k <= 2.5 ? 2 : k <= 5 ? 4 : 8);
+const hashId = (id: string) => {
+  let h = 2166136261;
+  for (let i = 0; i < id.length; i++) h = Math.imul(h ^ id.charCodeAt(i), 16777619);
+  return h >>> 0;
+};
+
+/** 연필 · 수채화 · 가져온 브러시: 도장 엔진으로 그린 그림 (확대하면 더 촘촘히 다시) */
+const RasterStrokeView = memo(function RasterStrokeView({ stroke }: { stroke: Stroke }) {
+  const bucket = useStore(viewportStore, (s) => zoomBucket(s.k));
+  useBrushes(); // 가져온 브러시가 바뀌면 다시
+  const [tick, setTick] = useState(0);
+  const brush = stroke.brush === "custom" ? customBrush(stroke.stamp) : BUILTIN[stroke.brush ?? ""];
+  const dpr = typeof window === "undefined" ? 1 : Math.min(2, window.devicePixelRatio || 1);
+  const r = useMemo(
+    () => (brush ? renderStampStroke(stroke.points, brush, stroke.color ?? theme.color.ink, stroke.width ?? ink.width, stroke.brush === "pencil" ? (stroke.opacity ?? 0.9) : 1, bucket * dpr * 1.5, hashId(stroke.id), () => setTick((n) => n + 1)) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [stroke, brush, bucket, dpr, tick],
+  );
+  if (!r) return <VectorStrokeView stroke={stroke} />;
+  return <image href={r.url} x={r.x} y={r.y} width={r.w} height={r.h} preserveAspectRatio="none" style={brush?.wet ? { mixBlendMode: "multiply" } : undefined} />;
+});
+
 const StrokeView = memo(function StrokeView({ stroke }: { stroke: Stroke }) {
+  if (isRasterBrush({ ...stroke })) return <RasterStrokeView stroke={stroke} />;
+  return <VectorStrokeView stroke={stroke} />;
+});
+
+const VectorStrokeView = memo(function VectorStrokeView({ stroke }: { stroke: Stroke }) {
   // 외곽선 하나짜리 매끈한 획 (smoothOutline.ts) — 펜 종류·선 모양은 brushes.ts
   const look = { ...stroke, width: stroke.width ?? ink.width };
   const { mixBlendMode, ...attrs } = strokeAttrs(look);

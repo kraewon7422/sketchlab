@@ -44,6 +44,8 @@ export interface Stroke {
   line?: LineStyle;
   /** 형광펜 투명도 0~1 (없으면 기본값) */
   opacity?: number;
+  /** 가져온 브러시 id (brush = "custom") — ink/brushLibrary.ts */
+  stamp?: string;
 }
 
 export interface InkItem {
