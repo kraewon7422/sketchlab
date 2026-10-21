@@ -179,11 +179,34 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
      * 레이저 포인터 — 빛나는 자국이 손을 떼면 서서히 사라진다 (발표·설명용, 노트에 남지 않는다).
      * 무지개: 빨강에서 시작해 그은 길이를 따라 주황·노랑·초록·파랑·보라 → 다시 빨강 (한 바퀴 = 화면 600px).
      * 경로 하나는 길이를 따라 색을 바꿀 수 없어서 짧은 조각마다 색을 준다.
+     * 매끄럽게: 사이 점(coalesced)까지 모두 쓰고, 점과 점의 가운데를 잇는 2차 곡선으로 그린 뒤
+     * 곡선을 화면 4px 조각으로 잘라 조각마다 색을 조금씩(2.4°) 바꾼다 → 띠 없이 이어지는 무지개.
      */
-    let laser: { pointerId: number; last: { x: number; y: number }; dist: number; el: SVGGElement } | null = null;
+    let laser: { pointerId: number; pts: Array<{ x: number; y: number }>; drawn: { x: number; y: number }; dist: number; el: SVGGElement } | null = null;
     const LASER_HOLD_MS = 700;
     const LASER_FADE_MS = 600;
     const LASER_CYCLE_PX = 600;
+    /** from → (ctrl 쪽으로 휘어) → to 곡선을 화면 약 4px 조각으로 그린다 (ctrl 없으면 곧은 선) */
+    const laserCurve = (L: NonNullable<typeof laser>, from: { x: number; y: number }, ctrl: { x: number; y: number } | null, to: { x: number; y: number }): void => {
+      const k = view().k;
+      const c = ctrl ?? { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 };
+      const approx = (Math.hypot(c.x - from.x, c.y - from.y) + Math.hypot(to.x - c.x, to.y - c.y)) * k;
+      const n = Math.max(1, Math.ceil(approx / 4));
+      let prev = from;
+      for (let i = 1; i <= n; i++) {
+        const t = i / n;
+        const u = 1 - t;
+        const q = { x: u * u * from.x + 2 * u * t * c.x + t * t * to.x, y: u * u * from.y + 2 * u * t * c.y + t * t * to.y };
+        const step = Math.hypot(q.x - prev.x, q.y - prev.y) * k;
+        L.dist += step;
+        const seg = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        seg.setAttribute("d", `M${prev.x},${prev.y}L${q.x},${q.y}`);
+        seg.setAttribute("stroke", laserHue((L.dist - step / 2) / LASER_CYCLE_PX));
+        L.el.appendChild(seg);
+        prev = q;
+      }
+      L.drawn = to;
+    };
     const fadeLaser = (el: SVGGElement): void => {
       setTimeout(() => {
         el.style.transition = `opacity ${LASER_FADE_MS}ms ease-out`;
@@ -709,7 +732,7 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
         dot.setAttribute("d", `M${p0.x},${p0.y}l0,0`);
         dot.setAttribute("stroke", laserHue(0));
         el.appendChild(dot);
-        laser = { pointerId: event.pointerId, last: p0, dist: 0, el };
+        laser = { pointerId: event.pointerId, pts: [p0], drawn: p0, dist: 0, el };
         capture(event.pointerId);
         return;
       }
@@ -797,15 +820,16 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
       }
       if (laser && laser.pointerId === event.pointerId) {
         if (!rect) return;
-        const p = toWorld(event.clientX, event.clientY, rect, view());
-        const step = Math.hypot(p.x - laser.last.x, p.y - laser.last.y) * view().k;
-        if (step < 1.5) return;
-        laser.dist += step;
-        const seg = document.createElementNS("http://www.w3.org/2000/svg", "path");
-        seg.setAttribute("d", `M${laser.last.x},${laser.last.y}L${p.x},${p.y}`);
-        seg.setAttribute("stroke", laserHue(laser.dist / LASER_CYCLE_PX));
-        laser.el.appendChild(seg);
-        laser.last = p;
+        const samples = typeof event.getCoalescedEvents === "function" ? event.getCoalescedEvents() : [];
+        for (const e of samples.length ? samples : [event]) {
+          const p = toWorld(e.clientX, e.clientY, rect, view());
+          const last = laser.pts[laser.pts.length - 1] as { x: number; y: number };
+          if (Math.hypot(p.x - last.x, p.y - last.y) * view().k < 1.5) continue;
+          laser.pts.push(p);
+          // 마지막에서 둘째 점을 조절점으로, 가운데점에서 가운데점까지
+          const mid = { x: (last.x + p.x) / 2, y: (last.y + p.y) / 2 };
+          laserCurve(laser, laser.drawn, laser.pts.length > 2 ? last : null, mid);
+        }
         return;
       }
       if (lasso && lasso.pointerId === event.pointerId) {
@@ -956,6 +980,9 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
       }
       if (laser && laser.pointerId === event.pointerId) {
         release(event.pointerId);
+        // 마지막 가운데점 → 떼는 점까지 남은 끝 조각
+        const end = laser.pts[laser.pts.length - 1];
+        if (end && (end.x !== laser.drawn.x || end.y !== laser.drawn.y)) laserCurve(laser, laser.drawn, null, end);
         fadeLaser(laser.el);
         laser = null;
         return;
