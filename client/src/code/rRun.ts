@@ -47,7 +47,16 @@ async function bitmapToPng(img: ImageBitmap): Promise<CodeOutput | null> {
   return { t: "image", src: c.toDataURL("image/png"), w: img.width, h: img.height };
 }
 
-export async function runR(code: string, onLoading: () => void, onRunning: () => void): Promise<{ items: CodeOutput[]; ms: number }> {
+/** readline()이 셀의 입력 칸에서 한 줄씩 읽게 (R 문자열은 JSON 문자열과 같은 꼴로 쓸 수 있다) */
+export function rStdinPrelude(stdin: string): string {
+  const lines = stdin ? stdin.replace(/\n$/, "").split("\n") : [];
+  return [
+    `.sl_in <- c(${lines.map((l) => JSON.stringify(l)).join(", ")})`,
+    `readline <- function(prompt = "") { cat(prompt); if (length(.sl_in) == 0) return(""); v <- .sl_in[1]; .sl_in <<- .sl_in[-1]; v }`,
+  ].join("\n");
+}
+
+export async function runR(code: string, onLoading: () => void, onRunning: () => void, stdin = ""): Promise<{ items: CodeOutput[]; ms: number }> {
   if (!r) onLoading();
   const w = await getR();
   onRunning();
@@ -55,6 +64,7 @@ export async function runR(code: string, onLoading: () => void, onRunning: () =>
   const shelter = await new w.Shelter();
   const items: CodeOutput[] = [];
   try {
+    await shelter.captureR(rStdinPrelude(stdin), { captureStreams: false, captureConditions: false, captureGraphics: false });
     const cap = await shelter.captureR(code, { withAutoprint: true, captureStreams: true, captureConditions: false, captureGraphics: { width: 560, height: 380 } });
     let text = "";
     let err = "";

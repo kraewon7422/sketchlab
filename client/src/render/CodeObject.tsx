@@ -46,7 +46,7 @@ export async function runCodeItem(id: string): Promise<void> {
   if (!item) return;
   setStatus(id, "running");
   try {
-    const r = await runCell(item.ir.data.lang, item.ir.data.source, (s) => setStatus(id, s));
+    const r = await runCell(item.ir.data.lang, item.ir.data.source, (s) => setStatus(id, s), item.ir.data.stdin ?? "");
     const now = codeItem(id);
     if (!now) return;
     sessionStore.getState().commitObjectIR(id, now.ir, { ...now.ir, data: { ...now.ir.data, output: { items: r.items, ms: Math.round(r.ms), ranAt: Date.now() } } }, "코드 실행");
@@ -81,6 +81,11 @@ function CodeBox({ item, ir, interactive }: { item: ObjectItem; ir: CodeIR; inte
   const lines = source.split("\n").length;
   const live = interactive ? "auto" : "none";
   const [editing, setEditing] = useState(false);
+  /** 프로그램 입력 칸 — 입력을 읽는 코드면 저절로 펼친다 */
+  const [stdinDraft, setStdinDraft] = useState<string | null>(null);
+  const readsInput = /\b(scanf|cin\s*>>|input\s*\(|Scanner|readline\s*\(|prompt\s*\(|getline|gets\s*\()/.test(source);
+  const [stdinOpen, setStdinOpen] = useState(false);
+  const showStdin = stdinOpen || readsInput || !!data.stdin;
   const codeStyle = { display: "block", width: "100%", boxSizing: "border-box", padding: "10px 12px", fontFamily: MONO, fontSize: 13.5, lineHeight: 1.5, whiteSpace: "pre", tabSize: 2, scrollbarWidth: "thin", pointerEvents: live } as const;
 
   // 결과가 나오면 키가 바뀐다 → 자리 상자를 실제 크기에 (이력 없이)
@@ -98,7 +103,7 @@ function CodeBox({ item, ir, interactive }: { item: ObjectItem; ir: CodeIR; inte
     const now = codeItem(item.id);
     if (!now) return;
     const next = { ...now.ir.data, ...patch };
-    if (next.source === now.ir.data.source && next.name === now.ir.data.name) return;
+    if (next.source === now.ir.data.source && next.name === now.ir.data.name && next.stdin === now.ir.data.stdin) return;
     sessionStore.getState().commitObjectIR(item.id, now.ir, { ...now.ir, data: next }, label);
   };
   const saveDraft = () => {
@@ -138,6 +143,18 @@ function CodeBox({ item, ir, interactive }: { item: ObjectItem; ir: CodeIR; inte
         </span>
         {(
           <>
+            {data.lang !== "html" && (
+              <button
+                type="button"
+                aria-label="프로그램 입력 칸"
+                aria-pressed={showStdin}
+                title="프로그램 입력 칸 (scanf · cin · input() · Scanner · readline)"
+                onClick={() => setStdinOpen((o) => !o)}
+                style={{ ...btn, padding: "0 8px", background: showStdin ? "#E8EEF9" : "transparent", color: showStdin ? theme.color.accent : theme.color.asymptote }}
+              >
+                입력
+              </button>
+            )}
             <button type="button" aria-label="변수 모두 지우기 (새로 시작)" title="변수 모두 지우기 (새로 시작)" onClick={() => resetKernels()} style={{ ...btn, padding: 0, background: "transparent", color: theme.color.asymptote }}>
               <RotateCcw size={15} />
             </button>
@@ -191,6 +208,32 @@ function CodeBox({ item, ir, interactive }: { item: ObjectItem; ir: CodeIR; inte
         }}
         style={{ ...codeStyle, border: "none", outline: "none", resize: "none", background: "transparent", overflowX: "auto", color: theme.color.ink }}
       />
+      )}
+      {showStdin && data.lang !== "html" && (
+        <div style={{ borderTop: `1px dashed ${theme.color.sub}`, padding: "6px 12px", display: "grid", gap: 4, background: "#F7F9FC" }}>
+          <span style={{ fontSize: 11.5, color: theme.color.asymptote }}>프로그램 입력 — 한 줄에 하나씩 (scanf · cin · input() · Scanner · readline이 위에서부터 읽어요)</span>
+          <textarea
+            aria-label={`${data.name} 프로그램 입력`}
+            value={stdinDraft ?? data.stdin ?? ""}
+            rows={Math.max(2, Math.min(8, (stdinDraft ?? data.stdin ?? "").split("\n").length))}
+            spellCheck={false}
+            placeholder={"예: 5\n3 4"}
+            onChange={(e) => setStdinDraft(e.target.value.slice(0, 20000))}
+            onBlur={() => {
+              if (stdinDraft !== null) save({ stdin: stdinDraft }, "프로그램 입력");
+              setStdinDraft(null);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && (e.shiftKey || e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                if (stdinDraft !== null) save({ stdin: stdinDraft }, "프로그램 입력");
+                setStdinDraft(null);
+                run();
+              }
+            }}
+            style={{ ...codeStyle, padding: "6px 8px", border: `1px solid ${theme.color.sub}`, borderRadius: 6, background: "#fff", resize: "vertical", pointerEvents: "auto" }}
+          />
+        </div>
       )}
       {(busy || out) && (
         <div data-code-output style={{ borderTop: `1px dashed ${theme.color.sub}`, padding: "8px 12px 10px", display: "grid", gap: 8 }}>

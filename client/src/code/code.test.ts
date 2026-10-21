@@ -44,6 +44,11 @@ describe("JavaScript 셀", () => {
     expect(console.log).toBe(before);
   });
 
+  it("input()·prompt()는 입력 칸에서 한 줄씩 (없으면 null)", async () => {
+    const out = await runJs("const n = Number(input()); const s = prompt('말: '); print(n + 1, s, readline())", "41\n안녕\n");
+    expect(texts(out).join(" ")).toContain("42 안녕 null");
+  });
+
   it("들여쓴 let은 그대로 (블록 안 변수)", () => {
     expect(shareTopLevel("let a = 1\nif (1) {\n  let b = 2\n}")).toBe("var a = 1\nif (1) {\n  let b = 2\n}");
   });
@@ -86,6 +91,14 @@ describe("Python 셀 (Pyodide)", () => {
     const out = await runPy(py, 'table([[1,2],[3,4]], header=["a","b"])\nplot([1,2,3], [2,4,6], kind="bar", label="두 배")');
     expect(out[0]).toEqual({ t: "table", rows: [["a", "b"], ["1", "2"], ["3", "4"]] });
     expect(out[1]).toMatchObject({ t: "chart", kind: "bar", xs: [1, 2, 3], ys: [2, 4, 6], label: "두 배" });
+  });
+
+  it("input()은 입력 칸에서 한 줄씩", async () => {
+    const out = await runPy(py, 'a = int(input())\nb = input("이름? ")\nprint(a * 2, b)', "21\n민지\n");
+    expect(texts(out).join("")).toContain("42 민지");
+    // 입력이 모자라면 파이썬과 같이 EOFError
+    const none = await runPy(py, "input()", "");
+    expect(texts(none).join("")).toContain("EOFError");
   });
 
   it("traceback 다듬기", () => {

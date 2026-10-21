@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { CODE_EXAMPLES } from "../ui/CodePanel";
 import { adaptForJscpp, needsOnline, runC } from "./cRun";
 import { adaptJava, readReply } from "./online";
+import { rStdinPrelude } from "./rRun";
 
 const text = (items: ReturnType<typeof runC>["items"]) => items.map((i) => (i.t === "text" ? i.text : "")).join("");
 
@@ -33,6 +34,22 @@ describe("C·C++ (기기 안, JSCPP)", () => {
   it("실행 오류는 빨간 글로", () => {
     const r = runC("#include <cstdio>\nint main() { printf(\"a\"); int x = 1 / 0; return 0; }");
     expect(r.items.some((i) => i.t === "text" && i.error) || r.unsupported).toBeTruthy();
+  });
+});
+
+describe("프로그램 입력 (stdin)", () => {
+  it("C: scanf로 숫자·한글 단어를 읽는다", () => {
+    const r = runC('#include <stdio.h>\nint main(void) {\n  int a, b;\n  char name[32];\n  scanf("%d %d", &a, &b);\n  scanf("%s", name);\n  printf("%d %s\\n", a + b, name);\n  return 0;\n}', "3 4\n민지\n");
+    expect(text(r.items)).toBe("7 민지\n");
+  });
+  it("C++: cin으로 읽는다", () => {
+    const r = runC("#include <iostream>\nusing namespace std;\nint main() { int n; cin >> n; cout << n * n << endl; return 0; }", "12\n");
+    expect(text(r.items)).toContain("144");
+  });
+  it("R: readline()이 읽을 줄을 미리 넣는다", () => {
+    const pre = rStdinPrelude('5\n"따옴표"\n');
+    expect(pre).toContain('.sl_in <- c("5", "\\"따옴표\\"")');
+    expect(pre).toContain("readline <- function");
   });
 });
 

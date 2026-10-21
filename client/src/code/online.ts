@@ -33,7 +33,7 @@ export function readReply(r: WandboxReply): CodeOutput[] {
 /** Java는 파일 이름이 정해져 있어 public class를 그냥 class로 (Main이든 무엇이든 돌게) */
 export const adaptJava = (code: string): string => code.replace(/\bpublic\s+(final\s+)?class\s+/g, (_, f: string | undefined) => `${f ?? ""}class `);
 
-export async function runOnline(lang: OnlineLang, code: string): Promise<{ items: CodeOutput[]; ms: number }> {
+export async function runOnline(lang: OnlineLang, code: string, stdin = ""): Promise<{ items: CodeOutput[]; ms: number }> {
   const t0 = performance.now();
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
@@ -44,6 +44,7 @@ export async function runOnline(lang: OnlineLang, code: string): Promise<{ items
       body: JSON.stringify({
         compiler: COMPILER[lang],
         code: lang === "java" ? adaptJava(code) : code,
+        stdin,
         // Java: 소스·출력을 UTF-8로 (안 하면 한글이 ??로 나온다)
         "compiler-option-raw": lang === "cpp" ? "-std=c++17" : lang === "java" ? "-encoding\nUTF-8" : "",
         "runtime-option-raw": lang === "java" ? "-Dfile.encoding=UTF-8\n-Dstdout.encoding=UTF-8\n-Dstderr.encoding=UTF-8" : "",

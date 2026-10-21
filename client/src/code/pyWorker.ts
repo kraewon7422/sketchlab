@@ -9,8 +9,8 @@ import { runPy } from "./pyRun";
 const PACKAGES = "https://cdn.jsdelivr.net/pyodide/v0.28.3/full/";
 let py: Promise<PyodideInterface> | null = null;
 
-self.onmessage = async (e: MessageEvent<{ id: number; code: string; indexURL: string }>) => {
-  const { id, code, indexURL } = e.data;
+self.onmessage = async (e: MessageEvent<{ id: number; code: string; indexURL: string; stdin?: string }>) => {
+  const { id, code, indexURL, stdin } = e.data;
   if (!py) {
     self.postMessage({ id, status: "loading" });
     py = loadPyodide({ indexURL, packageBaseUrl: PACKAGES });
@@ -18,7 +18,7 @@ self.onmessage = async (e: MessageEvent<{ id: number; code: string; indexURL: st
   try {
     const p = await py;
     const t0 = performance.now();
-    const items = await runPy(p, code);
+    const items = await runPy(p, code, stdin ?? "");
     self.postMessage({ id, items, ms: performance.now() - t0 });
   } catch (err) {
     py = null;

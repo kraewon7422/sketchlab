@@ -10,9 +10,18 @@ import { Collector, formatValue, shareTopLevel } from "./output";
  *   table(rows)               표 — [[…]] 또는 [{…}]
  *   plot(xs, ys, "line"|"scatter"|"bar", 이름)  그래프 — plot(ys)만 써도 된다
  */
-export async function runJs(code: string): Promise<CodeOutput[]> {
+export async function runJs(code: string, stdin = ""): Promise<CodeOutput[]> {
   const col = new Collector();
   const g = globalThis as unknown as Record<string, unknown>;
+  // input()·prompt()·readline(): 셀의 입력 칸에서 한 줄씩 (없으면 null)
+  const lines = stdin ? stdin.replace(/\n$/, "").split("\n") : [];
+  const next = (msg?: unknown) => {
+    if (msg !== undefined) col.text(String(msg));
+    return lines.length ? (lines.shift() as string) : null;
+  };
+  g["input"] = next;
+  g["prompt"] = next;
+  g["readline"] = () => next();
   const print = (...a: unknown[]) => col.text(a.map((x) => formatValue(x)).join(" "));
   g["print"] = print;
   g["table"] = (rows: unknown) => col.table(rows);

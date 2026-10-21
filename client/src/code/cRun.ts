@@ -25,7 +25,15 @@ export const hideUnicode = (code: string): string =>
   code
     .replace(/"(?:[^"\\\n]|\\.)*"/g, (lit) => lit.replace(/ /g, mark))
     .replace(/[\u0080-\u{10ffff}]/gu, mark);
-export const showUnicode = (out: string): string => out.replace(/\x7f([0-9a-z]+)\x7f/g, (_, c: string) => String.fromCodePoint(parseInt(c, 36)));
+export const showUnicode = (out: string): string =>
+  out
+    .replace(/\x7f([0-9a-z]+)\x7f/g, (_, c: string) => String.fromCodePoint(parseInt(c, 36)))
+    .replace(/_u([0-9a-z]+)_/g, (_, c: string) => String.fromCodePoint(parseInt(c, 36)));
+/**
+ * 입력(stdin)의 한글은 글자·숫자·_로만 된 표시로 — JSCPP의 scanf("%s")·cin은 단어를 [A-Za-z0-9_]로만 읽어서,
+ * 다른 표시가 섞이면 줄바꿈까지 한 단어로 먹는다.
+ */
+const inputMark = (ch: string) => `_u${(ch.codePointAt(0) ?? 63).toString(36)}_`;
 
 const KNOWN = new Set(["iostream", "cstdio", "cmath", "cstring", "cstdlib", "ctime", "iomanip", "cctype"]);
 
@@ -38,12 +46,14 @@ export function needsOnline(code: string): string | null {
   return null;
 }
 
-export function runC(code: string): { items: CodeOutput[]; unsupported?: string } {
+export function runC(code: string, stdin = ""): { items: CodeOutput[]; unsupported?: string } {
   const missing = needsOnline(adaptForJscpp(code));
   if (missing) return { items: [], unsupported: missing };
   let out = "";
   try {
-    const exit = JSCPP.run(hideUnicode(adaptForJscpp(code)), "", { stdio: { write: (s: string) => (out += s) } });
+    // 입력의 한글도 같은 표시로 (scanf("%s")로 읽어 그대로 찍으면 다시 글자로 보인다)
+    const input = stdin.replace(/[\u0080-\u{10ffff}]/gu, inputMark);
+    const exit = JSCPP.run(hideUnicode(adaptForJscpp(code)), input, { stdio: { write: (s: string) => (out += s) } });
     out = showUnicode(out);
     const items: CodeOutput[] = [];
     if (out) items.push({ t: "text", text: out.slice(0, 19900) });

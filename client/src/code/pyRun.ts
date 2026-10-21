@@ -54,8 +54,11 @@ export function trimTraceback(message: string): string {
   return tail.map((l) => l.replace('File "<exec>"', "셀")).join("\n");
 }
 
-export async function runPy(py: PyodideInterface, code: string): Promise<CodeOutput[]> {
+export async function runPy(py: PyodideInterface, code: string, stdin = ""): Promise<CodeOutput[]> {
   setup(py);
+  // input()은 셀의 입력 칸에서 한 줄씩 (다 쓰면 EOFError — 파이썬과 같다)
+  let given = false;
+  py.setStdin({ stdin: () => (given || !stdin ? null : ((given = true), stdin.endsWith("\n") ? stdin : `${stdin}\n`)) });
   const col = new Collector();
   current = col;
   try {

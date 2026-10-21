@@ -417,6 +417,8 @@ const Code = z.object({
   /** 기기 안: js·python(Pyodide)·r(webR)·c·cpp(JSCPP, 안 되면 온라인)·html(샌드박스) / 온라인: java(Wandbox) */
   lang: z.enum(["js", "python", "r", "c", "cpp", "java", "html"]),
   source: z.string().max(20000),
+  /** 프로그램에 줄 입력 (scanf·cin·input()·Scanner·readline) — 한 줄에 하나씩 */
+  stdin: z.string().max(20000).optional(),
   output: z
     .object({
       items: z.array(CodeOutputItem).max(60),

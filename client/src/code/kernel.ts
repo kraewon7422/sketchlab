@@ -47,13 +47,13 @@ class Kernel {
     this.loaded = false;
   }
 
-  run(code: string, onStatus?: (s: "loading" | "running") => void): Promise<RunResult & { unsupported?: string }> {
-    const job = this.queue.then(() => this.runNow(code, onStatus));
+  run(code: string, onStatus?: (s: "loading" | "running") => void, stdin = ""): Promise<RunResult & { unsupported?: string }> {
+    const job = this.queue.then(() => this.runNow(code, onStatus, stdin));
     this.queue = job.catch(() => undefined);
     return job;
   }
 
-  private runNow(code: string, onStatus?: (s: "loading" | "running") => void): Promise<RunResult & { unsupported?: string }> {
+  private runNow(code: string, onStatus?: (s: "loading" | "running") => void, stdin = ""): Promise<RunResult & { unsupported?: string }> {
     const w = this.spawn();
     const id = ++this.seq;
     onStatus?.("running");
@@ -96,7 +96,7 @@ class Kernel {
       w.addEventListener("message", onMessage);
       w.addEventListener("error", onError);
       const indexURL = new URL(`${import.meta.env.BASE_URL}pyodide/`, location.href).href;
-      w.postMessage(this.lang === "python" ? { id, code, indexURL } : { id, code });
+      w.postMessage(this.lang === "python" ? { id, code, indexURL, stdin } : { id, code, stdin });
     });
   }
 }
@@ -108,30 +108,30 @@ let rQueue: Promise<unknown> = Promise.resolve();
 const R_LIMIT_MS = 30_000;
 const R_LOAD_MS = 180_000;
 
-export async function runCell(lang: Lang, code: string, onStatus?: (s: "loading" | "running") => void): Promise<RunResult> {
+export async function runCell(lang: Lang, code: string, onStatus?: (s: "loading" | "running") => void, stdin = ""): Promise<RunResult> {
   const note = libraryStore.getState().openNoteId;
   if (note !== kernelNote) resetKernels(note);
   if (lang === "html") return { items: [{ t: "html", html: code.slice(0, 20000) }], ms: 0 };
   if (lang === "java") {
     onStatus?.("running");
-    return runOnline("java", code);
+    return runOnline("java", code, stdin);
   }
   if (lang === "r") {
-    const job = rQueue.then(() => runRWithLimit(code, onStatus));
+    const job = rQueue.then(() => runRWithLimit(code, onStatus, stdin));
     rQueue = job.catch(() => undefined);
     return job;
   }
   const k = (kernels[lang] ??= new Kernel(lang));
-  const r = await k.run(code, onStatus);
+  const r = await k.run(code, onStatus, stdin);
   if ((lang === "c" || lang === "cpp") && r.unsupported) {
     // 기기 안 실행기가 못 하는 것 (vector·string 등) → 온라인 컴파일러로
-    const online = await runOnline(lang, code);
+    const online = await runOnline(lang, code, stdin);
     return { items: [{ t: "text", text: `ℹ️ 기기 안 실행기가 지원하지 않아 (${r.unsupported}) 온라인(Wandbox)으로 실행했어요` }, ...online.items], ms: online.ms };
   }
   return r;
 }
 
-function runRWithLimit(code: string, onStatus?: (s: "loading" | "running") => void): Promise<RunResult> {
+function runRWithLimit(code: string, onStatus?: (s: "loading" | "running") => void, stdin = ""): Promise<RunResult> {
   let limit = R_LOAD_MS;
   return new Promise<RunResult>((resolve) => {
     let timer = setTimeout(onTimeout, limit);
@@ -149,6 +149,7 @@ function runRWithLimit(code: string, onStatus?: (s: "loading" | "running") => vo
         timer = setTimeout(onTimeout, limit);
         onStatus?.("running");
       },
+      stdin,
     )
       .then((r) => {
         clearTimeout(timer);
