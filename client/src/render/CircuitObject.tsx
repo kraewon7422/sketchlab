@@ -1,5 +1,5 @@
 import { Pause, Play, RotateCcw } from "lucide-react";
-import { memo, useEffect, useMemo, useRef, useState, type PointerEvent as RPointerEvent, type ReactElement, type ReactNode } from "react";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as RPointerEvent, type ReactElement, type ReactNode } from "react";
 import type { SceneIR } from "@sketchlab/shared";
 import type { ObjectItem } from "../ink/types";
 import {
@@ -315,6 +315,16 @@ function CircuitBox({ item, ir, interactive }: { item: ObjectItem; ir: CircuitIR
     setSel({ part: id });
   };
 
+  // 자리 상자를 실제 높이에 (부품을 고르면 아래 단추 줄이 생긴다)
+  const boxRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const el = boxRef.current;
+    if (!el) return;
+    const h = el.offsetHeight;
+    const b = item.bbox;
+    if (Math.abs(b.maxY - b.minY - h) > 2) sessionStore.getState().fitObjectBox(item.id, { minX: item.transform.x, minY: item.transform.y, maxX: item.transform.x + W, maxY: item.transform.y + h });
+  });
+
   // ───────── 그리기
   const r = reading?.r;
   const wires = view.wires.map((w, i) => ({ w, i, pts: wirePath(view, w) }));
@@ -322,7 +332,7 @@ function CircuitBox({ item, ir, interactive }: { item: ObjectItem; ir: CircuitIR
   const selColor = theme.color.accent;
 
   return (
-    <div data-overlay-id={item.id} className={fresh ? "sl-fade-in" : undefined} style={{ position: "absolute", left: item.transform.x, top: item.transform.y, width: W, pointerEvents: "none" }}>
+    <div ref={boxRef} data-overlay-id={item.id} className={fresh ? "sl-fade-in" : undefined} style={{ position: "absolute", left: item.transform.x, top: item.transform.y, width: W, pointerEvents: "none" }}>
       <svg
         width={W}
         height={H}

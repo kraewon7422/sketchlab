@@ -4,6 +4,8 @@
  */
 
 export function parseNNet(input: string): number[] | null {
+  // "역전파" → 학습해 볼 수 있는 작은 신경망
+  if (/^\s*(역전파|신경망 ?학습|backprop(agation)?)\s*$/i.test(input)) return [3, 4, 4, 2];
   const m = /^\s*(?:신경망|neural\s*net(?:work)?|nn)\s*:?\s*(\d{1,2}(?:\s*[-,→>x×]\s*\d{1,2}){1,7})\s*$/i.exec(input);
   if (!m) return null;
   const layers = (m[1] as string).split(/[-,→>x×]/).map((v) => Number(v.trim()));
