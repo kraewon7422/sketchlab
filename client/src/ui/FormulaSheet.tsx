@@ -201,9 +201,9 @@ export default function FormulaSheet({ onClose, area, onOpenAiSettings }: Formul
       const name = r.ir.data.name;
       const wide = name === "life" || name === "mandelbrot" || name === "logistic" || name === "golden";
       const w = Math.min(wide ? 440 : solid.size + 40, maxW);
-      const ratio: Record<string, number> = { genus: 0.7, mandelbrot: 0.75, logistic: 0.62, sierpinski: 0.92, golden: 0.7, euler: 0.86, life: 26 / 40 };
+      const ratio: Record<string, number> = { genus: 0.7, mandelbrot: 0.75, logistic: 0.62, sierpinski: 0.92, golden: 0.7, euler: 0.86, life: 26 / 40, gd: 0.68, emwave: 0.75, euclid: 1.05 };
       // 슬라이더·분석 줄이 있는 그림은 그만큼 더
-      const extra: Record<string, number> = { lorenz: 200, logistic: 190, mandelbrot: 50, mobius: 40, trefoil: 40, sierpinski: 50, koch: 30, golden: 30, euler: 40, life: 40 };
+      const extra: Record<string, number> = { lorenz: 200, logistic: 190, gd: 230, orbital: 120, emwave: 190, det: 150, euclid: 90, mandelbrot: 50, mobius: 40, trefoil: 40, sierpinski: 50, koch: 30, golden: 30, euler: 40, life: 40 };
       const h = Math.round(w * (ratio[name] ?? 1)) + 96 + (extra[name] ?? 0);
       const pos = freeSpot(w, h, area);
       const fid = sessionStore.getState().addObject(r.ir, { x: pos.x, y: pos.y, scale: w }, { minX: pos.x, minY: pos.y, maxX: pos.x + w, maxY: pos.y + h });

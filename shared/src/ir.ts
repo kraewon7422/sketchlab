@@ -372,7 +372,7 @@ const NNet = z.object({
   showLabels: z.boolean().default(true),
 });
 
-export const FIGURE_NAMES = ["mobius", "klein", "trefoil", "genus", "mandelbrot", "koch", "sierpinski", "golden", "lorenz", "life", "logistic", "euler"] as const;
+export const FIGURE_NAMES = ["mobius", "klein", "trefoil", "genus", "mandelbrot", "koch", "sierpinski", "golden", "lorenz", "life", "logistic", "euler", "gd", "orbital", "emwave", "det", "euclid"] as const;
 
 /**
  * 유명한 그림 (수학·과학·컴퓨터) — 이름 하나로 그리고, 그림마다 직접 바꿀 수 있는 값이 있다.

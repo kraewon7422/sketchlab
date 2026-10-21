@@ -35,6 +35,11 @@ export const FIGURES: Record<FigureName, FigureInfo> = {
   life: { title: "라이프 게임", note: "콘웨이: 이웃 3개면 태어나고 2·3개면 산다 — 칸 톡 · 재생", init: { gen: 0 } },
   logistic: { title: "로지스틱 사상 분기 도표", note: "xₙ₊₁ = r·xₙ(1−xₙ) — r이 커지며 주기 2·4·8… 그리고 혼돈 (갈라지는 간격의 비 → 파이겐바움 수 4.669…)", init: { p: { r0: 2.5, r1: 4, rc: 3.5 } } },
   euler: { title: "오일러 공식", note: "e^(iθ) = cos θ + i sin θ — 단위원 위의 점", init: { t: Math.PI / 4 } },
+  gd: { title: "경사하강법", note: "기울기의 반대쪽으로 조금씩 — x ← x − η·f′(x). 학습률 η가 크면 튕기거나 터진다 (인공지능 학습의 기본)", init: { p: { fn: 0, lr: 0.1, mom: 0, x0: 2.2, y0: 0, steps: 0 } } },
+  orbital: { title: "원자 오비탈", note: "전자가 있을 확률이 큰 곳의 모양 — 색은 파동함수의 부호 (파랑 +, 주황 −)", init: { p: { l: 1, m: 0 } } },
+  emwave: { title: "전자기파", note: "전기장 E와 자기장 B가 서로 수직으로, 같은 위상으로 진동하며 빛의 속도 c로 나아간다 (c = fλ)", init: { p: { lam: 1.6, amp: 0.8, band: 3 } } },
+  det: { title: "행렬식", note: "행렬이 넓이(부피)를 몇 배로 바꾸는지 — 부호가 음수면 방향이 뒤집힌다", init: { p: { n: 2, a: 2, b: 1, c: 1, d: 3 } } },
+  euclid: { title: "피타고라스 정리 — 유클리드의 증명", note: "원론 1권 47: 빗변 위 정사각형을 수선으로 나누면 두 직사각형이 각각 다른 두 변 위 정사각형과 넓이가 같다", init: { t: 1.15, n: 0 } },
 };
 
 const ALIASES: Array<[RegExp, FigureName]> = [
@@ -50,6 +55,11 @@ const ALIASES: Array<[RegExp, FigureName]> = [
   [/^(라이프\s*게임|생명\s*게임|(conway'?s\s*)?game\s*of\s*life|콘웨이)$/i, "life"],
   [/^(로지스틱(\s*(사상|맵))?|분기\s*도표|bifurcation|logistic(\s*map)?)$/i, "logistic"],
   [/^(오일러(\s*(공식|원|항등식))?|euler(\s*formula)?|e\^\{?i\\?theta\}?)$/i, "euler"],
+  [/^(경사\s*하강(법)?|gradient\s*descent)$/i, "gd"],
+  [/^((원자\s*)?오비탈|orbitals?|[spdf]\s*오비탈)$/i, "orbital"],
+  [/^(전자기파(\s*(파동\s*)?진행)?|em\s*wave|electromagnetic\s*wave|빛의\s*파동)$/i, "emwave"],
+  [/^(행렬식(\s*그림)?|determinant)$/i, "det"],
+  [/^(피타고라스(\s*정리)?(\s*유클리드(\s*증명)?)?|유클리드(의)?\s*(피타고라스\s*)?증명|euclid(\s*proof)?)$/i, "euclid"],
 ];
 
 const fmt = (v: number, d = 2) => String(Number(v.toFixed(d)));

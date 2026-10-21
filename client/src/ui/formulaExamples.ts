@@ -22,6 +22,7 @@ export const GROUPS: Array<{ title: string; examples: Example[]; solids?: true; 
       ["정적분", "\\int_0^2 x^2\\,dx"],
       ["부등식 영역", "1<x+y<3"],
       ["원 안쪽", "x^2+y^2\\le 4"],
+      ["피타고라스 (유클리드 증명)", "피타고라스 유클리드 증명"],
       ["가우스 기호 [x]", "y=[x]"],
       ["소수 부분 x−[x]", "y=x-[x]"],
       ["투퍼 공식", "투퍼 공식"],
@@ -52,6 +53,7 @@ export const GROUPS: Array<{ title: string; examples: Example[]; solids?: true; 
       ["3원 연립", "x+y+z=6, 2x-y+z=3, x+2y-z=2"],
       ["행렬", "[[2,1],[1,3]]"],
       ["역행렬", "inv [[2,1],[1,3]]"],
+      ["행렬식 (넓이·부피)", "행렬식"],
     ],
   },
   {
@@ -115,6 +117,7 @@ export const GROUPS: Array<{ title: string; examples: Example[]; solids?: true; 
   {
     title: "인공지능·텐서",
     examples: [
+      ["경사하강법", "경사하강법"],
       ["신경망", "신경망 3-4-4-2"],
       ["큰 신경망", "신경망 10-16-16-3"],
       ["텐서 2×3×4", "텐서 2x3x4"],
@@ -142,6 +145,8 @@ export const GROUPS: Array<{ title: string; examples: Example[]; solids?: true; 
       ["로렌츠 끌개 (나비 효과)", "로렌츠 끌개"],
       ["로지스틱 사상 (혼돈)", "로지스틱 사상"],
       ["라이프 게임", "라이프 게임"],
+      ["원자 오비탈 s·p·d·f", "원자 오비탈"],
+      ["전자기파 진행", "전자기파"],
     ],
   },
   { title: "화학 구조식", examples: [], chem: true },
