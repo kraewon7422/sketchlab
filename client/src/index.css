@@ -138,37 +138,31 @@ body {
   margin: 0;
   padding-left: 1.4em;
 }
+/* 체크 목록: 네모는 글 바로 앞에 (가운데·오른쪽 정렬해도 글과 함께 움직인다) */
 .sl-rich ul[data-check] {
   list-style: none;
-  padding-left: 1.7em;
-}
-.sl-rich ul[data-check] > li {
-  position: relative;
+  padding-left: 0.2em;
 }
 .sl-rich ul[data-check] > li::before {
   content: "";
-  position: absolute;
-  left: -1.5em;
-  top: 0.22em;
+  display: inline-block;
+  vertical-align: -0.14em;
   width: 0.95em;
   height: 0.95em;
+  margin-right: 0.5em;
   border: 1.5px solid var(--sl-color-ink);
   border-radius: 3px;
   box-sizing: border-box;
+  font-size: 1em;
+  line-height: 0.8em;
+  text-align: center;
   cursor: pointer;
 }
 .sl-rich ul[data-check] > li[data-checked="1"]::before {
+  content: "✓";
   background: var(--sl-color-accent);
   border-color: var(--sl-color-accent);
-}
-.sl-rich ul[data-check] > li[data-checked="1"]::after {
-  content: "✓";
-  position: absolute;
-  left: -1.38em;
-  top: 0.02em;
-  font-size: 0.85em;
   color: var(--sl-color-bg);
-  pointer-events: none;
 }
 .sl-rich ul[data-check] > li[data-checked="1"] {
   text-decoration: line-through;

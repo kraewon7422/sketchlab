@@ -99,7 +99,7 @@ function TextEditor({ session }: { session: TextEditSession }): ReactElement {
       onClick={(e) => {
         // 체크 목록의 네모를 누르면 체크/해제
         const li = (e.target as Element).closest?.("ul[data-check] > li") as HTMLElement | null;
-        if (li && e.clientX - li.getBoundingClientRect().left < 4) {
+        if (li && onCheckBox(li, e.clientX, e.clientY)) {
           e.preventDefault();
           toggleCheckAt(li);
         }
@@ -132,4 +132,25 @@ function TextEditor({ session }: { session: TextEditSession }): ReactElement {
       }}
     />
   );
+}
+
+/**
+ * 체크 목록의 네모를 눌렀나 — 네모는 글 바로 앞(::before, 폭 0.95em + 틈 0.5em)이라
+ * 줄의 글이 시작하는 자리에서 왼쪽으로 1.45em 안. 정렬(가운데·오른쪽)을 해도 맞다.
+ */
+function onCheckBox(li: HTMLElement, x: number, y: number): boolean {
+  const fs = parseFloat(getComputedStyle(li).fontSize) || 16;
+  const box = li.getBoundingClientRect();
+  const range = document.createRange();
+  range.selectNodeContents(li);
+  const first = [...range.getClientRects()].find((r) => r.width > 0);
+  let start: number;
+  if (first) start = first.left;
+  else {
+    // 빈 줄: 정렬에 따라 네모가 있는 자리
+    const align = getComputedStyle(li).textAlign;
+    start = align === "center" ? box.left + box.width / 2 + 0.72 * fs : align === "right" || align === "end" ? box.right : box.left + 1.45 * fs;
+  }
+  const top = first ? first.top : box.top;
+  return x >= start - 1.6 * fs && x <= start - 0.3 * fs && y >= top - 2 && y <= top + 1.5 * fs;
 }
