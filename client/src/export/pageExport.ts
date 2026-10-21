@@ -1,3 +1,4 @@
+import { itemAabb } from "../ink/editing";
 import { themeCssVars } from "../render/theme";
 import { inlineBlobImages } from "../store/media";
 import { withAllRendered } from "../store/culling";
@@ -57,7 +58,7 @@ async function pageToSvgNow(region?: Rect): Promise<Rendered | null> {
   let maxX = -Infinity;
   let maxY = -Infinity;
   for (const it of items) {
-    let b = it.bbox;
+    let b = itemAabb(it); // 돌린 사진은 돌린 모양을 감싸는 상자
     const el = document.querySelector(`[data-overlay-id="${it.id}"]`);
     if (el && main) {
       const r = el.getBoundingClientRect();
@@ -93,7 +94,8 @@ async function pageToSvgNow(region?: Rect): Promise<Rendered | null> {
   }
 
   // 2) 객체 층(그래프·구조식·수식·글 상자): 같은 자리 그대로 foreignObject 안에
-  const layer = document.querySelector<HTMLElement>("main [data-overlay-id]")?.parentElement;
+  // 객체 층 전체 (객체마다 돌리기·고르기 껍질에 싸여 있다 — 껍질째 복제해야 돌린 각도가 남는다)
+  const layer = document.querySelector<HTMLElement>("main [data-overlay-layer]");
   let htmlPart = "";
   if (layer) {
     const clone = layer.cloneNode(true) as HTMLElement;

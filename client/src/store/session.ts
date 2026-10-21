@@ -1,5 +1,5 @@
 import type { SceneIR } from "@sketchlab/shared";
-import { cloneItem, recolorItem, scaleItem, transformItem, translateItem, type Affine } from "../ink/editing";
+import { cloneItem, recolorItem, rotateItem, scaleItem, transformItem, translateItem, type Affine } from "../ink/editing";
 import { cutStroke } from "../ink/erase";
 import { applyPatches, enablePatches, produceWithPatches, type Patch } from "immer";
 import { useStore } from "zustand";
@@ -88,6 +88,9 @@ export interface SessionState extends Doc {
   /** 돌리기·늘이기 중 (손글씨·정리한 도형) — 끝나면 commitAffine으로 Undo 1단위 */
   previewAffine(ids: readonly string[], m: Affine, base: readonly CanvasItem[]): void;
   commitAffine(ids: readonly string[], m: Affine | null, base: readonly CanvasItem[], label: string): void;
+  /** 돌리는 중 (무엇이든 — 손글씨는 점을, 객체는 각도를) — 끝나면 commitRotate로 Undo 1단위 */
+  previewRotate(ids: readonly string[], rad: number, cx: number, cy: number, base: readonly CanvasItem[]): void;
+  commitRotate(ids: readonly string[], rad: number, cx: number, cy: number, base: readonly CanvasItem[]): void;
   /** 잠그기·풀기 (Undo 1단위) */
   setLocked(ids: readonly string[], locked: boolean): void;
   /** 맨 앞으로·맨 뒤로 (같은 층 안에서의 순서, Undo 1단위) */
@@ -96,6 +99,8 @@ export interface SessionState extends Doc {
   recolorItems(ids: readonly string[], color: string | undefined, width: number | undefined, mergeKey?: string): void;
   /** 복제 — 살짝 비켜 놓고 복제본을 선택한다. Undo 1단위 */
   duplicateItems(ids: readonly string[]): string[];
+  /** 붙여넣기 — 받은 항목들을 새 id로 (dx, dy) 옮겨 넣고 고른다. Undo 1단위 */
+  pasteItems(items: readonly CanvasItem[], dx: number, dy: number): string[];
   commitObjectIR(id: string, before: SceneIR, after: SceneIR, label: string): void;
   /** 객체의 내용과 자리 상자를 함께 바꾼다 (글 상자 편집). Undo 1단위 */
   replaceObject(id: string, ir: SceneIR, bbox: BBox, label: string): void;
@@ -311,6 +316,18 @@ export const sessionStore: StoreApi<SessionState> = createStore<SessionState>((s
       });
     },
 
+    previewRotate(ids, rad, cx, cy, base) {
+      set({ items: base.map((i) => (ids.includes(i.id) ? rotateItem(i, rad, cx, cy) : i)) });
+    },
+
+    commitRotate(ids, rad, cx, cy, base) {
+      set({ items: [...base] });
+      if (rad === 0) return;
+      commit("돌리기", (draft) => {
+        draft.items = draft.items.map((i) => (ids.includes(i.id) ? rotateItem(i, rad, cx, cy) : i));
+      });
+    },
+
     setLocked(ids, locked) {
       commit(locked ? "잠금" : "잠금 해제", (draft) => {
         for (const i of draft.items) if (ids.includes(i.id)) i.locked = locked || undefined;
@@ -339,6 +356,16 @@ export const sessionStore: StoreApi<SessionState> = createStore<SessionState>((s
       const originals = get().items.filter((i) => ids.includes(i.id));
       const clones = originals.map((i) => cloneItem(i, newId, 24, 24));
       commit("복제", (draft) => {
+        draft.items.push(...clones);
+        draft.selection = clones.map((c) => c.id);
+        draft.activeGroupId = null;
+      });
+      return clones.map((c) => c.id);
+    },
+
+    pasteItems(items, dx, dy) {
+      const clones = items.map((i) => cloneItem(i, newId, dx, dy));
+      commit("붙여넣기", (draft) => {
         draft.items.push(...clones);
         draft.selection = clones.map((c) => c.id);
         draft.activeGroupId = null;

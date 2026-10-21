@@ -77,7 +77,7 @@ export function scaleItem<T extends CanvasItem>(item: T, k: number, ox: number, 
   return {
     ...item,
     ir: nextIr,
-    transform: { x: sx(item.transform.x), y: sy(item.transform.y), scale },
+    transform: { ...item.transform, x: sx(item.transform.x), y: sy(item.transform.y), scale },
     bbox: box(item.bbox),
     sourceStrokes: item.sourceStrokes.map(scaleStroke),
   };
@@ -104,6 +104,54 @@ export function scaleAbout(sx: number, sy: number, ax: number, ay: number): Affi
 }
 
 /** 돌리고 늘일 수 있는 항목 — 손글씨와 정리한 도형(직선·포물선·원…). 그래프·수식·글은 모양이 일그러지므로 제외 */
+/**
+ * 돌리기 (삼성노트처럼 무엇이든) — 각도는 객체마다 transform.rot(도)에 둔다.
+ *   손글씨·정리한 도형: 점을 직접 돌린다 (모양이 바뀌는 것이 자연스럽다)
+ *   그 밖의 객체(사진·그래프·그림…): 자리 상자 가운데를 (cx, cy) 둘레로 옮기고 rot에 각도를 더한다.
+ * bbox는 돌리기 전 상자 그대로 — 화면에서 차지하는 곳은 itemAabb, 고르기는 hitItem이 돌린 상자로 본다.
+ */
+export const rotOf = (item: CanvasItem): number => (item.kind === "object" ? (item.transform.rot ?? 0) : 0);
+
+const normDeg = (d: number): number => {
+  const r = Math.round((((d % 360) + 360) % 360) * 100) / 100;
+  return r >= 360 ? 0 : r;
+};
+
+/** 상자를 가운데 둘레로 deg만큼 돌린 네 꼭짓점 (왼쪽 위부터 시계 방향) */
+export function frameCorners(b: BBox, deg: number): Array<{ x: number; y: number }> {
+  const cx = (b.minX + b.maxX) / 2;
+  const cy = (b.minY + b.maxY) / 2;
+  const m = rotationAbout((deg * Math.PI) / 180, cx, cy);
+  return ([[b.minX, b.minY], [b.maxX, b.minY], [b.maxX, b.maxY], [b.minX, b.maxY]] as const).map(([x, y]) => {
+    const [px, py] = affineApply(m, x, y);
+    return { x: px, y: py };
+  });
+}
+
+/** 화면에서 실제로 차지하는 상자 — 돌린 객체는 돌린 상자를 감싸는 상자 */
+export function itemAabb(item: CanvasItem): BBox {
+  const r = rotOf(item);
+  if (!r) return item.bbox;
+  const pts = frameCorners(item.bbox, r);
+  return { minX: Math.min(...pts.map((p) => p.x)), minY: Math.min(...pts.map((p) => p.y)), maxX: Math.max(...pts.map((p) => p.x)), maxY: Math.max(...pts.map((p) => p.y)) };
+}
+
+/** (cx, cy)를 중심으로 rad만큼 돌리기 (화면에서 시계 방향이 +) */
+export function rotateItem<T extends CanvasItem>(item: T, rad: number, cx: number, cy: number): T {
+  if (rad === 0) return item;
+  if (canTransformFreely(item)) return transformItem(item, rotationAbout(rad, cx, cy));
+  if (item.kind !== "object") return item;
+  const obj = item as Extract<CanvasItem, { kind: "object" }>;
+  const b = obj.bbox;
+  const ox = (b.minX + b.maxX) / 2;
+  const oy = (b.minY + b.maxY) / 2;
+  const [nx, ny] = affineApply(rotationAbout(rad, cx, cy), ox, oy);
+  const moved = translateItem(obj, nx - ox, ny - oy);
+  const { x, y, scale } = moved.transform;
+  const deg = normDeg((obj.transform.rot ?? 0) + (rad * 180) / Math.PI);
+  return { ...moved, transform: deg ? { x, y, scale, rot: deg } : { x, y, scale } } as T;
+}
+
 export function canTransformFreely(item: CanvasItem): boolean {
   return item.kind === "ink" || (item.kind === "object" && item.ir.kind === "shape2d");
 }
@@ -345,6 +393,14 @@ export function hitItem(items: readonly CanvasItem[], x: number, y: number, slop
   for (let i = items.length - 1; i >= 0; i--) {
     const item = items[i] as CanvasItem;
     const b = item.bbox;
+    const r = rotOf(item);
+    if (r) {
+      // 돌린 객체: 누른 점을 거꾸로 돌려 돌리기 전 상자에서 본다
+      const [ux, uy] = affineApply(rotationAbout((-r * Math.PI) / 180, (b.minX + b.maxX) / 2, (b.minY + b.maxY) / 2), x, y);
+      if (ux < b.minX - slop || ux > b.maxX + slop || uy < b.minY - slop || uy > b.maxY + slop) continue;
+      if (item.kind === "object" && item.ir.kind === "tape" && !onTape(item.ir.data, item.transform, ux, uy, slop)) continue;
+      return item;
+    }
     if (x < b.minX - slop || x > b.maxX + slop || y < b.minY - slop || y > b.maxY + slop) continue;
     if (item.kind === "object") {
       // 비스듬한 테이프는 상자보다 훨씬 좁다 — 테이프 몸통 위만
@@ -362,8 +418,8 @@ export function hitItem(items: readonly CanvasItem[], x: number, y: number, slop
 export function selectionBox(items: readonly CanvasItem[], ids: readonly string[]): BBox | null {
   const chosen = items.filter((i) => ids.includes(i.id));
   if (chosen.length === 0) return null;
-  return chosen.reduce<BBox>(
-    (acc, i) => ({ minX: Math.min(acc.minX, i.bbox.minX), minY: Math.min(acc.minY, i.bbox.minY), maxX: Math.max(acc.maxX, i.bbox.maxX), maxY: Math.max(acc.maxY, i.bbox.maxY) }),
+  return chosen.map(itemAabb).reduce<BBox>(
+    (acc, b) => ({ minX: Math.min(acc.minX, b.minX), minY: Math.min(acc.minY, b.minY), maxX: Math.max(acc.maxX, b.maxX), maxY: Math.max(acc.maxY, b.maxY) }),
     { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity },
   );
 }

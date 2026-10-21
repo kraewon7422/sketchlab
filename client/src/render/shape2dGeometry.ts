@@ -12,6 +12,8 @@ export interface ObjectTransform {
   x: number;
   y: number;
   scale: number;
+  /** 돌린 각도 (도, 화면에서 시계 방향) — 자리 상자(bbox) 가운데를 중심으로. 없으면 0 */
+  rot?: number;
 }
 
 export function localToWorld([lx, ly]: readonly [number, number], tf: ObjectTransform): { x: number; y: number } {

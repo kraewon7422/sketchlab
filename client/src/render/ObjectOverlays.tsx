@@ -2,6 +2,7 @@ import { lazy, Suspense, useLayoutEffect, useRef, type PointerEvent as RPointerE
 import type { ObjectItem } from "../ink/types";
 import { sessionStore, useSession } from "../store/session";
 import { inView, useVisibleRect } from "../store/culling";
+import { itemAabb } from "../ink/editing";
 import { viewportStore } from "../store/viewport";
 import { ErrorBoundary } from "../ErrorBoundary";
 import { TapeObject } from "./TapeObject";
@@ -57,10 +58,14 @@ function ObjectShell({ item, children }: { item: ObjectItem; children: ReactNode
     sessionStore.getState().setSelection([item.id]);
     navigator.vibrate?.(12);
   };
+  // 돌린 객체: 자리 상자 가운데 둘레로 (층이 월드 좌표라 transform-origin도 월드 좌표)
+  const rot = item.transform.rot ?? 0;
+  const b = item.bbox;
+  const spin = rot ? { transform: `rotate(${rot}deg)`, transformOrigin: `${(b.minX + b.maxX) / 2}px ${(b.minY + b.maxY) / 2}px` } : null;
   const onControl = (e: RPointerEvent) => e.target instanceof Element && !!e.target.closest("input, button, textarea, select, [contenteditable='true']");
   return (
     <div
-      style={{ position: "absolute", left: 0, top: 0, width: 0, height: 0 }}
+      style={{ position: "absolute", left: 0, top: 0, width: 0, height: 0, ...spin }}
       onPointerDownCapture={(e) => {
         clear();
         if (onControl(e)) return;
@@ -102,8 +107,8 @@ export function ObjectOverlays({ interactive }: { interactive: boolean }): React
   const items = useSession((s) => s.items);
   // 화면 둘레만 그린다 — 내보낼 때는 전부 (withAllRendered)
   const visible = useVisibleRect();
-  const overlays = items.filter((i): i is ObjectItem => i.kind === "object" && OVERLAY_KINDS.has(i.ir.kind) && inView(i.bbox, visible));
-  const tapes = items.filter((i): i is ObjectItem => i.kind === "object" && i.ir.kind === "tape" && inView(i.bbox, visible));
+  const overlays = items.filter((i): i is ObjectItem => i.kind === "object" && OVERLAY_KINDS.has(i.ir.kind) && inView(itemAabb(i), visible));
+  const tapes = items.filter((i): i is ObjectItem => i.kind === "object" && i.ir.kind === "tape" && inView(itemAabb(i), visible));
   // 고른 입체는 돌리지 않고 끌어서 옮긴다 (돌리기는 고르지 않았을 때)
   const selection = useSession((s) => s.selection);
   // 이동·확대는 React를 거치지 않고 transform만 바꾼다 (그래프 수십 개가 있어도 핀치가 매끄럽게)
@@ -119,7 +124,7 @@ export function ObjectOverlays({ interactive }: { interactive: boolean }): React
   return (
     <div style={{ position: "absolute", inset: 0, pointerEvents: "none", overflow: "hidden" }}>
       {/* 캔버스와 같은 이동·확대 (화면 = 월드 × k + t) */}
-      <div ref={layerRef} style={{ position: "absolute", left: 0, top: 0, transformOrigin: "0 0", willChange: "transform" }}>
+      <div ref={layerRef} data-overlay-layer style={{ position: "absolute", left: 0, top: 0, transformOrigin: "0 0", willChange: "transform" }}>
       <ErrorBoundary area="graphs">
         <Suspense fallback={null}>
           {overlays.map((item) => (
@@ -155,7 +160,9 @@ export function ObjectOverlays({ interactive }: { interactive: boolean }): React
       </ErrorBoundary>
       {/* 마스킹 테이프는 맨 위 — 아래의 손글씨·그래프·구조식을 모두 가린다 */}
       {tapes.map((item) => (
-        <TapeObject key={item.id} item={item} />
+        <ObjectShell key={item.id} item={item}>
+          <TapeObject item={item} />
+        </ObjectShell>
       ))}
       {/* 글 상자 편집기도 같은 층 — 이동·확대를 그대로 따른다 */}
       <TextEditorHost />

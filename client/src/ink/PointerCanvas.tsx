@@ -3,6 +3,7 @@ import { debugLog } from "../debug";
 import { ObjectItemView } from "../render/Shape2DView";
 import { ink, penOpts, theme, viewport } from "../render/theme";
 import { createStroke, sessionStore, useSession } from "../store/session";
+import { selectionUi } from "../store/selectionUi";
 import { viewportStore } from "../store/viewport";
 import { paperOf, usePages } from "../store/pages";
 import { inView, useVisibleRect } from "../store/culling";
@@ -10,7 +11,7 @@ import { PageBackground } from "../render/PageBackground";
 import { currentStrokeStyle, penStore } from "../store/pen";
 import { createStabilizer } from "./stabilize";
 import { GroupHint, InkItemView } from "./InkLayer";
-import { hitItem, itemsInLasso, itemsTouchedByLasso, selectionBox } from "./editing";
+import { hitItem, itemAabb, itemsInLasso, itemsTouchedByLasso, selectionBox } from "./editing";
 import { asPoints, buildFreeTape, buildTape, TAPE_MIN_LEN } from "./tape";
 import { centerlinePath } from "./smoothOutline";
 import { laserHue } from "./color";
@@ -172,6 +173,8 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
       ids: string[];
       base: ReturnType<typeof sessionStore.getState>["items"];
       view: View;
+      /** 길게 눌러 고른 뒤의 끌기 — 떼는 순간을 톡으로 보지 않는다 (톡이면 방금 고른 것이 풀린다) */
+      held?: boolean;
     } | null = null;
     /** 올가미로 두르는 중 (월드 좌표) */
     let lasso: { pointerId: number; pts: Point[] } | null = null;
@@ -321,6 +324,7 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
     const DOUBLE_TAP_PX = 24;
     const handleTap = (clientX: number, clientY: number, t: number): boolean => {
       if (!rect) return false;
+      if (selectionUi.getState().chip) selectionUi.setState({ chip: null });
       const v = view();
       const w = toWorld(clientX, clientY, rect, v);
       const state = sessionStore.getState();
@@ -380,7 +384,19 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
       const state = sessionStore.getState();
       const pickable = state.items.filter((i) => !(i.kind === "object" && i.ir.kind === "image" && i.locked));
       const hit = hitItem(pickable, w.x, w.y, ink.tapSlop / v.k);
-      if (!hit) return;
+      if (!hit) {
+        // 빈 곳을 길게: 복사해 둔 것이 있으면 [붙여넣기] 말풍선 (그리던 점은 버린다)
+        if (selectionUi.getState().clipboard.length === 0) return;
+        if (drawing?.pointerId === pointerId) {
+          drawing = null;
+          clearHold();
+          clearLive();
+          release(pointerId);
+        }
+        selectionUi.setState({ chip: { x: w.x, y: w.y } });
+        navigator.vibrate?.(12);
+        return;
+      }
       // 하던 것을 버린다 (찍힌 점·지우개 자국 없이)
       if (drawing?.pointerId === pointerId) {
         drawing = null;
@@ -396,7 +412,7 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
       state.setSelection([hit.id]);
       navigator.vibrate?.(12);
       // 손을 떼지 않고 끌면 바로 옮겨진다
-      manip = { kind: "move", pointerId, pointerType, sx, sy, t, moved: 0, ids: [hit.id], base: sessionStore.getState().items, view: { ...v } };
+      manip = { kind: "move", pointerId, pointerType, sx, sy, t, moved: 0, ids: [hit.id], base: sessionStore.getState().items, view: { ...v }, held: true };
       capture(pointerId);
       lastActivity = t;
     };
@@ -434,6 +450,7 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
 
     /** 끌던 것을 제자리로 (취소) */
     const cancelManip = (): void => {
+      if (selectionUi.getState().lifting) selectionUi.setState({ lifting: false });
       if (manip?.kind === "move") sessionStore.getState().commitTranslate(manip.ids, 0, 0, manip.base);
       if (manip) release(manip.pointerId);
       manip = null;
@@ -447,7 +464,10 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
       if (m.moved < ink.tapMaxMove) return; // 손떨림으로 살짝 밀린 것은 탭
       const dx = event.clientX - m.sx;
       const dy = event.clientY - m.sy;
-      if (m.kind === "move") sessionStore.getState().previewTranslate(m.ids, dx / m.view.k, dy / m.view.k, m.base);
+      if (m.kind === "move") {
+        if (!selectionUi.getState().lifting) selectionUi.setState({ lifting: true });
+        sessionStore.getState().previewTranslate(m.ids, dx / m.view.k, dy / m.view.k, m.base);
+      }
       else viewportStore.getState().setView({ ...m.view, tx: m.view.tx + dx, ty: m.view.ty + dy });
     };
 
@@ -455,12 +475,14 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
       const m = manip;
       if (!m) return;
       manip = null;
+      if (selectionUi.getState().lifting) selectionUi.setState({ lifting: false });
       release(m.pointerId);
-      const tap = m.moved < ink.tapMaxMove;
+      const still = m.moved < ink.tapMaxMove;
+      const tap = still && !m.held;
       if (m.kind === "move") {
         const dx = (event.clientX - m.sx) / m.view.k;
         const dy = (event.clientY - m.sy) / m.view.k;
-        sessionStore.getState().commitTranslate(m.ids, tap ? 0 : dx, tap ? 0 : dy, m.base);
+        sessionStore.getState().commitTranslate(m.ids, still ? 0 : dx, still ? 0 : dy, m.base);
         // 고른 것 위를 두 번 톡: 그 자리의 객체 하나만 다시 고른다
         if (tap) handleTap(m.sx, m.sy, event.timeStamp);
       } else if (tap) {
@@ -1203,7 +1225,7 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
       <PageBackground kind={background} paper={paper} visible={visible} />
       {activeGroup && <GroupHint item={activeGroup} />}
 
-      {items.filter((item) => inView(item.bbox, visible)).map((item) =>
+      {items.filter((item) => inView(itemAabb(item), visible)).map((item) =>
         item.kind === "ink" ? (
           <InkItemView key={item.id} item={item} />
         ) : (

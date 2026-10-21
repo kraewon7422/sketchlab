@@ -200,7 +200,18 @@ function ImageItem({ item, fresh }: { item: ObjectItem; fresh: boolean }) {
 export const ObjectItemView = memo(function ObjectItemView({ item }: { item: ObjectItem }) {
   const fresh = isFresh(item.id);
 
-  if (item.ir.kind === "image") return <ImageItem item={item} fresh={fresh} />;
+  if (item.ir.kind === "image") {
+    // 돌린 사진: 자리 상자 가운데 둘레로
+    const rot = item.transform.rot ?? 0;
+    const b = item.bbox;
+    return rot ? (
+      <g transform={`rotate(${rot} ${(b.minX + b.maxX) / 2} ${(b.minY + b.maxY) / 2})`}>
+        <ImageItem item={item} fresh={fresh} />
+      </g>
+    ) : (
+      <ImageItem item={item} fresh={fresh} />
+    );
+  }
 
   if (item.ir.kind !== "shape2d") {
     // 그래프·수식은 HTML 층(ObjectOverlays)이 그린다. 손그림에서 온 객체면 원본 잉크도 남긴다.

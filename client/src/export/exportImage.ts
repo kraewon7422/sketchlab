@@ -1,6 +1,7 @@
 import { inlineBlobImages } from "../store/media";
 import katexCss from "katex/dist/katex.min.css?inline";
 import type { CanvasItem } from "../ink/types";
+import { itemAabb, rotOf } from "../ink/editing";
 import { exportOpts } from "../render/theme";
 
 /**
@@ -105,10 +106,15 @@ export async function objectToSvg(item: CanvasItem): Promise<Rendered> {
     await inlineBlobImages(clone);
     clone.querySelectorAll(".sl-fade-out").forEach((n) => n.remove()); // 교체 애니메이션의 옛 잉크
     clone.querySelectorAll("[class]").forEach((n) => n.removeAttribute("class"));
-    const { minX, minY, maxX, maxY } = item.bbox;
+    // 돌린 사진: 돌린 모양 그대로 (자리 상자 가운데 둘레로), 그림 크기는 돌린 모양을 감싸는 상자
+    const rot = rotOf(item);
+    const b = item.bbox;
+    const { minX, minY, maxX, maxY } = itemAabb(item);
     const w = Math.ceil(maxX - minX + pad * 2);
     const h = Math.ceil(maxY - minY + pad * 2);
-    const svg = `<svg xmlns="${SVGNS}" width="${w}" height="${h}" viewBox="${minX - pad} ${minY - pad} ${w} ${h}">${new XMLSerializer().serializeToString(clone)}</svg>`;
+    const body = new XMLSerializer().serializeToString(clone);
+    const inner = rot ? `<g transform="rotate(${rot} ${(b.minX + b.maxX) / 2} ${(b.minY + b.maxY) / 2})">${body}</g>` : body;
+    const svg = `<svg xmlns="${SVGNS}" width="${w}" height="${h}" viewBox="${minX - pad} ${minY - pad} ${w} ${h}">${inner}</svg>`;
     return { svg, width: w, height: h };
   }
 
@@ -125,15 +131,28 @@ export async function objectToSvg(item: CanvasItem): Promise<Rendered> {
   clone.removeAttribute("class");
   clone.querySelectorAll("[class*='sl-']").forEach((n) => n.setAttribute("class", (n.getAttribute("class") ?? "").replace(/\bsl-[\w-]+\b/g, "")));
   clone.setAttribute("xmlns", XHTML);
-  const w = Math.ceil(rect.width + pad * 2);
-  const h = Math.ceil(rect.height + pad * 2);
+  // 돌린 그래프·그림: 돌린 모양을 감싸는 크기의 칸 가운데에 돌려 놓는다
+  const rot = rotOf(item);
+  const ra = (rot * Math.PI) / 180;
+  const fw = rot ? Math.abs(rect.width * Math.cos(ra)) + Math.abs(rect.height * Math.sin(ra)) : rect.width;
+  const fh = rot ? Math.abs(rect.width * Math.sin(ra)) + Math.abs(rect.height * Math.cos(ra)) : rect.height;
+  if (rot) {
+    clone.style.margin = "0";
+    clone.style.position = "absolute";
+    clone.style.left = `${pad + (fw - rect.width) / 2}px`;
+    clone.style.top = `${pad + (fh - rect.height) / 2}px`;
+    clone.style.transform = `rotate(${rot}deg)`;
+    clone.style.transformOrigin = "center";
+  }
+  const w = Math.ceil(fw + pad * 2);
+  const h = Math.ceil(fh + pad * 2);
   const css = (await embeddedKatexCss()) + (await embeddedPageFontsCss());
   const font = getComputedStyle(document.body).fontFamily;
   const html = new XMLSerializer().serializeToString(clone);
   const svg =
     `<svg xmlns="${SVGNS}" width="${w}" height="${h}">` +
     `<foreignObject x="0" y="0" width="${w}" height="${h}">` +
-    `<div xmlns="${XHTML}" style="font-family:${font.replace(/"/g, "'")};color:#1A1A1A">` +
+    `<div xmlns="${XHTML}" style="position:relative;width:${w}px;height:${h}px;font-family:${font.replace(/"/g, "'")};color:#1A1A1A">` +
     `<style>${css}</style>${html}</div></foreignObject></svg>`;
   return { svg, width: w, height: h };
 }
