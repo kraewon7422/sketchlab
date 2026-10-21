@@ -31,6 +31,8 @@ export function findAsymptotes(f: Fn, view: View, sampled: SampleResult): Asympt
   const vertical: number[] = [];
   for (const b of sampled.breaks) {
     if (!(outside(b.left) || outside(b.right))) continue;
+    // 양쪽 값이 있고 화면 높이보다 작게 뛰면 계단(가우스 기호 등) — 점근선은 한쪽이 끝없이 커진다
+    if (Number.isFinite(b.left) && Number.isFinite(b.right) && Math.abs(b.left - b.right) < yspan) continue;
     const x = snap(b.x, xspan * 2e-3);
     if (!vertical.some((v) => Math.abs(v - x) < xspan * 1e-3)) vertical.push(x);
   }

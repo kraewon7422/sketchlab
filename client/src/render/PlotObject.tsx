@@ -9,7 +9,7 @@ import { numberTicks, piTicks, type Tick } from "../math/axes";
 import { marchingSquares } from "../math/implicit";
 import { simpson } from "../math/integrate";
 import { analyze, definiteIntegral, toFunction, type Analysis } from "../math/latex";
-import { sampleFunction, sampleParametric, type Fn, type Pt, type View } from "../math/sample";
+import { jumpDots, sampleFunction, sampleParametric, type Fn, type Pt, type View } from "../math/sample";
 import { toBox } from "../math/view";
 import { TUPPER_H, TUPPER_W, tupperGrid } from "../math/tupper";
 import { discreteCaption, rangeCaption } from "../math/stats";
@@ -376,6 +376,12 @@ function PlotBox({ item, ir, interactive }: { item: ObjectItem; ir: PlotIR; inte
             <path key={`c${i}`} d={c.d} stroke={c.color} strokeDasharray={c.dash ? "7 5" : undefined} pathLength={fresh && !c.dash ? 1 : undefined} className={fresh && !c.dash ? "sl-draw" : undefined} />
           ))}
         </g>
+        {/* 계단의 끝: 채운 점(함수값) · 빈 점(닿지 않는 쪽) */}
+        <g strokeWidth={1.6}>
+          {drawn.dots.map((d, i) => (
+            <circle key={`dot${i}`} cx={box.x(d.x)} cy={box.y(d.y)} r={3.4} fill={d.filled ? d.color : theme.color.bg} stroke={d.color} />
+          ))}
+        </g>
         {/* 곡선 따라가기: 곡선 근처만 터치를 받는다 (나머지는 그대로 필기) */}
         {interactive &&
           drawn.trace.map((t, i) => (
@@ -523,11 +529,14 @@ interface Drawn {
   error: string | null;
   /** 따라가기(트레이스)용: y = f(x) 꼴 곡선마다 함수와 그 경로 */
   trace: Array<{ d: string; f: Fn; color: string }>;
+  /** 계단처럼 뛰는 곳 (가우스 기호 [x] 등): 함수값이 있는 쪽은 채운 점, 반대쪽은 빈 점 (교과서) */
+  dots: Array<{ x: number; y: number; filled: boolean; color: string }>;
 }
+
 
 function renderCurves(data: PlotData, view: View, W: number, H: number, params: Record<string, number>): Drawn {
   const box = toBox(view, W, H);
-  const out: Drawn = { curves: [], shades: [], regions: [], vertical: [], horizontal: [], valueLatex: null, error: null, trace: [] };
+  const out: Drawn = { curves: [], shades: [], regions: [], vertical: [], horizontal: [], valueLatex: null, error: null, trace: [], dots: [] };
   const names = Object.keys(params).sort();
   const values = names.map((n) => params[n] as number);
   const explicitFns: Array<Fn | null> = [];
@@ -544,6 +553,7 @@ function renderCurves(data: PlotData, view: View, W: number, H: number, params: 
       out.curves.push({ d: pathFrom(sampled.runs, box.x, box.y), color });
       out.trace.push({ d: pathFrom(sampled.runs, box.x, box.y), f: g, color });
       const asym = findAsymptotes(g, view, sampled);
+      for (const d of jumpDots(g, view, sampled.breaks)) if (d.y >= view.ymin && d.y <= view.ymax && d.x >= view.xmin && d.x <= view.xmax) out.dots.push({ ...d, color });
       // 축 위에 겹치는 점근선(y = 1/x의 x = 0, y = 0)은 축이 대신한다 — 실선 위 점선은 지저분하다
       out.vertical.push(...asym.vertical.filter((x) => x !== 0));
       out.horizontal.push(...asym.horizontal.filter((y) => y !== 0));

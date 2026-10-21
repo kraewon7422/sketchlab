@@ -77,6 +77,30 @@ export function sampleFunction(f: Fn, view: View, options: SampleOptions): Sampl
 
   const offSameSide = (a: number, b: number) => (a > yHi && b > yHi) || (a < yLo && b < yLo);
 
+  /**
+   * 뛰는 쪽 반을 계속 따라가며 40번 반으로 — 폭이 거의 0이 되어도 1px 넘게 뛰면 진짜 끊김(계단),
+   * 가파르기만 한 연속 곡선은 폭과 함께 차이가 사라진다.
+   */
+  const isJump = (x0: number, y0: number, x1: number, y1: number): boolean => {
+    let a = x0;
+    let b = x1;
+    let ya = y0;
+    let yb = y1;
+    for (let k = 0; k < 40; k++) {
+      const m = (a + b) / 2;
+      const ym = safe(f, m);
+      if (Number.isNaN(ym)) return true;
+      if (Math.abs(ym - ya) >= Math.abs(yb - ym)) {
+        b = m;
+        yb = ym;
+      } else {
+        a = m;
+        ya = ym;
+      }
+    }
+    return Math.abs(yb - ya) * sy > 1;
+  };
+
   const refine = (x0: number, y0: number, x1: number, y1: number, depth: number): void => {
     const n0ok = !Number.isNaN(y0);
     const n1ok = !Number.isNaN(y1);
@@ -116,7 +140,8 @@ export function sampleFunction(f: Fn, view: View, options: SampleOptions): Sampl
       if (n1ok) out.push([x1, y1]);
       return;
     }
-    if (dyPx > jumpPx) {
+    // 좁은 칸에서 2px 넘게 뛰면 계단(가우스 기호 [x] 등)인지 가파른 곡선(x³ 등)인지 따로 확인 — 계단이면 세로선 없이 끊는다
+    if (dyPx > jumpPx || (dyPx > 2 && isJump(x0, y0, x1, y1))) {
       breaks.push({ x: (x0 + x1) / 2, left: y0, right: y1 });
       out.push(null);
       out.push([x1, y1]);
@@ -218,4 +243,50 @@ export function sampleParametric(
   }
   if (cur.length >= 2) runs.push(cur);
   return runs;
+}
+
+/**
+ * 화면 안에서 작게 뛰는 끊김(점근선이 아닌 것)의 정확한 자리와 양쪽 값.
+ * 왼쪽 값에 가까우면 왼쪽, 아니면 오른쪽으로 이분해서 뛰는 x를 찾고, 그 x의 실제 함수값이 어느 쪽인지 본다.
+ */
+export function jumpDots(f: Fn, view: View, breaks: ReadonlyArray<{ x: number; left: number; right: number }>): Array<{ x: number; y: number; filled: boolean }> {
+  const yspan = view.ymax - view.ymin;
+  const xspan = view.xmax - view.xmin;
+  const out: Array<{ x: number; y: number; filled: boolean }> = [];
+  const val = (x: number) => {
+    try {
+      const y = f(x);
+      return Number.isFinite(y) ? y : NaN;
+    } catch {
+      return NaN;
+    }
+  };
+  for (const b of breaks) {
+    if (!Number.isFinite(b.left) || !Number.isFinite(b.right)) continue;
+    if (Math.abs(b.left - b.right) > yspan * 0.5) continue; // 점근선 쪽
+    let lo = b.x - xspan * 1e-3;
+    let hi = b.x + xspan * 1e-3;
+    const L = val(lo);
+    const R = val(hi);
+    if (!Number.isFinite(L) || !Number.isFinite(R) || Math.abs(L - R) < yspan * 1e-3) continue;
+    for (let k = 0; k < 60; k++) {
+      const m = (lo + hi) / 2;
+      const v = val(m);
+      if (Math.abs(v - L) < Math.abs(v - R)) lo = m;
+      else hi = m;
+    }
+    // 정수·1/12 칸에 가까우면 그 값 (계단의 끝이 정확히 찍히게)
+    let x = (lo + hi) / 2;
+    const k12 = Math.round(x * 12) / 12;
+    if (Math.abs(x - k12) < xspan * 1e-6) x = k12;
+    const at = val(x);
+    const atLeft = Math.abs(at - L) < Math.abs(at - R);
+    // 함수값이 있는 쪽은 채운 점, 다른 쪽은 빈 점
+    out.push({ x, y: atLeft ? L : R, filled: true }, { x, y: atLeft ? R : L, filled: false });
+    if (Number.isFinite(at) && Math.abs(at - L) > yspan * 1e-3 && Math.abs(at - R) > yspan * 1e-3) {
+      // 따로 떨어진 점 (양쪽 모두 빈 점, 함수값만 채운 점)
+      out.splice(out.length - 2, 2, { x, y: L, filled: false }, { x, y: R, filled: false }, { x, y: at, filled: true });
+    }
+  }
+  return out;
 }

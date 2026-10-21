@@ -51,6 +51,7 @@ export function normalizeInput(text: string): string {
     if (end < 0) break;
     s = `${s.slice(0, m.index)}\\sqrt{${s.slice(m.index + m[0].length, end)}}${s.slice(end + 1)}`;
   }
+  s = gaussBrackets(s);
   s = expandNamedCalls(s);
   // 긴 이름 먼저 (tanh를 tan·h로 읽지 않게)
   s = s.replace(/(?<![\\a-zA-Z])(arcsin|arccos|arctan|sinh|cosh|tanh|sin|cos|tan|sec|csc|cot|ln|log|exp)(?=[^a-zA-Z]|[a-zA-Z]|$)/g, "\\$1 ");
@@ -77,7 +78,26 @@ const NAMED: Record<string, (a: string) => string> = {
   zeta: (a) => `\\zeta(${a})`,
   gamma: (a) => `\\Gamma(${a})`,
   erf: (a) => `\\operatorname{erf}(${a})`,
+  floor: (a) => `\\lfloor ${a}\\rfloor`,
+  ceil: (a) => `\\lceil ${a}\\rceil`,
+  frac: (a) => `(${a})-\\lfloor ${a}\\rfloor`,
 };
+
+/**
+ * 가우스 기호 [x] (교과서: x를 넘지 않는 가장 큰 정수) → \lfloor x\rfloor.
+ * 그래프 식(y= · f(x)= 로 시작하는 것)에서만 — 행렬 [[…]] · \sqrt[3]{…} · \left[ 같은 것은 그대로.
+ */
+function gaussBrackets(src: string): string {
+  if (!/^\s*(y|f\s*\(\s*x\s*\))\s*(=|<|>|\\le|\\ge|≤|≥)/.test(src) || src.includes("[[")) return src;
+  let s = src;
+  for (let guard = 0; guard < 20; guard++) {
+    // 짝이 맞는 가장 안쪽 [ … ] (명령 바로 뒤의 [는 건너뛴다: \sqrt[3], \left[)
+    const m = /(?<!\\[a-zA-Z]+)\[([^[\]]*)\]/.exec(s);
+    if (!m) break;
+    s = `${s.slice(0, m.index)}\\lfloor ${m[1]}\\rfloor ${s.slice(m.index + m[0].length)}`;
+  }
+  return s;
+}
 
 function expandNamedCalls(src: string): string {
   let s = src;

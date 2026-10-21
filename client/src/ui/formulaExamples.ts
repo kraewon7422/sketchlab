@@ -13,7 +13,7 @@ export const GROUPS: Array<{ title: string; examples: Example[]; solids?: true; 
     open: true,
     examples: [
       ["포물선", "y=x^2-3"],
-      ["유리함수", "y=\\frac{1}{x}"],
+      ["y=1/x (유리함수)", "y=\\frac{1}{x}"],
       ["지수", "y=2^x"],
       ["로그", "y=\\log_2 x"],
       ["원", "x^2+y^2=4"],
@@ -22,6 +22,8 @@ export const GROUPS: Array<{ title: string; examples: Example[]; solids?: true; 
       ["정적분", "\\int_0^2 x^2\\,dx"],
       ["부등식 영역", "1<x+y<3"],
       ["원 안쪽", "x^2+y^2\\le 4"],
+      ["가우스 기호 [x]", "y=[x]"],
+      ["소수 부분 x−[x]", "y=x-[x]"],
       ["투퍼 공식", "투퍼 공식"],
     ],
   },
