@@ -78,7 +78,9 @@ export function fountainDynamics(points: readonly Point[]): Point[] {
     run += d;
     const v = d / Math.max(1, p.t - prev.t); // px/ms
     const target = p.p * Math.min(1.3, Math.max(0.55, 1.3 - 0.45 * v));
-    w = w < 0 ? target : w * 0.8 + target * 0.2;
+    // 6px 움직일 때마다 목표의 약 20 %씩 따라간다 (표본 간격과 무관)
+    const a = 1 - Math.exp(-d / 27);
+    w = w < 0 ? target : w + (target - w) * a;
     // 끝 15 %: 튕기듯 가늘어짐
     const left = total - run;
     const flick = total > 0 && left < total * 0.15 ? Math.max(0.2, (left / (total * 0.15)) ** 0.6) : 1;

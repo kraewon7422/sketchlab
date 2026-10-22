@@ -168,12 +168,13 @@ function heartTemplate(b: ReturnType<typeof bbox>): P[] {
   return raw.map((q) => ({ x: b.minX + ((q.x - r.minX) / r.w) * b.w, y: b.minY + ((q.y - r.minY) / r.h) * b.h }));
 }
 
-export function snapShape(src: readonly Point[]): Snapped | null {
+/** minDiag: 이보다 작은 획(글씨 한 획)은 도형으로 바꾸지 않는다 (월드 px) */
+export function snapShape(src: readonly Point[], minDiag = 10): Snapped | null {
   if (src.length < 4) return null;
   const pts = src;
   const b = bbox(pts);
   const diag = Math.hypot(b.w, b.h);
-  if (diag < 10) return null;
+  if (diag < Math.max(10, minDiag)) return null;
   let length = 0;
   for (let i = 1; i < pts.length; i++) length += dist(pts[i - 1] as P, pts[i] as P);
   const step = Math.max(1, diag / 90);
@@ -194,7 +195,8 @@ export function snapShape(src: readonly Point[]): Snapped | null {
     }
     // 매끈한 곡선
     const bz = fitBezier(pts);
-    if (bz.err < diag * 0.04) return { kind: "curve", points: toPoints(sampleBezier(bz.c, 64), src) };
+    // 곡선은 거의 그대로 맞을 때만 (글씨 획이 곡선으로 바뀌지 않게)
+    if (bz.err < diag * 0.025) return { kind: "curve", points: toPoints(sampleBezier(bz.c, 64), src) };
     return null;
   }
 

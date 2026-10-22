@@ -163,6 +163,10 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
     let gesture: { mx: number; my: number; dist: number; view: View; lastMx: number; lastMy: number } | null = null;
     /** 제스처 뒤 남은 손가락은 다 뗄 때까지 그리지 않는다 (한 손가락 떼는 순간 점이 찍히지 않게) */
     let gestureLock = false;
+    /** 펜이 화면 위에 떠 있거나 닿았던 마지막 시각 — 그 직후의 손 터치는 손바닥으로 본다 */
+    let lastPenSeen = -Infinity;
+    /** 두 손가락 확대: 한 화면에 한 번만 반영 (손가락마다 오는 move를 모아서) */
+    let gestureFrameId: number | null = null;
     const view = (): View => viewportStore.getState();
 
     /**
@@ -633,7 +637,7 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
         if (!drawing || drawing.length < ink.holdMinLength) return;
         if (!penStore.getState().autoTidy) {
           // 삼성노트처럼: 멈추면 그 자리에서 반듯한 도형으로 바뀌어 보이고, 떼면 그대로 잉크로 남는다
-          const snapped = snapShape(drawing.points);
+          const snapped = snapShape(drawing.points, 56 / view().k);
           if (!snapped) return;
           drawing.held = true;
           drawing.snap = snapped.points;
@@ -674,7 +678,7 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
       const pts = drawing.points;
       const look = drawing.style;
       // 붓(양 끝이 가늘어짐)·점선은 획 전체를 봐야 모양이 맞다 — 두 조각으로 나누지 않고 통째로
-      const whole = look.brush === "brush" || isLineDrawn(look);
+      const whole = look.brush === "brush" || look.brush === "fountain" || look.brush === "pencil" || look.brush === "custom" || isLineDrawn(look);
       if (!whole && pts.length - frozenUpTo > TAIL_EVERY + TAIL_OVERLAP) {
         frozenUpTo = pts.length - TAIL_OVERLAP;
         livePrefixRef.current?.setAttribute("d", strokeD(pts.slice(0, frozenUpTo + 1), look));
@@ -764,6 +768,12 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
       gestureLock = true;
     };
     const moveGesture = (): void => {
+      gestureFrameId ??= requestAnimationFrame(() => {
+        gestureFrameId = null;
+        applyGesture();
+      });
+    };
+    const applyGesture = (): void => {
       const f = gestureFrame();
       if (!gesture || !f || !rect) return;
       const g = gesture;
@@ -806,9 +816,12 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
         return;
       }
 
+      if (event.pointerType === "pen") lastPenSeen = event.timeStamp;
       if (event.pointerType === "touch") {
         // 펜으로 그리는 중의 손 터치는 손바닥 — 무시한다 (획을 끊지 않는다)
         if (drawing && drawing.pointerType === "pen") return;
+        // 펜이 화면 위에 떠 있던 직후(0.6초)의 터치, 손가락보다 훨씬 넓은 접촉면 = 손바닥
+        if (event.timeStamp - lastPenSeen < 600 || Math.max(event.width || 0, event.height || 0) > 45) return;
         touches.set(event.pointerId, { x: event.clientX, y: event.clientY });
         if (touches.size >= 2) {
           // 두 번째 손가락: 그리던 한 손가락 획·끌기는 버리고 이동·확대로
@@ -839,6 +852,20 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
         return;
       }
 
+      if (event.pointerType === "pen" && manip?.kind === "pan" && manip.pointerType === "touch") {
+        // 손바닥이 먼저 닿아 화면을 밀고 있었다 — 밀린 만큼 되돌리고 펜으로 쓴다
+        viewportStore.getState().setView(manip.view);
+        release(manip.pointerId);
+        touches.delete(manip.pointerId);
+        manip = null;
+      }
+      if (event.pointerType === "pen" && gesture) {
+        // 손바닥 두 군데가 확대를 시작했다 — 되돌리고 펜으로 쓴다
+        viewportStore.getState().setView(gesture.view);
+        gesture = null;
+        touches.clear();
+        gestureLock = false;
+      }
       if (manip || lasso || tapeDrag || laser) {
         // 놓친 pointerup으로 남은 상태 — 2초 넘게 아무 움직임이 없으면 풀고 새로 시작한다
         if (event.timeStamp - lastActivity < 2000) return;
@@ -1022,6 +1049,7 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
     };
 
     const onPointerMove = (event: PointerEvent): void => {
+      if (event.pointerType === "pen") lastPenSeen = event.timeStamp;
       if (longPress && longPress.pointerId === event.pointerId && distance(longPress.sx, longPress.sy, event.clientX, event.clientY) > ink.tapMaxMove) clearLongPress();
       if (lasso || tapeDrag || laser || shapeDrag) lastActivity = event.timeStamp;
       if (touches.has(event.pointerId)) {

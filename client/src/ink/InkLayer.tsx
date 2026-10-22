@@ -1,4 +1,4 @@
-import { memo, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import { useStore } from "zustand";
 import { ink, theme } from "../render/theme";
 import { viewportStore } from "../store/viewport";
@@ -44,8 +44,20 @@ const hashId = (id: string) => {
 };
 
 /** 연필 · 수채화 · 가져온 브러시: 도장 엔진으로 그린 그림 (확대하면 더 촘촘히 다시) */
+/** 확대 단계 — 손가락을 멈추고 0.3초 뒤에야 바뀐다 (집어 확대하는 동안 그림을 다시 만들지 않게) */
+function useSettledBucket(): number {
+  const live = useStore(viewportStore, (s) => zoomBucket(s.k));
+  const [settled, setSettled] = useState(live);
+  useEffect(() => {
+    if (live === settled) return;
+    const t = setTimeout(() => setSettled(live), 300);
+    return () => clearTimeout(t);
+  }, [live, settled]);
+  return settled;
+}
+
 const RasterStrokeView = memo(function RasterStrokeView({ stroke }: { stroke: Stroke }) {
-  const bucket = useStore(viewportStore, (s) => zoomBucket(s.k));
+  const bucket = useSettledBucket();
   useBrushes(); // 가져온 브러시가 바뀌면 다시
   const [tick, setTick] = useState(0);
   const brush = stroke.brush === "custom" ? customBrush(stroke.stamp) : BUILTIN[stroke.brush ?? ""];

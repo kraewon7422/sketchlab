@@ -194,7 +194,9 @@ function PlotBox({ item, ir, interactive }: { item: ObjectItem; ir: PlotIR; inte
       : !continuous
         ? discreteCaption(dist, (data.bars ?? []).filter((b) => b.on).map((b) => b.x))
         : (data.caption ?? "")
-    : (data.caption ?? data.functions.map((f) => f.latex).join(",\\quad "));
+    : range && !(data.bars ?? []).length
+      ? integralCaption(data.functions[range.fn]?.latex ?? "", range.from, range.to)
+      : (data.caption ?? data.functions.map((f) => f.latex).join(",\\quad "));
   // 확률분포가 아닌 막대그래프: 고른 막대의 합·평균
   const picked = !dist ? (data.bars ?? []).filter((b) => b.on) : [];
   const live = interactive ? "auto" : "none";
@@ -266,7 +268,7 @@ function PlotBox({ item, ir, interactive }: { item: ObjectItem; ir: PlotIR; inte
       window.removeEventListener("pointerup", up);
       window.removeEventListener("pointercancel", up);
       const end = apply(ev.clientX);
-      sessionStore.getState().commitObjectIR(item.id, start, end, "확률 구간");
+      sessionStore.getState().commitObjectIR(item.id, start, end, dist ? "확률 구간" : "정적분 구간");
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
@@ -300,7 +302,24 @@ function PlotBox({ item, ir, interactive }: { item: ObjectItem; ir: PlotIR; inte
             toParams: toP && names.length < 4 ? () => void rebuild(toP.latex, Object.fromEntries(toP.params.map((p) => [p.name, p])), "계수 조정") : null,
             toNumbers: names.length ? () => void rebuild(paramsToNumbers(only.latex, data.params ?? []), {}, "숫자로 되돌리기") : null,
             canShift: !!sh && (names.length <= 2 || names.includes(sh.h)),
-            mirror: (how: Mirror) => {
+            // 정적분: 지금 보이는 범위 안의 깔끔한 구간으로 시작 (손잡이로 바꾼다)
+          integral:
+            only.kind === "explicit"
+              ? () => {
+                  const now = currentPlot(item.id) ?? ir;
+                  if (now.data.shade?.length) {
+                    const { shade: _s, ...rest } = now.data;
+                    void _s;
+                    sessionStore.getState().commitObjectIR(item.id, now, { ...now, data: { ...rest } }, "정적분 끄기");
+                    return;
+                  }
+                  const step = niceStep((view.xmax - view.xmin) / 8);
+                  const a = Math.round((view.xmin + (view.xmax - view.xmin) * 0.3) / step) * step;
+                  const b = Math.round((view.xmin + (view.xmax - view.xmin) * 0.7) / step) * step;
+                  sessionStore.getState().commitObjectIR(item.id, now, { ...now, data: { ...now.data, shade: [{ fn: 0, from: a, to: b === a ? a + step : b, against: "axis", showValue: true }] } }, "정적분");
+                }
+              : null,
+          mirror: (how: Mirror) => {
               const m = mirrorLatex(only.latex, how);
               if (m) rebuild(m, {}, "대칭이동");
             },
@@ -419,7 +438,7 @@ function PlotBox({ item, ir, interactive }: { item: ObjectItem; ir: PlotIR; inte
         </g>
 
         {/* 확률 구간의 양 끝 손잡이 — 끌어서 "어디부터 어디까지" */}
-        {continuous && range && interactive && (
+        {range && interactive && (continuous || !dist) && (
           <g>
             {([0, 1] as const).map((w) => {
               const x = box.x(w === 0 ? range.from : range.to);
@@ -599,6 +618,11 @@ function PlotBox({ item, ir, interactive }: { item: ObjectItem; ir: PlotIR; inte
                 숫자로 되돌리기
               </button>
             )}
+            {tools.integral && (
+              <button type="button" style={toolBtn(!!range)} onClick={tools.integral}>
+                {range ? "정적분 끄기" : "정적분 (넓이)"}
+              </button>
+            )}
             {tools.canShift && (
               <button type="button" style={toolBtn(moving)} onClick={() => setMoving((v) => !v)}>
                 {moving ? "옮기기 끝" : "끌어서 평행이동"}
@@ -614,6 +638,7 @@ function PlotBox({ item, ir, interactive }: { item: ObjectItem; ir: PlotIR; inte
             ))}
           </div>
           {moving && <div style={{ fontSize: 12, color: theme.color.asymptote }}>그래프 판을 끌면 x축으로 h, y축으로 k만큼 옮겨져요</div>}
+          {range && !dist && <div style={{ fontSize: 12, color: theme.color.asymptote }}>축 위의 동그라미를 끌어 정적분의 시작과 끝을 바꿔요</div>}
         </div>
       )}
     </div>
@@ -652,6 +677,17 @@ function niceStep(raw: number): number {
 }
 
 const fmtSum = (v: number) => String(Number(v.toPrecision(5)));
+
+/** 지금 구간의 정적분 식 — ∫_a^b f(x) dx (끝을 끌면 같이 바뀐다) */
+function integralCaption(fnLatex: string, from: number, to: number): string {
+  const k = fnLatex.indexOf("=");
+  const body = k >= 0 ? fnLatex.slice(k + 1) : fnLatex;
+  const n = (v: number) => {
+    const r = Number(v.toFixed(3));
+    return r < 0 ? `{-${-r}}` : `{${r}}`;
+  };
+  return `\\int_${n(from)}^${n(to)}\\left(${body}\\right)dx`;
+}
 
 function by(box: ReturnType<typeof toBox>, y: number, H: number): number {
   return Math.min(Math.max(box.y(y), 0), H);
@@ -780,8 +816,8 @@ function renderCurves(data: PlotData, view: View, W: number, H: number, params: 
 
     if (sh.showValue) {
       const cap = data.caption ? analyzeCached(data.caption) : null;
-      const exact =
-        cap && cap.kind === "integral" ? definiteIntegral(cap.body, cap.variable, cap.from, cap.to, params) : { exact: null, value: area };
+      const same = cap && cap.kind === "integral" && Math.abs(cap.from - sh.from) < 1e-9 && Math.abs(cap.to - sh.to) < 1e-9;
+      const exact = same && cap.kind === "integral" ? definiteIntegral(cap.body, cap.variable, cap.from, cap.to, params) : { exact: null, value: area };
       const v = Number.isFinite(exact.value) ? exact.value : area;
       if (Number.isFinite(v)) {
         const approx = Math.abs(v - Math.round(v)) < 1e-9 ? String(Math.round(v)) : v.toFixed(3);

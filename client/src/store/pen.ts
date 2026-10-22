@@ -187,7 +187,8 @@ function load(): PenSettings {
       recentPen: hexList(v.recentPen),
       recentHighlight: hexList(v.recentHighlight),
       // 예전 기본값(0.45)을 그대로 쓰던 사람은 새 기본값으로 — 직접 고른 값은 그대로 둔다
-      smoothing: typeof v.smoothing === "number" && v.smoothing !== 0.45 ? Math.min(1, Math.max(0, v.smoothing)) : DEFAULTS.smoothing,
+      // 예전 기본값(0.45 · 0.25)을 그대로 쓰던 사람은 새 기본값으로 (글씨가 뭉개지지 않게) — 직접 고른 값은 그대로
+      smoothing: typeof v.smoothing === "number" && v.smoothing !== 0.45 && v.smoothing !== 0.25 ? Math.min(1, Math.max(0, v.smoothing)) : DEFAULTS.smoothing,
       eraserMode: v.eraserMode === "area" ? "area" : "stroke",
       eraserSize: clamp(v.eraserSize, penOpts.eraserSize),
       shapeKind: SHAPES.includes(v.shapeKind as ShapeKind) ? (v.shapeKind as ShapeKind) : "line",
