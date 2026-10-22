@@ -20,6 +20,8 @@ import {
   UNIT,
   wireCurrents,
   wirePath,
+  LED_VF,
+  type LedColor,
   type CircuitData,
   type ElectricReading,
   type Part,
@@ -51,6 +53,14 @@ const NAMES: Record<PartType, string> = {
   bulb: "전구",
   ammeter: "전류계",
   voltmeter: "전압계",
+  diode: "다이오드",
+  led: "LED",
+  zener: "제너 다이오드",
+  npn: "NPN 트랜지스터",
+  pnp: "PNP 트랜지스터",
+  fuse: "퓨즈",
+  motor: "모터",
+  ground: "접지",
   node: "마디",
   in: "입력",
   out: "출력",
@@ -60,7 +70,9 @@ const NAMES: Record<PartType, string> = {
   nand: "NAND",
   nor: "NOR",
   xor: "XOR",
+  xnor: "XNOR",
   dff: "D 플립플롭",
+  clock: "클록",
 };
 
 /** 값 −/+ 로 고르는 단계 */
@@ -72,7 +84,15 @@ const STEPS: Partial<Record<PartType, number[]>> = {
   bulb: [5, 10, 20, 50, 100],
   capacitor: [1, 10, 47, 100, 220, 470, 1000],
   inductor: [10, 50, 100, 500, 1000, 5000],
+  zener: [2.7, 3.3, 5.1, 6.2, 9.1, 12],
+  npn: [20, 50, 100, 200, 500],
+  pnp: [20, 50, 100, 200, 500],
+  fuse: [0.1, 0.25, 0.5, 1, 2, 5],
+  motor: [2, 5, 10, 20, 50, 100],
 };
+/** LED 색 */
+const LED_HEX: Record<LedColor, string> = { red: "#FF3B30", yellow: "#FFC400", green: "#22C55E", blue: "#2F7BFF", white: "#9EC5FF" };
+const LED_NAME: Record<LedColor, string> = { red: "빨강", yellow: "노랑", green: "초록", blue: "파랑", white: "흰색" };
 const FREQS = [0.2, 0.5, 1, 2, 5];
 /** 부품 크기 단계 */
 const PART_SIZES = [0.5, 0.75, 1, 1.5, 2];
@@ -95,6 +115,7 @@ const valueText = (p: Part) => {
   const u = UNIT[p.type];
   if (!u) return "";
   const v = p.value ?? DEFAULTS[p.type] ?? 0;
+  if (u === "β") return `β=${v}`;
   return u === "Ω" ? si(v, "Ω", 3).replace(/\.0+ /, " ").replace(" Ω", "Ω") : `${v} ${u}`;
 };
 
@@ -149,6 +170,8 @@ function CircuitBox({ item, ir, interactive }: { item: ObjectItem; ir: CircuitIR
   const [running, setRunning] = useState(true);
   const simRef = useRef(newElectricState());
   const phaseRef = useRef<number[]>([]);
+  /** 모터 축 각도 (도) */
+  const spinRef = useRef<Record<string, number>>({});
   const histRef = useRef<Array<{ t: number; v: number[] }>>([]);
   const viewRef = useRef(view);
   viewRef.current = view;
@@ -170,7 +193,7 @@ function CircuitBox({ item, ir, interactive }: { item: ObjectItem; ir: CircuitIR
       if (running) {
         const n = 8;
         for (let i = 0; i < n; i++) r = stepElectric(d, simRef.current, frameDt / n || 1e-3);
-      } else r = stepElectric(d, { ...simRef.current, vc: { ...simRef.current.vc }, il: { ...simRef.current.il } }, 1e-3);
+      } else r = stepElectric(d, { ...simRef.current, vc: { ...simRef.current.vc }, il: { ...simRef.current.il }, sw: { ...simRef.current.sw }, broken: { ...simRef.current.broken } }, 1e-3);
       if (r) {
         const wires = wireCurrents(d, r.into);
         const ph = phaseRef.current;
@@ -179,6 +202,13 @@ function CircuitBox({ item, ir, interactive }: { item: ObjectItem; ir: CircuitIR
           const speed = a < 1e-7 ? 0 : Math.sign(i) * Math.min(80, 20 * Math.log10(1 + a * 1e4));
           ph[k] = ((ph[k] ?? 0) + (running ? speed * frameDt : 0)) % 1000;
         });
+        if (running)
+          for (const p of d.parts) {
+            if (p.type !== "motor") continue;
+            // 전류가 클수록 빨리 돈다 (방향도 전류를 따라)
+            const i = r.part[p.id]?.i ?? 0;
+            spinRef.current[p.id] = ((spinRef.current[p.id] ?? 0) + Math.max(-1080, Math.min(1080, i * 1500)) * frameDt) % 360;
+          }
         if (running) {
           const reads = r;
           const t = simRef.current.t;
@@ -202,7 +232,15 @@ function CircuitBox({ item, ir, interactive }: { item: ObjectItem; ir: CircuitIR
 
   // ───────── 논리: 바뀔 때마다 계산 (래치·플립플롭은 지난 상태를 기억)
   const logicRef = useRef(newLogicState());
-  const logic = useMemo(() => (electric ? null : evalLogic(view, logicRef.current)), [electric, view]);
+  const clocks = !electric && data.parts.some((p) => p.type === "clock");
+  const [clockT, setClockT] = useState(0);
+  useEffect(() => {
+    if (!clocks) return;
+    const t0 = performance.now();
+    const id = setInterval(() => setClockT((performance.now() - t0) / 1000), 50);
+    return () => clearInterval(id);
+  }, [clocks]);
+  const logic = useMemo(() => (electric ? null : evalLogic(view, logicRef.current, clockT)), [electric, view, clockT]);
   const nodeMap = useMemo(() => nodesOf(view).nodeOf, [view]);
   const netOf = (ref: string) => (logic ? (logic.net[nodeMap.get(ref) ?? -1] ?? 0) : 0);
   const table = useMemo(() => (electric ? null : truthTable(data)), [electric, data]);
@@ -358,7 +396,7 @@ function CircuitBox({ item, ir, interactive }: { item: ObjectItem; ir: CircuitIR
   const addPart = (type: PartType) => {
     const id = newId(data, type);
     const spot = freeCell(data, type);
-    const part: Part = { id, type, x: spot[0], y: spot[1], ...(DEFAULTS[type] !== undefined ? { value: DEFAULTS[type] } : {}), ...(type === "rheostat" ? { pos: 0.5 } : {}), ...(type === "ac" ? { freq: 1 } : {}), ...(type === "in" || type === "out" ? { label: nextLabel(data, type) } : {}) };
+    const part: Part = { id, type, x: spot[0], y: spot[1], ...(DEFAULTS[type] !== undefined ? { value: DEFAULTS[type] } : {}), ...(type === "rheostat" ? { pos: 0.5 } : {}), ...(type === "ac" || type === "clock" ? { freq: 1 } : {}), ...(type === "led" ? { color: "red" as const } : {}), ...(type === "in" || type === "out" ? { label: nextLabel(data, type) } : {}) };
     commit({ ...data, parts: [...data.parts, part] }, `${NAMES[type]} 더하기`);
     setSel({ part: id });
   };
@@ -445,10 +483,12 @@ function CircuitBox({ item, ir, interactive }: { item: ObjectItem; ir: CircuitIR
           const pr = r?.part[p.id];
           const glow = p.type === "bulb" && pr ? Math.min(1, Math.sqrt(Math.abs(pr.p) / 3.6)) : 0;
           const lv = !electric ? partLogic(p, netOf) : null;
+          const fx: Fx = { lit: p.type === "led" && pr && !r?.broken[p.id] ? Math.min(1, Math.max(0, pr.i) / 0.02) : 0, broken: !!r?.broken[p.id], spin: spinRef.current[p.id] ?? 0 };
           return (
             <g key={p.id}>
               <g transform={`translate(${X(p.x)},${Y(p.y)}) rotate(${(p.rot ?? 0) * 90}) scale(${cs * (p.size ?? 1)})`}>
                 {glow > 0.02 && <circle r={1.25} fill="#FFD84A" opacity={0.25 + 0.6 * glow} />}
+                {fx.lit > 0.02 && <circle r={1.15} fill={LED_HEX[p.color ?? "red"]} opacity={0.15 + 0.45 * fx.lit} />}
                 {p.type === "node" ? (
                   (counts.get(termKey(p.id, 0)) ?? 0) >= 3 ? (
                     <Symbol p={p} on={!!p.on} lv={lv} color={isSel ? selColor : theme.color.ink} glow={glow} />
@@ -456,7 +496,7 @@ function CircuitBox({ item, ir, interactive }: { item: ObjectItem; ir: CircuitIR
                     <circle r={0.12} fill={isSel ? selColor : theme.color.asymptote} opacity={isSel ? 1 : 0.35} />
                   ) : null
                 ) : (
-                  <Symbol p={p} on={!!p.on} lv={lv} color={isSel ? selColor : theme.color.ink} glow={glow} />
+                  <Symbol p={p} on={!!p.on} lv={lv} color={isSel ? selColor : theme.color.ink} glow={glow} fx={fx} />
                 )}
                 {interactive && <rect data-part={p.id} x={p.type === "node" ? -0.5 : -1.5} y={p.type === "node" ? -0.5 : bodyHalf(p.type) * -1} width={p.type === "node" ? 1 : 3} height={p.type === "node" ? 1 : bodyHalf(p.type) * 2} fill="transparent" style={{ cursor: "grab" }} />}
               </g>
@@ -510,7 +550,25 @@ function CircuitBox({ item, ir, interactive }: { item: ObjectItem; ir: CircuitIR
                   onChange={(v) => patchPart(selPart.id, { value: v }, `${NAMES[selPart.type]} 값`)}
                 />
               )}
-              {selPart.type === "ac" && <ValueStep value={selPart.freq ?? 1} steps={FREQS} show={`${selPart.freq ?? 1} Hz`} onChange={(v) => patchPart(selPart.id, { freq: v }, "주파수")} />}
+              {(selPart.type === "ac" || selPart.type === "clock") && <ValueStep value={selPart.freq ?? 1} steps={FREQS} show={`${selPart.freq ?? 1} Hz`} onChange={(v) => patchPart(selPart.id, { freq: v }, "주파수")} />}
+              {selPart.type === "led" &&
+                (Object.keys(LED_HEX) as LedColor[]).map((c) => (
+                  <button key={c} type="button" aria-label={`${LED_NAME[c]} LED`} title={`${LED_NAME[c]} · 문턱 ${LED_VF[c]} V`} onClick={() => patchPart(selPart.id, { color: c }, "LED 색")} style={{ ...btn, padding: 0, width: 26, minWidth: 26, display: "inline-grid", placeItems: "center", outline: (selPart.color ?? "red") === c ? `2px solid ${theme.color.accent}` : undefined }}>
+                    <span style={{ width: 14, height: 14, borderRadius: 7, background: LED_HEX[c], border: "1px solid #0002" }} />
+                  </button>
+                ))}
+              {r?.broken[selPart.id] && (
+                <button
+                  type="button"
+                  style={onBtn}
+                  onClick={() => {
+                    delete simRef.current.broken[selPart.id];
+                    setReading(null);
+                  }}
+                >
+                  새것으로 갈기
+                </button>
+              )}
               {(selPart.type === "switch" || selPart.type === "in") && (
                 <button type="button" style={selPart.on ? onBtn : btn} onClick={() => patchPart(selPart.id, { on: !selPart.on }, selPart.type === "switch" ? "스위치" : "입력 바꾸기")}>
                   {selPart.type === "switch" ? (selPart.on ? "닫힘 (켜짐)" : "열림 (꺼짐)") : selPart.on ? "1" : "0"}
@@ -635,14 +693,27 @@ function CircuitBox({ item, ir, interactive }: { item: ObjectItem; ir: CircuitIR
 // ─────────────────────────────────────────────────────────── 부품 그림 (격자 칸 단위, 단자 0이 왼쪽)
 
 function bodyHalf(type: PartType): number {
-  return type === "dff" ? 1.8 : type === "and" || type === "or" || type === "nand" || type === "nor" || type === "xor" ? 1.4 : 1;
+  return type === "dff" || type === "npn" || type === "pnp" ? 1.8 : type === "and" || type === "or" || type === "nand" || type === "nor" || type === "xor" || type === "xnor" ? 1.4 : 1;
+}
+
+/** 시뮬레이션이 보여 주는 모습: LED 밝기 0~1, 탄 부품, 모터 각도 */
+type Fx = { lit: number; broken: boolean; spin: number };
+const NO_FX: Fx = { lit: 0, broken: false, spin: 0 };
+
+/** 선분 위 화살촉 (끝 tip, 방향 (ux, uy)) */
+function arrowHead(tx: number, ty: number, ux: number, uy: number, color: string): ReactElement {
+  const L = Math.hypot(ux, uy) || 1;
+  const [dx, dy] = [ux / L, uy / L];
+  const bx = tx - dx * 0.42;
+  const by = ty - dy * 0.42;
+  return <path d={`M${tx},${ty}L${bx - dy * 0.2},${by + dx * 0.2}L${bx + dy * 0.2},${by - dx * 0.2}Z`} fill={color} stroke="none" />;
 }
 
 function partLogic(p: Part, netOf: (ref: string) => number): number[] {
   return terminals(p).map((_, k) => netOf(termKey(p.id, k)));
 }
 
-function Symbol({ p, on, lv, color, glow }: { p: Part; on: boolean; lv: number[] | null; color: string; glow: number }): ReactElement {
+function Symbol({ p, on, lv, color, glow, fx = NO_FX }: { p: Part; on: boolean; lv: number[] | null; color: string; glow: number; fx?: Fx }): ReactElement {
   const s = { fill: "none", stroke: color, strokeWidth: 2, vectorEffect: "non-scaling-stroke" as const, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
   const lead = (x1: number, x2: number, y = 0, v?: number) => <line x1={x1} y1={y} x2={x2} y2={y} {...s} stroke={v === 1 ? ONE : v === 0 ? ZERO : color} />;
   const zig = (a: number, b: number) => {
@@ -737,6 +808,82 @@ function Symbol({ p, on, lv, color, glow }: { p: Part; on: boolean; lv: number[]
           <circle r={0.8} {...s} fill="#fff" />
         </g>
       );
+    case "diode":
+    case "led":
+    case "zener": {
+      // 삼각형(양극, 단자 0) → 막대(음극, 단자 1): 화살 쪽으로만 전류가 흐른다
+      const hex = LED_HEX[p.color ?? "red"];
+      const tri = p.type !== "led" ? color : fx.broken ? "#555" : fx.lit > 0.02 ? hex : "#fff";
+      return (
+        <g>
+          {lead(-2, -0.5)}
+          {lead(0.5, 2)}
+          <path d="M-0.5,-0.6L0.5,0L-0.5,0.6Z" {...s} fill={tri} />
+          {p.type === "zener" ? <path d="M0.25,-0.8L0.5,-0.6V0.6L0.75,0.8" {...s} /> : <line x1={0.5} y1={-0.65} x2={0.5} y2={0.65} {...s} />}
+          {p.type === "led" && (
+            <g>
+              <path d="M0,-0.75L0.45,-1.2M0.45,-0.55L0.9,-1" {...s} stroke={fx.lit > 0.02 ? hex : color} strokeWidth={1.4} />
+              {arrowHead(0.55, -1.3, 1, -1, fx.lit > 0.02 ? hex : color)}
+              {arrowHead(1, -1.1, 1, -1, fx.lit > 0.02 ? hex : color)}
+            </g>
+          )}
+          {fx.broken && <path d="M-0.45,-0.45L0.45,0.45M-0.45,0.45L0.45,-0.45" {...s} stroke="#C0392B" strokeWidth={2.4} />}
+        </g>
+      );
+    }
+    case "npn":
+    case "pnp": {
+      // B(왼쪽) · C(위) · E(아래, 화살) — NPN은 화살이 밖으로, PNP는 안으로
+      const npn = p.type === "npn";
+      return (
+        <g>
+          <circle cx={0.25} r={1.35} {...s} fill="#fff" />
+          {lead(-2, -0.45)}
+          <line x1={-0.45} y1={-0.85} x2={-0.45} y2={0.85} {...s} strokeWidth={3.2} />
+          <path d="M-0.45,-0.35L1,-1.15V-2" {...s} />
+          <path d="M-0.45,0.35L1,1.15V2" {...s} />
+          {npn ? arrowHead(0.8, 1.04, 1.45, 0.8, color) : arrowHead(-0.2, 0.49, -1.45, -0.8, color)}
+        </g>
+      );
+    }
+    case "fuse":
+      return (
+        <g>
+          {lead(-2, -0.9)}
+          {lead(0.9, 2)}
+          <rect x={-0.9} y={-0.35} width={1.8} height={0.7} rx={0.12} {...s} fill="#fff" />
+          {fx.broken ? <path d="M-0.9,0H-0.25L-0.1,-0.2M0.9,0H0.25L0.1,0.2" {...s} stroke="#C0392B" /> : <line x1={-0.9} y1={0} x2={0.9} y2={0} {...s} />}
+        </g>
+      );
+    case "motor":
+      return (
+        <g>
+          {lead(-2, -0.9)}
+          {lead(0.9, 2)}
+          <circle r={0.9} {...s} fill="#fff" />
+          <g transform={`rotate(${fx.spin.toFixed(1)})`}>
+            <path d="M0,-0.68A0.68,0.68 0 0 1 0.68,0" {...s} stroke={theme.color.accent} strokeWidth={1.4} />
+            {arrowHead(0.68, 0.12, 0, 1, theme.color.accent)}
+          </g>
+        </g>
+      );
+    case "ground":
+      return (
+        <g>
+          <line x1={0} y1={-1} x2={0} y2={0} {...s} />
+          <path d="M-0.7,0H0.7M-0.45,0.28H0.45M-0.2,0.56H0.2" {...s} />
+        </g>
+      );
+    case "clock": {
+      const hi = lv?.[0] === 1;
+      return (
+        <g>
+          {lead(0.6, 2, 0, lv?.[0])}
+          <rect x={-0.6} y={-0.6} width={1.2} height={1.2} rx={0.15} {...s} fill={hi ? ONE : "#fff"} stroke={hi ? ONE : color} />
+          <path d="M-0.42,0.25H-0.2V-0.25H0.05V0.25H0.28V-0.25H0.42" {...s} stroke={hi ? "#fff" : color} strokeWidth={1.4} />
+        </g>
+      );
+    }
     case "node":
       return <circle r={0.17} fill={lv ? (lv[0] === 1 ? ONE : ZERO) : color} />;
     case "in":
@@ -767,9 +914,10 @@ function Symbol({ p, on, lv, color, glow }: { p: Part; on: boolean; lv: number[]
     case "nand":
     case "or":
     case "nor":
-    case "xor": {
-      const isOr = p.type === "or" || p.type === "nor" || p.type === "xor";
-      const neg = p.type === "nand" || p.type === "nor";
+    case "xor":
+    case "xnor": {
+      const isOr = p.type === "or" || p.type === "nor" || p.type === "xor" || p.type === "xnor";
+      const neg = p.type === "nand" || p.type === "nor" || p.type === "xnor";
       const end = isOr ? 1.4 : 1.3;
       return (
         <g>
@@ -777,7 +925,7 @@ function Symbol({ p, on, lv, color, glow }: { p: Part; on: boolean; lv: number[]
           {lead(-2, -0.9, 1, lv?.[1])}
           {lead(neg ? end + 0.3 : end, 2, 0, lv?.[2])}
           {isOr ? <path d="M-1.2,-1.3Q-0.6,0 -1.2,1.3Q0.6,1.3 1.4,0Q0.6,-1.3 -1.2,-1.3Z" {...s} fill="#fff" /> : <path d="M-1.1,-1.3H0A1.3,1.3 0 0 1 0,1.3H-1.1Z" {...s} fill="#fff" />}
-          {p.type === "xor" && <path d="M-1.5,-1.3Q-0.9,0 -1.5,1.3" {...s} />}
+          {(p.type === "xor" || p.type === "xnor") && <path d="M-1.5,-1.3Q-0.9,0 -1.5,1.3" {...s} />}
           {neg && bubble(end + 0.15)}
         </g>
       );
@@ -835,7 +983,42 @@ function PartText({ p, X, Y, cs, reading, lv }: { p: Part; X: (g: number) => num
     case "capacitor":
     case "inductor":
     case "bulb":
+    case "zener":
+    case "fuse":
       return side(p.label ? `${p.label} ${valueText(p)}` : valueText(p), theme.color.asymptote);
+    case "diode":
+      return p.label ? side(p.label, theme.color.asymptote) : null;
+    case "led": {
+      // 빛 화살표 바깥쪽에
+      const s = p.label ?? `${LED_NAME[p.color ?? "red"]} LED`;
+      return vertical ? text(cx + cs * 1.7, cy, s, "start", theme.color.asymptote) : text(cx, cy - cs * 1.8, s, "middle", theme.color.asymptote);
+    }
+    case "motor":
+      return (
+        <>
+          {text(cx, cy, "M", "middle", theme.color.ink, 700, fs * 1.05)}
+          {side(p.label ? `${p.label} ${valueText(p)}` : valueText(p), theme.color.asymptote)}
+        </>
+      );
+    case "npn":
+    case "pnp": {
+      // 단자 이름 B·C·E (단자와 가운데 사이), 종류·β는 아래
+      const g = terminals(p);
+      const gx = (cx - cs * 0.5) / cs;
+      const gy = (cy - cs * 0.5) / cs;
+      const unit = cs / (p.size ?? 1);
+      return (
+        <>
+          {["B", "C", "E"].map((l, k) => {
+            const [tx, ty] = g[k] as [number, number];
+            return <g key={l}>{text(cx + (tx - gx) * unit * 0.78 + cs * 0.28, cy + (ty - gy) * unit * 0.78 - cs * 0.22, l, "middle", theme.color.asymptote, 600, fs * 0.7)}</g>;
+          })}
+          {text(cx - cs * 1.5, cy + cs * 1.9, `${p.type === "npn" ? "NPN" : "PNP"} ${valueText(p)}`, "middle", theme.color.asymptote, 400, fs * 0.8)}
+        </>
+      );
+    }
+    case "clock":
+      return text(cx - cs * 0.85, cy, `${p.label ?? "CLK"} ${p.freq ?? 1}Hz`, "end", theme.color.ink, 600, fs * 0.85);
     case "ac":
       return side(`${valueText(p)} · ${p.freq ?? 1} Hz`, theme.color.asymptote);
     case "in":
@@ -857,6 +1040,7 @@ function PartText({ p, X, Y, cs, reading, lv }: { p: Part; X: (g: number) => num
     case "nand":
     case "nor":
     case "xor":
+    case "xnor":
     case "not":
       return text(cx + (p.type === "not" ? -cs * 0.3 : 0), cy + (vertical ? 0 : 0), NAMES[p.type], "middle", theme.color.asymptote, 600, fs * 0.72);
     case "dff": {
@@ -896,6 +1080,28 @@ function ValueStep({ value, steps, show, onChange }: { value: number; steps: num
 }
 
 function ElectricSummary({ data, r, selPart }: { data: CircuitData; r?: ElectricReading; selPart?: Part }): ReactElement {
+  const b = (x: ReactNode) => <b style={{ color: theme.color.ink }}>{x}</b>;
+  if (selPart && r && r.broken[selPart.id])
+    return <span style={{ color: "#C0392B" }}>{selPart.type === "fuse" ? `퓨즈가 끊어졌어요 — ${valueText(selPart)}보다 큰 전류가 흘러서 회로를 지켰어요` : selPart.type === "led" ? "LED가 타 버렸어요 — 저항을 함께 이어 전류를 줄여 주세요 (보통 20 mA)" : "다이오드가 타 버렸어요 — 전류가 너무 컸어요"} · 새것으로 갈아 보세요</span>;
+  if (selPart && r?.part[selPart.id] && (selPart.type === "npn" || selPart.type === "pnp")) {
+    const pr = r.part[selPart.id] as { i: number; v: number };
+    const m = r.mode[selPart.id] ?? 0;
+    return (
+      <span>
+        베이스 전류 {b(si(Math.abs(r.ib[selPart.id] ?? 0), "A"))} · 컬렉터 전류 {b(si(Math.abs(pr.i), "A"))} · {m === 0 ? "차단 — 베이스에 전류가 없어 꺼져 있어요" : m === 1 ? `활성 — 컬렉터 전류 = β × 베이스 전류 (증폭)` : "포화 — 스위치처럼 완전히 켜졌어요"}
+      </span>
+    );
+  }
+  if (selPart && r?.part[selPart.id] && (selPart.type === "diode" || selPart.type === "led" || selPart.type === "zener")) {
+    const pr = r.part[selPart.id] as { i: number; v: number };
+    const m = r.mode[selPart.id] ?? 0;
+    const vf = selPart.type === "led" ? LED_VF[selPart.color ?? "red"] : 0.7;
+    return (
+      <span>
+        전압 {b(si(Math.abs(pr.v), "V"))} · 전류 {b(si(Math.abs(pr.i), "A"))} · {m === 1 ? "켜짐 — 순방향 (삼각형 → 막대 쪽으로 흘러요)" : m === 2 ? `항복 — 거꾸로 걸린 전압을 ${valueText(selPart)}로 붙잡아요` : `꺼짐 — 역방향이거나 문턱 전압 ${vf} V보다 낮아요`}
+      </span>
+    );
+  }
   if (selPart && r?.part[selPart.id] && selPart.type !== "node") {
     const pr = r.part[selPart.id] as { i: number; v: number; p: number };
     return (
@@ -921,6 +1127,7 @@ function ElectricSummary({ data, r, selPart }: { data: CircuitData; r?: Electric
       </span>
     );
   }
+  if (r && Object.keys(r.broken).length > 0) return <span style={{ color: "#C0392B" }}>탄 부품이 있어요 (빨간 ×) — 톡 해서 이유를 보고 새것으로 갈아 보세요</span>;
   return <span>{hasAc ? "교류: 전류의 방향이 계속 바뀌어요" : "직류"} · 주황 점 = 전류의 방향 (+ → −) · 부품을 톡 하면 전압·전류</span>;
 }
 
@@ -956,6 +1163,8 @@ function Scope({ hist, meters, W }: { hist: Array<{ t: number; v: number[] }>; m
 }
 
 function LogicTable({ data, table, oscillating }: { data: CircuitData; table: ReturnType<typeof truthTable>; oscillating: boolean }): ReactElement | null {
+  const clock = data.parts.find((p) => p.type === "clock");
+  if (clock && !oscillating) return <div style={{ textAlign: "center", fontSize: 12.5, color: theme.color.ink, marginTop: 6, wordBreak: "keep-all" }}>클록이 1초에 {clock.freq ?? 1}번 0 → 1 → 0으로 바뀌어요 — 플립플롭의 CLK에 이으면 박자마다 값을 저장해요</div>;
   if (oscillating) return <div style={{ textAlign: "center", fontSize: 12.5, color: ONE, marginTop: 6 }}>값이 계속 바뀌어요 (발진) — 출력이 자기 입력으로 바로 돌아오는 고리가 있어요</div>;
   if (!table) {
     if (!data.parts.some((p) => p.type === "in") || !data.parts.some((p) => p.type === "out")) return null;

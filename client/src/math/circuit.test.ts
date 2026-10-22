@@ -196,3 +196,142 @@ describe("회로도 그리기 규칙 (실제 회로도처럼)", () => {
     expect([...hops.values()].flat().length).toBeGreaterThan(0);
   });
 });
+
+describe("회로 — 반도체 부품", () => {
+  const P = (id: string, type: CircuitData["parts"][number]["type"], x: number, y: number, extra: Partial<CircuitData["parts"][number]> = {}) => ({ id, type, x, y, ...extra });
+  const W = (a: string, b: string) => ({ a, b });
+  /** 전지 E(6 V) → R → X(단자0→1) → 전지 − */
+  const loop = (x: CircuitData["parts"][number], R = 220, V = 6, rev = false): CircuitData => ({
+    mode: "electric",
+    w: 20,
+    h: 10,
+    parts: [P("E", "battery", 2, 5, { rot: 1, value: V }), P("R", "resistor", 7, 1, { value: R }), x],
+    wires: [W("E:0", "R:0"), W("R:1", `${x.id}:${rev ? 1 : 0}`), W(`${x.id}:${rev ? 0 : 1}`, "E:1")],
+  });
+  it("LED: 220 Ω과 함께면 약 18 mA로 켜지고, 저항 없이 바로 이으면 탄다", () => {
+    const r = settle(loop(P("L", "led", 12, 5)), 1e-3, 5);
+    expect(r.mode.L).toBe(1);
+    expect(r.part.L!.i).toBeCloseTo((6 - 1.8) / 230, 3);
+    const burnt = settle(loop(P("L", "led", 12, 5), 0.001), 1e-3, 5);
+    expect(burnt.broken.L).toBe(true);
+    expect(Math.abs(burnt.part.L!.i)).toBeLessThan(1e-6);
+  });
+  it("파란 LED는 문턱 전압이 높아 3 V 전지로는 거의 켜지지 않는다", () => {
+    const r = settle(loop(P("L", "led", 12, 5, { color: "blue" }), 220, 3), 1e-3, 5);
+    expect(r.part.L!.i).toBeLessThan(1e-3);
+  });
+  it("다이오드: 거꾸로 꽂으면 전류가 흐르지 않는다", () => {
+    const fwd = settle(loop(P("D", "diode", 12, 5), 100), 1e-3, 5);
+    expect(fwd.part.D!.i).toBeCloseTo((6 - 0.7) / 100.5, 3);
+    const rev = settle(loop(P("D", "diode", 12, 5), 100, 6, true), 1e-3, 5);
+    expect(Math.abs(rev.part.D!.i)).toBeLessThan(1e-6);
+  });
+  it("제너: 거꾸로 걸면 전압을 5.1 V 가까이 붙잡는다", () => {
+    const r = settle(loop(P("Z", "zener", 12, 5, { value: 5.1 }), 100, 12, true), 1e-3, 5);
+    expect(r.mode.Z).toBe(2);
+    expect(Math.abs(r.part.Z!.v)).toBeGreaterThan(5.1);
+    expect(Math.abs(r.part.Z!.v)).toBeLessThan(5.3);
+  });
+  it("퓨즈: 정격보다 큰 전류가 흐르면 끊어진다", () => {
+    const r = settle(loop(P("F", "fuse", 12, 5, { value: 1 }), 1), 1e-3, 5);
+    expect(r.broken.F).toBe(true);
+    expect(Math.abs(r.part.F!.i)).toBeLessThan(1e-6);
+  });
+  /** NPN 스위치: 9 V → LED → 470 Ω → C, B ← 스위치 ← 10 kΩ ← 9 V, E → 접지 */
+  const npnSwitch = (on: boolean): CircuitData => ({
+    mode: "electric",
+    w: 24,
+    h: 14,
+    parts: [
+      P("E", "battery", 2, 7, { rot: 1, value: 9 }),
+      P("S", "switch", 6, 3, { on }),
+      P("Rb", "resistor", 11, 7, { value: 10000 }),
+      P("Rc", "resistor", 17, 1, { value: 470 }),
+      P("L", "led", 20, 3, { rot: 1 }),
+      P("Q", "npn", 15, 7),
+      P("G", "ground", 16, 12),
+    ],
+    wires: [W("E:0", "S:0"), W("S:1", "Rb:0"), W("Rb:1", "Q:0"), W("E:0", "Rc:0"), W("Rc:1", "L:0"), W("L:1", "Q:1"), W("Q:2", "G:0"), W("E:1", "G:0")],
+  });
+  it("트랜지스터: 베이스에 작은 전류가 들어가면 LED가 켜지고(포화), 끊으면 꺼진다", () => {
+    const on = settle(npnSwitch(true), 1e-3, 5);
+    expect(on.mode.Q).toBe(2);
+    expect(on.ib.Q!).toBeCloseTo((9 - 0.7) / 10010, 5);
+    expect(on.part.L!.i).toBeGreaterThan(0.012);
+    expect(on.part.Q!.v).toBeCloseTo(0.2, 1);
+    const off = settle(npnSwitch(false), 1e-3, 5);
+    expect(off.mode.Q).toBe(0);
+    expect(Math.abs(off.part.L!.i)).toBeLessThan(1e-6);
+  });
+  it("트랜지스터 활성 영역: 컬렉터 전류 = β × 베이스 전류", () => {
+    const d = npnSwitch(true);
+    d.parts = d.parts.map((p) => (p.id === "Rb" ? { ...p, value: 1e6 } : p.id === "Q" ? { ...p, value: 100 } : p));
+    const r = settle(d, 1e-3, 5);
+    expect(r.mode.Q).toBe(1);
+    expect(r.part.Q!.i / r.ib.Q!).toBeCloseTo(100, 2);
+  });
+  it("PNP: 베이스를 낮추면 이미터→컬렉터로 흐른다", () => {
+    // 6 V → E, B → 10 kΩ → 접지, C → 220 Ω → 접지
+    const d: CircuitData = {
+      mode: "electric",
+      w: 24,
+      h: 14,
+      parts: [P("E", "battery", 2, 7, { rot: 1, value: 6 }), P("Q", "pnp", 12, 7), P("Rb", "resistor", 7, 11, { value: 10000 }), P("Rc", "resistor", 17, 11, { value: 220 })],
+      wires: [W("E:0", "Q:2"), W("Q:0", "Rb:1"), W("Rb:0", "E:1"), W("Q:1", "Rc:0"), W("Rc:1", "E:1")],
+    };
+    const r = settle(d, 1e-3, 5);
+    expect(r.mode.Q).toBe(2);
+    expect(r.part.Q!.i).toBeGreaterThan(0.02);
+  });
+  it("교류 + 다이오드 = 반파 정류 (저항 전압이 음수로 내려가지 않는다)", () => {
+    const d: CircuitData = {
+      mode: "electric",
+      w: 20,
+      h: 10,
+      parts: [P("U", "ac", 2, 5, { rot: 1, value: 5, freq: 1 }), P("D", "diode", 7, 1), P("R", "resistor", 12, 5, { rot: 1, value: 1000 })],
+      wires: [W("U:0", "D:0"), W("D:1", "R:0"), W("R:1", "U:1")],
+    };
+    const st = newElectricState();
+    let lo = 0;
+    let hi = 0;
+    for (let i = 0; i < 1000; i++) {
+      const r = stepElectric(d, st, 1e-3);
+      lo = Math.min(lo, r.part.R!.v);
+      hi = Math.max(hi, r.part.R!.v);
+    }
+    expect(hi).toBeGreaterThan(4);
+    expect(lo).toBeGreaterThan(-1e-3);
+  });
+  it("XNOR 진리표, 클록은 1초에 freq번 0·1", () => {
+    const d: CircuitData = {
+      mode: "logic",
+      w: 15,
+      h: 6,
+      parts: [P("A", "in", 2, 2, { label: "A" }), P("B", "in", 2, 4, { label: "B" }), P("G", "xnor", 7, 3), P("Y", "out", 12, 3, { label: "Y" })],
+      wires: [W("A:0", "G:0"), W("B:0", "G:1"), W("G:2", "Y:0")],
+    };
+    expect(truthTable(d)!.rows.map((r) => r[2])).toEqual([1, 0, 0, 1]);
+    const c: CircuitData = { mode: "logic", w: 15, h: 6, parts: [P("K", "clock", 2, 3, { freq: 1 }), P("Y", "out", 8, 3)], wires: [W("K:0", "Y:0")] };
+    const at = (t: number) => outputs(c, evalLogic(c, newLogicState(), t).net).Y;
+    expect([at(0.1), at(0.6), at(1.1)]).toEqual([0, 1, 0]);
+    expect(truthTable(c)).toBeNull();
+  });
+});
+
+describe("회로 — 새 예시", () => {
+  it("트랜지스터 예시: 스위치를 켜면 초록 LED가 켜지고 끄면 꺼진다", () => {
+    const d = ex("트랜지스터");
+    expect(settle(d, 1e-3, 5).mode.L).toBe(1);
+    d.parts = d.parts.map((p) => (p.id === "S" ? { ...p, on: false } : p));
+    expect(settle(d, 1e-3, 5).mode.L ?? 0).toBe(0);
+  });
+  it("LED 예시는 타지 않고 켜진다, 클록 예시는 박자마다 Q가 뒤집힌다", () => {
+    const r = settle(ex("LED"), 1e-3, 5);
+    expect(r.mode.L).toBe(1);
+    expect(r.broken.L).toBeUndefined();
+    const c = ex("클록");
+    const st = newLogicState();
+    const qs = [0.1, 0.6, 1.1, 1.6, 2.1].map((t) => outputs(c, evalLogic(c, st, t).net).Q);
+    expect(qs).toEqual([0, 1, 1, 0, 0]);
+  });
+});

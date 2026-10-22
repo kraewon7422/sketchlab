@@ -9,11 +9,12 @@ import type { SceneDataOf } from "@sketchlab/shared";
  * 전기: 마디 해석(교과서 키르히호프 법칙을 행렬로) + 시간 단계(후진 오일러)
  *   저항·전구·스위치·전류계·전압계 = 저항, 전지·교류 전원 = 작은 내부 저항이 있는 전원(노턴 등가),
  *   축전기 C/dt 컨덕턴스 + 전류원 · 코일 dt/L 컨덕턴스 + 전류원 → 충전·방전·교류가 시간에 따라 보인다.
+ *   다이오드·LED·제너·트랜지스터 = 꺾은선 모형 (켜짐/꺼짐·활성/포화 상태를 정해 풀고, 상태가 맞을 때까지 다시 푼다).
  * 논리: 출력이 다시 입력으로 돌아오는 회로(래치)도 값이 안정될 때까지 되풀이, D 플립플롭은 CLK이 0→1일 때.
  */
 
-export const ELECTRIC_PARTS = ["battery", "ac", "switch", "resistor", "rheostat", "capacitor", "inductor", "bulb", "ammeter", "voltmeter", "node"] as const;
-export const LOGIC_PARTS = ["in", "out", "and", "or", "not", "nand", "nor", "xor", "dff", "node"] as const;
+export const ELECTRIC_PARTS = ["battery", "ac", "switch", "resistor", "rheostat", "capacitor", "inductor", "bulb", "diode", "led", "zener", "npn", "pnp", "fuse", "motor", "ammeter", "voltmeter", "ground", "node"] as const;
+export const LOGIC_PARTS = ["in", "clock", "out", "and", "or", "not", "nand", "nor", "xor", "xnor", "dff", "node"] as const;
 
 export type CircuitData = SceneDataOf<"circuit">;
 export type Part = CircuitData["parts"][number];
@@ -30,7 +31,14 @@ function baseTerminals(type: PartType): XY[] {
     case "rheostat":
       return [[-2, 0], [2, 0], [0, -2]];
     case "in":
+    case "clock":
       return [[2, 0]];
+    case "ground":
+      return [[0, -1]];
+    case "npn":
+    case "pnp":
+      // B(베이스) · C(컬렉터) · E(이미터)
+      return [[-2, 0], [1, -2], [1, 2]];
     case "out":
       return [[-2, 0]];
     case "not":
@@ -40,6 +48,7 @@ function baseTerminals(type: PartType): XY[] {
     case "nand":
     case "nor":
     case "xor":
+    case "xnor":
       return [[-2, -1], [-2, 1], [2, 0]];
     case "dff":
       // D, CLK → Q, Q̄
@@ -182,8 +191,23 @@ export function nodesOf(data: CircuitData): { nodeOf: Map<string, number>; count
 // ─────────────────────────────────────────────────────────── 전기
 
 /** 부품 기본값 */
-export const DEFAULTS: Partial<Record<PartType, number>> = { battery: 6, ac: 5, resistor: 10, rheostat: 100, capacitor: 100, inductor: 100, bulb: 10 };
-export const UNIT: Partial<Record<PartType, string>> = { battery: "V", ac: "V", resistor: "Ω", rheostat: "Ω", capacitor: "μF", inductor: "mH", bulb: "Ω" };
+export const DEFAULTS: Partial<Record<PartType, number>> = { battery: 6, ac: 5, resistor: 10, rheostat: 100, capacitor: 100, inductor: 100, bulb: 10, zener: 5.1, npn: 100, pnp: 100, fuse: 1, motor: 10 };
+export const UNIT: Partial<Record<PartType, string>> = { battery: "V", ac: "V", resistor: "Ω", rheostat: "Ω", capacitor: "μF", inductor: "mH", bulb: "Ω", zener: "V", npn: "β", pnp: "β", fuse: "A", motor: "Ω" };
+
+export type LedColor = NonNullable<Part["color"]>;
+/** LED 색마다 켜지는 문턱 전압 (빨강이 가장 낮고 파랑·흰색이 가장 높다) */
+export const LED_VF: Record<LedColor, number> = { red: 1.8, yellow: 2.0, green: 2.1, blue: 3.0, white: 3.0 };
+export const LED_MAX = 0.05; // LED는 50 mA를 넘으면 탄다 (보통 20 mA로 쓴다)
+const DIODE_MAX = 3; // 다이오드·제너 3 A
+const DIODE_VF = 0.7; // 실리콘 다이오드 문턱 전압
+const R_DIODE = 0.5; // 켜진 다이오드의 작은 저항
+const R_LED = 10;
+const R_ZENER = 1;
+const VBE = 0.7; // 트랜지스터 베이스-이미터 문턱
+const R_BE = 10;
+const VCE_SAT = 0.2; // 포화일 때 컬렉터-이미터 전압
+const R_SAT = 1;
+const G_FUSE = 100; // 퓨즈 0.01 Ω
 
 const R_SOURCE = 0.05; // 전지 내부 저항
 const G_CLOSED = 1e4; // 닫힌 스위치 (0.1 mΩ)
@@ -191,6 +215,7 @@ const G_OPEN = 1e-12; // 열린 스위치 (새는 전류가 축전기를 몇 분
 const G_AMMETER = 1e3; // 1 mΩ
 const G_VOLTMETER = 1e-7; // 10 MΩ
 const G_MIN = 1e-9; // 떠 있는 마디가 풀리게
+const G_OFF = 1e-9; // 꺼진 다이오드·트랜지스터
 
 export interface ElectricState {
   t: number;
@@ -198,6 +223,10 @@ export interface ElectricState {
   vc: Record<string, number>;
   /** 코일 전류 (id → A) */
   il: Record<string, number>;
+  /** 다이오드: 0 꺼짐 1 켜짐 2 항복(제너) · 트랜지스터: 0 차단 1 활성 2 포화 */
+  sw: Record<string, number>;
+  /** 너무 큰 전류로 끊어진(탄) 퓨즈·LED·다이오드 */
+  broken: Record<string, boolean>;
 }
 
 export interface ElectricReading {
@@ -209,10 +238,15 @@ export interface ElectricReading {
   rheo: Record<string, { i0: number; i1: number }>;
   /** 단자에서 부품으로 들어가는 전류 (전선 위 흐름 계산용) */
   into: Map<string, number>;
+  /** 다이오드·트랜지스터 상태 (ElectricState.sw와 같은 뜻) */
+  mode: Record<string, number>;
+  /** 트랜지스터 베이스 전류 */
+  ib: Record<string, number>;
+  broken: Record<string, boolean>;
 }
 
 export function newElectricState(): ElectricState {
-  return { t: 0, vc: {}, il: {} };
+  return { t: 0, vc: {}, il: {}, sw: {}, broken: {} };
 }
 
 function solve(A: number[][], b: number[]): number[] {
@@ -242,10 +276,16 @@ export function stepElectric(data: CircuitData, state: ElectricState, dt: number
   const { nodeOf, count } = nodesOf(data);
   const node = (p: Part, k: number) => nodeOf.get(termKey(p.id, k)) ?? -1;
   const src = data.parts.find((p) => p.type === "battery" || p.type === "ac");
-  const ground = src ? node(src, 1) : 0;
+  const earths = data.parts.filter((p) => p.type === "ground");
+  // 접지 기호가 있으면 그곳이 0 V, 없으면 첫 전원의 − 단자
+  const ground = earths[0] ? node(earths[0], 0) : src ? node(src, 1) : 0;
   const n = count;
-  const G = Array.from({ length: n }, () => new Array<number>(n).fill(0));
-  const I = new Array<number>(n).fill(0);
+  state.sw ??= {};
+  state.broken ??= {};
+  const sw = state.sw;
+  const broken = state.broken;
+  let G: number[][] = [];
+  let I: number[] = [];
   const t = state.t + dt;
   const stampG = (a: number, b: number, g: number) => {
     if (a < 0 || b < 0 || a === b) return;
@@ -270,6 +310,10 @@ export function stepElectric(data: CircuitData, state: ElectricState, dt: number
         return 1 / Math.max(1e-3, p.value ?? DEFAULTS[p.type] ?? 10);
       case "switch":
         return p.on ? G_CLOSED : G_OPEN;
+      case "motor":
+        return 1 / Math.max(1e-3, p.value ?? DEFAULTS.motor ?? 10);
+      case "fuse":
+        return broken[p.id] ? G_OPEN : G_FUSE;
       case "ammeter":
         return G_AMMETER;
       case "voltmeter":
@@ -278,63 +322,165 @@ export function stepElectric(data: CircuitData, state: ElectricState, dt: number
         return 0;
     }
   };
-  for (const p of data.parts) {
-    const a = node(p, 0);
-    const b = node(p, 1);
-    switch (p.type) {
-      case "resistor":
-      case "bulb":
-      case "switch":
-      case "ammeter":
-      case "voltmeter":
-        stampG(a, b, gOf(p));
-        break;
-      case "rheostat": {
-        const R = Math.max(1e-3, p.value ?? DEFAULTS.rheostat ?? 100);
-        const pos = Math.min(1, Math.max(0, p.pos ?? 0.5));
-        const w = node(p, 2);
-        stampG(a, w, 1 / Math.max(1e-3, R * pos));
-        stampG(w, b, 1 / Math.max(1e-3, R * (1 - pos)));
-        break;
+  /** a→b 전압 v에 따라 흐르는 전류 i = g·(v − v0) 를 넣는다 (켜진 다이오드 등) */
+  const stampLine = (a: number, b: number, g: number, v0: number) => {
+    stampG(a, b, g);
+    stampI(b, a, g * v0);
+  };
+  /** c에서 e로 흐르는 전류 gm·(V(x) − V(y) − v0) (트랜지스터 활성 영역) */
+  const stampVCCS = (c: number, e: number, x: number, y: number, gm: number, v0: number) => {
+    const add = (r: number, k: number, val: number) => {
+      if (r >= 0 && k >= 0) G[r]![k]! += val;
+    };
+    add(c, x, gm);
+    add(c, y, -gm);
+    add(e, x, -gm);
+    add(e, y, gm);
+    if (c >= 0) I[c]! += gm * v0;
+    if (e >= 0) I[e]! -= gm * v0;
+  };
+  const isDiode = (p: Part) => p.type === "diode" || p.type === "led" || p.type === "zener";
+  const isBjt = (p: Part) => p.type === "npn" || p.type === "pnp";
+  const diodeOf = (p: Part) => (p.type === "led" ? { vf: LED_VF[p.color ?? "red"], r: R_LED } : { vf: DIODE_VF, r: p.type === "zener" ? R_ZENER : R_DIODE });
+  const vz = (p: Part) => p.value ?? DEFAULTS.zener ?? 5.1;
+  /** 트랜지스터 마디: BE 다이오드 (양극 an → 음극 ca), 주 전류 길 x → y. NPN: B→E, C→E · PNP: E→B, E→C */
+  const bjt = (p: Part) => {
+    const B = node(p, 0);
+    const C = node(p, 1);
+    const E = node(p, 2);
+    return p.type === "npn" ? { an: B, ca: E, x: C, y: E } : { an: E, ca: B, x: E, y: C };
+  };
+  const beta = (p: Part) => p.value ?? DEFAULTS[p.type] ?? 100;
+
+  const build = () => {
+    G = Array.from({ length: n }, () => new Array<number>(n).fill(0));
+    I = new Array<number>(n).fill(0);
+    for (const p of data.parts) {
+      const a = node(p, 0);
+      const b = node(p, 1);
+      switch (p.type) {
+        case "resistor":
+        case "bulb":
+        case "switch":
+        case "ammeter":
+        case "voltmeter":
+        case "motor":
+        case "fuse":
+          stampG(a, b, gOf(p));
+          break;
+        case "diode":
+        case "led":
+        case "zener": {
+          const m = broken[p.id] ? 0 : (sw[p.id] ?? 0);
+          const d = diodeOf(p);
+          if (m === 1) stampLine(a, b, 1 / d.r, d.vf);
+          else if (m === 2) stampLine(a, b, 1 / R_ZENER, -vz(p));
+          else stampG(a, b, G_OFF);
+          break;
+        }
+        case "npn":
+        case "pnp": {
+          const m = sw[p.id] ?? 0;
+          const j = bjt(p);
+          stampG(j.x, j.y, G_OFF);
+          if (m === 0) {
+            stampG(j.an, j.ca, G_OFF);
+            break;
+          }
+          stampLine(j.an, j.ca, 1 / R_BE, VBE);
+          if (m === 1) stampVCCS(j.x, j.y, j.an, j.ca, beta(p) / R_BE, VBE);
+          else stampLine(j.x, j.y, 1 / R_SAT, VCE_SAT);
+          break;
+        }
+        case "ground": {
+          // 다른 접지 기호도 모두 0 V (땅으로 이어져 있다)
+          const gnd = node(p, 0);
+          if (gnd !== ground) stampG(gnd, ground, G_CLOSED);
+          break;
+        }
+        case "rheostat": {
+          const R = Math.max(1e-3, p.value ?? DEFAULTS.rheostat ?? 100);
+          const pos = Math.min(1, Math.max(0, p.pos ?? 0.5));
+          const w = node(p, 2);
+          stampG(a, w, 1 / Math.max(1e-3, R * pos));
+          stampG(w, b, 1 / Math.max(1e-3, R * (1 - pos)));
+          break;
+        }
+        case "battery":
+        case "ac": {
+          // 단자 0 = +, 노턴: (+)로 V/r를 밀어 넣는 전류원 + 컨덕턴스 1/r
+          stampG(a, b, 1 / R_SOURCE);
+          stampI(b, a, srcV(p) / R_SOURCE);
+          break;
+        }
+        case "capacitor": {
+          const C = Math.max(1e-12, (p.value ?? DEFAULTS.capacitor ?? 100) * 1e-6);
+          const g = C / dt;
+          stampG(a, b, g);
+          // 지난 전압을 지키려는 전류원 (a→b 방향 −g·v)
+          stampI(b, a, g * (state.vc[p.id] ?? 0));
+          break;
+        }
+        case "inductor": {
+          const L = Math.max(1e-9, (p.value ?? DEFAULTS.inductor ?? 100) * 1e-3);
+          stampG(a, b, dt / L);
+          stampI(a, b, state.il[p.id] ?? 0);
+          break;
+        }
+        default:
+          break;
       }
-      case "battery":
-      case "ac": {
-        // 단자 0 = +, 노턴: (+)로 V/r를 밀어 넣는 전류원 + 컨덕턴스 1/r
-        stampG(a, b, 1 / R_SOURCE);
-        stampI(b, a, srcV(p) / R_SOURCE);
-        break;
-      }
-      case "capacitor": {
-        const C = Math.max(1e-12, (p.value ?? DEFAULTS.capacitor ?? 100) * 1e-6);
-        const g = C / dt;
-        stampG(a, b, g);
-        // 지난 전압을 지키려는 전류원 (a→b 방향 −g·v)
-        stampI(b, a, g * (state.vc[p.id] ?? 0));
-        break;
-      }
-      case "inductor": {
-        const L = Math.max(1e-9, (p.value ?? DEFAULTS.inductor ?? 100) * 1e-3);
-        stampG(a, b, dt / L);
-        stampI(a, b, state.il[p.id] ?? 0);
-        break;
-      }
-      default:
-        break;
     }
-  }
-  for (let i = 0; i < n; i++) G[i]![i]! += G_MIN;
-  // 접지 마디를 0 V로 고정 (그 줄을 v = 0으로)
-  if (ground >= 0 && ground < n) {
-    for (let j = 0; j < n; j++) G[ground]![j] = 0;
-    G[ground]![ground] = 1;
-    I[ground] = 0;
-  }
-  const v = n > 0 ? solve(G, I) : [];
+    for (let i = 0; i < n; i++) G[i]![i]! += G_MIN;
+    // 접지 마디를 0 V로 고정 (그 줄을 v = 0으로)
+    if (ground >= 0 && ground < n) {
+      for (let j = 0; j < n; j++) G[ground]![j] = 0;
+      G[ground]![ground] = 1;
+      I[ground] = 0;
+    }
+    return n > 0 ? solve(G, I) : [];
+  };
+
+  // 다이오드·트랜지스터 상태를 가정해 풀고, 결과와 맞지 않으면 상태를 바꿔 다시 (보통 2~3번)
+  let v: number[] = [];
   const V = (k: number) => (k >= 0 ? (v[k] ?? 0) : 0);
+  for (let iter = 0; iter < 40; iter++) {
+    v = build();
+    let changed = false;
+    for (const p of data.parts) {
+      let m = sw[p.id] ?? 0;
+      if (isDiode(p)) {
+        if (broken[p.id]) continue;
+        const vab = V(node(p, 0)) - V(node(p, 1));
+        const { vf, r } = diodeOf(p);
+        // 켜진 채로 남으려면 실제로 흐르는 전류(0.1 μA 넘게)가 있어야 한다 — 새는 전류만으로 켜진 척하지 않게
+        const fwd = m === 1 ? (vab - vf) / r > 1e-7 : vab > vf + 1e-6;
+        const rev = m === 2 ? -(vab + vz(p)) / R_ZENER > 1e-7 : vab < -vz(p) - 1e-6;
+        m = fwd ? 1 : p.type === "zener" && rev ? 2 : 0;
+      } else if (isBjt(p)) {
+        const j = bjt(p);
+        const vbe = V(j.an) - V(j.ca);
+        const vxy = V(j.x) - V(j.y);
+        const ib = (vbe - VBE) / R_BE;
+        if (m === 0) m = vbe > VBE ? 1 : 0;
+        else if (ib < 0) m = 0;
+        else if (m === 1 && vxy < VCE_SAT) m = 2;
+        else if (m === 2 && (vxy - VCE_SAT) / R_SAT > beta(p) * ib) m = 1;
+      } else continue;
+      if (m !== (sw[p.id] ?? 0)) {
+        sw[p.id] = m;
+        changed = true;
+      }
+    }
+    if (!changed) break;
+  }
 
   const part: ElectricReading["part"] = {};
   const rheo: ElectricReading["rheo"] = {};
   const into = new Map<string, number>();
+  const mode: ElectricReading["mode"] = {};
+  const ibs: ElectricReading["ib"] = {};
+  let earthI = 0;
   for (const p of data.parts) {
     const a = node(p, 0);
     const b = node(p, 1);
@@ -346,8 +492,56 @@ export function stepElectric(data: CircuitData, state: ElectricState, dt: number
       case "switch":
       case "ammeter":
       case "voltmeter":
+      case "motor":
         i = gOf(p) * vab;
         break;
+      case "fuse":
+        i = gOf(p) * vab;
+        if (Math.abs(i) > (p.value ?? DEFAULTS.fuse ?? 1)) broken[p.id] = true;
+        break;
+      case "diode":
+      case "led":
+      case "zener": {
+        const m = broken[p.id] ? 0 : (sw[p.id] ?? 0);
+        const d = diodeOf(p);
+        i = m === 1 ? (vab - d.vf) / d.r : m === 2 ? (vab + vz(p)) / R_ZENER : G_OFF * vab;
+        mode[p.id] = m;
+        if (Math.abs(i) > (p.type === "led" ? LED_MAX : DIODE_MAX)) broken[p.id] = true;
+        break;
+      }
+      case "npn":
+      case "pnp": {
+        const m = sw[p.id] ?? 0;
+        const j = bjt(p);
+        const vbe = V(j.an) - V(j.ca);
+        const vxy = V(j.x) - V(j.y);
+        const ib = m === 0 ? G_OFF * vbe : (vbe - VBE) / R_BE;
+        const ic = (m === 1 ? (beta(p) / R_BE) * (vbe - VBE) : m === 2 ? (vxy - VCE_SAT) / R_SAT : 0) + G_OFF * vxy;
+        mode[p.id] = m;
+        ibs[p.id] = ib;
+        part[p.id] = { i: ic, v: vxy, p: ic * vxy + ib * vbe };
+        const kB = termKey(p.id, 0);
+        const kC = termKey(p.id, 1);
+        const kE = termKey(p.id, 2);
+        if (p.type === "npn") {
+          into.set(kB, ib);
+          into.set(kC, ic);
+          into.set(kE, -ib - ic);
+        } else {
+          into.set(kE, ib + ic);
+          into.set(kB, -ib);
+          into.set(kC, -ic);
+        }
+        continue;
+      }
+      case "ground": {
+        // 땅으로 들어가는 전류 — 첫 접지 기호가 다른 접지에서 들어온 만큼 내보낸다
+        if (p === earths[0]) continue;
+        const gi = G_CLOSED * (V(node(p, 0)) - V(ground));
+        into.set(termKey(p.id, 0), gi);
+        earthI += gi;
+        continue;
+      }
       case "battery":
       case "ac":
         // 전원 안에서 − → + 로 흐르는 전류 = 바깥으로 + 단자에서 나가는 전류 (단자0→1 방향으로는 −)
@@ -385,8 +579,9 @@ export function stepElectric(data: CircuitData, state: ElectricState, dt: number
     into.set(termKey(p.id, 0), i);
     into.set(termKey(p.id, 1), -i);
   }
+  if (earths[0] && earthI !== 0) into.set(termKey(earths[0].id, 0), -earthI);
   state.t = t;
-  return { v, part, rheo, into };
+  return { v, part, rheo, into, mode, ib: ibs, broken: { ...broken } };
 }
 
 /**
@@ -449,17 +644,21 @@ const GATE: Record<string, (a: number, b: number) => number> = {
   nand: (a, b) => 1 - (a & b),
   nor: (a, b) => 1 - (a | b),
   xor: (a, b) => a ^ b,
+  xnor: (a, b) => 1 - (a ^ b),
 };
+
+/** 클록 출력 — 1초에 freq번 0→1→0 (반은 1, 반은 0) */
+export const clockValue = (p: Part, time: number): number => Math.floor(time * 2 * (p.freq ?? 1)) % 2;
 
 /**
  * 논리 회로 값 — 안정될 때까지 되풀이 (래치처럼 출력이 입력으로 돌아와도).
  * 반환: 마디 값, 끝까지 흔들렸는가(발진).
  */
-export function evalLogic(data: CircuitData, state: LogicState): { net: number[]; oscillating: boolean } {
+export function evalLogic(data: CircuitData, state: LogicState, time = 0): { net: number[]; oscillating: boolean } {
   const { nodeOf, count } = nodesOf(data);
   const node = (p: Part, k: number) => nodeOf.get(termKey(p.id, k)) ?? -1;
   // 출력이 닿는 마디 — 아무것도 대지 않은 마디는 0
-  const out = (p: Part): number[] => (p.type === "in" ? [0] : p.type === "not" ? [1] : GATE[p.type] ? [2] : p.type === "dff" ? [2, 3] : []);
+  const out = (p: Part): number[] => (p.type === "in" || p.type === "clock" ? [0] : p.type === "not" ? [1] : GATE[p.type] ? [2] : p.type === "dff" ? [2, 3] : []);
   const driven = new Set<number>();
   for (const p of data.parts) for (const k of out(p)) driven.add(node(p, k));
   const net = Array.from({ length: count }, (_, i) => (driven.has(i) ? (state.net[i] ?? 0) : 0));
@@ -478,6 +677,7 @@ export function evalLogic(data: CircuitData, state: LogicState): { net: number[]
     let changed = false;
     for (const p of data.parts) {
       if (p.type === "in") changed = set(node(p, 0), p.on ? 1 : 0) || changed;
+      else if (p.type === "clock") changed = set(node(p, 0), clockValue(p, time)) || changed;
       else if (p.type === "not") changed = set(node(p, 1), 1 - val(p, 0)) || changed;
       else if (GATE[p.type]) changed = set(node(p, 2), (GATE[p.type] as (a: number, b: number) => number)(val(p, 0), val(p, 1))) || changed;
       else if (p.type === "dff") {
@@ -504,7 +704,7 @@ export function evalLogic(data: CircuitData, state: LogicState): { net: number[]
     state.clk[p.id] = clk;
   }
   state.net = net;
-  if (changed) return evalLogic(data, state);
+  if (changed) return evalLogic(data, state, time);
   return { net, oscillating };
 }
 
@@ -520,7 +720,7 @@ export function outputs(data: CircuitData, net: number[]): Record<string, number
 export function truthTable(data: CircuitData): { inputs: string[]; outputs: string[]; rows: number[][] } | null {
   const ins = data.parts.filter((p) => p.type === "in").sort((a, b) => (a.label ?? a.id).localeCompare(b.label ?? b.id));
   const outs = data.parts.filter((p) => p.type === "out").sort((a, b) => (a.label ?? a.id).localeCompare(b.label ?? b.id));
-  if (ins.length === 0 || ins.length > 5 || outs.length === 0 || hasFeedback(data)) return null;
+  if (ins.length === 0 || ins.length > 5 || outs.length === 0 || hasFeedback(data) || data.parts.some((p) => p.type === "clock")) return null;
   const rows: number[][] = [];
   for (let m = 0; m < 1 << ins.length; m++) {
     const bits = ins.map((_, i) => (m >> (ins.length - 1 - i)) & 1);

@@ -392,13 +392,15 @@ const Figure = z.object({
   p: z.record(z.string().max(16), z.number()).optional(),
 });
 
-export const CIRCUIT_PARTS = ["battery", "ac", "switch", "resistor", "rheostat", "capacitor", "inductor", "bulb", "ammeter", "voltmeter", "node", "in", "out", "and", "or", "not", "nand", "nor", "xor", "dff"] as const;
+export const CIRCUIT_PARTS = ["battery", "ac", "switch", "resistor", "rheostat", "capacitor", "inductor", "bulb", "ammeter", "voltmeter", "node", "diode", "led", "zener", "npn", "pnp", "fuse", "motor", "ground", "in", "out", "and", "or", "not", "nand", "nor", "xor", "xnor", "dff", "clock"] as const;
+export const LED_COLORS = ["red", "yellow", "green", "blue", "white"] as const;
 
 /**
  * 회로도 — 전기(직류·교류·축전기 충전) 또는 논리(게이트·가산기·기억 소자).
  * 부품은 격자 칸 (x, y)에 놓이고 rot × 90° 돌아간다. 전선은 "부품id:단자번호" 두 개를 잇는다.
  *   value: 전지·교류 V · 저항·가변저항·전구 Ω · 축전기 μF · 코일 mH   on: 스위치 닫힘·논리 입력 1
- *   pos: 가변저항 미끄럼 위치 0~1   freq: 교류 Hz
+ *   pos: 가변저항 미끄럼 위치 0~1   freq: 교류·클록 Hz
+ *   제너 V · 트랜지스터 β(전류 증폭률) · 퓨즈 A(끊어지는 전류) · 모터 Ω   color: LED 색 (색마다 문턱 전압이 다르다)
  */
 const Circuit = z.object({
   mode: z.enum(["electric", "logic"]),
@@ -417,6 +419,7 @@ const Circuit = z.object({
         pos: z.number().min(0).max(1).optional(),
         freq: z.number().positive().max(100).optional(),
         label: z.string().max(24).optional(),
+        color: z.enum(LED_COLORS).optional(),
       }),
     )
     .max(120),
