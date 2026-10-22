@@ -820,8 +820,8 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
       if (event.pointerType === "touch") {
         // 펜으로 그리는 중의 손 터치는 손바닥 — 무시한다 (획을 끊지 않는다)
         if (drawing && drawing.pointerType === "pen") return;
-        // 펜이 화면 위에 떠 있던 직후(0.6초)의 터치, 손가락보다 훨씬 넓은 접촉면 = 손바닥
-        if (event.timeStamp - lastPenSeen < 600 || Math.max(event.width || 0, event.height || 0) > 45) return;
+        // 펜이 화면 위에 떠 있던 직후(0.4초)의 터치, 손가락보다 훨씬 넓은 접촉면 = 손바닥
+        if (event.timeStamp - lastPenSeen < 400 || Math.max(event.width || 0, event.height || 0) > 45) return;
         touches.set(event.pointerId, { x: event.clientX, y: event.clientY });
         if (touches.size >= 2) {
           // 두 번째 손가락: 그리던 한 손가락 획·끌기는 버리고 이동·확대로
