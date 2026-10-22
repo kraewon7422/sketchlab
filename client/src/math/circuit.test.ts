@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { evalLogic, newElectricState, newLogicState, nodesOf, outputs, stepElectric, terminals, truthTable, wireCurrents, wirePath, type CircuitData } from "./circuit";
+import { cleanupNodes, connectionCounts, wireHops, evalLogic, newElectricState, newLogicState, nodesOf, outputs, stepElectric, terminals, truthTable, wireCurrents, wirePath, type CircuitData } from "./circuit";
 import { CIRCUIT_EXAMPLES, circuitFromInput } from "./circuitExamples";
 
 const ex = (name: string) => structuredClone(CIRCUIT_EXAMPLES[name] as CircuitData);
@@ -173,5 +173,26 @@ describe("회로 — 논리", () => {
     expect(circuitFromInput("전가산기")?.mode).toBe("logic");
     expect(circuitFromInput("RC 회로")?.parts.some((p) => p.type === "capacitor")).toBe(true);
     expect(circuitFromInput("y=x^2")).toBeNull();
+  });
+});
+
+describe("회로도 그리기 규칙 (실제 회로도처럼)", () => {
+  it("부품을 지우면 이어진 것 없는 마디 점과 끊긴 전선이 사라진다", () => {
+    const d = ex("반가산기");
+    // A 입력과 B 입력, 두 게이트를 지우면 마디 nA·nB에 남는 것이 없다
+    const left = { ...d, parts: d.parts.filter((p) => !["A", "B", "X", "D"].includes(p.id)) };
+    const clean = cleanupNodes(left);
+    expect(clean.parts.some((p) => p.type === "node")).toBe(false);
+    expect(clean.wires.every((w) => clean.parts.some((p) => w.a.startsWith(`${p.id}:`)) && clean.parts.some((p) => w.b.startsWith(`${p.id}:`)))).toBe(true);
+  });
+  it("마디 점은 세 갈래 이상일 때만 (반가산기의 갈림길 = 3)", () => {
+    const c = connectionCounts(ex("반가산기"));
+    expect(c.get("nA:0")).toBeGreaterThanOrEqual(3);
+    expect(c.get("nB:0")).toBeGreaterThanOrEqual(3);
+  });
+  it("이어지지 않고 겹치는 전선에는 다리를 놓는다 (SR 래치의 엇갈린 되먹임 선)", () => {
+    const d = ex("SR 래치");
+    const hops = wireHops(d, d.wires.map((w) => wirePath(d, w)));
+    expect([...hops.values()].flat().length).toBeGreaterThan(0);
   });
 });

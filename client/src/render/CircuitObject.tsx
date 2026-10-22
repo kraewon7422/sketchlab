@@ -3,6 +3,9 @@ import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type Point
 import type { SceneIR } from "@sketchlab/shared";
 import type { ObjectItem } from "../ink/types";
 import {
+  wireHops,
+  connectionCounts,
+  cleanupNodes,
   DEFAULTS,
   ELECTRIC_PARTS,
   evalLogic,
@@ -127,7 +130,8 @@ function CircuitBox({ item, ir, interactive }: { item: ObjectItem; ir: CircuitIR
 
   const commit = (next: CircuitData, label: string) => {
     const now = current(item);
-    if (now) sessionStore.getState().commitObjectIR(item.id, now, { ...now, data: next }, label);
+    // 지운 뒤 아무것도 이어지지 않은 마디·끊긴 전선은 치운다 (점이 남지 않게)
+    if (now) sessionStore.getState().commitObjectIR(item.id, now, { ...now, data: cleanupNodes(next) }, label);
   };
   const patchPart = (id: string, patch: Partial<Part>, label: string) => commit({ ...data, parts: data.parts.map((p) => (p.id === id ? { ...p, ...patch } : p)) }, label);
 
@@ -372,6 +376,31 @@ function CircuitBox({ item, ir, interactive }: { item: ObjectItem; ir: CircuitIR
   // ───────── 그리기
   const r = reading?.r;
   const wires = view.wires.map((w, i) => ({ w, i, pts: wirePath(view, w) }));
+  // 실제 회로도 규칙: 이어지지 않고 겹치는 전선은 가로 전선에 반원 다리, 마디 점은 세 갈래 이상만
+  const hops = wireHops(view, wires.map((x) => x.pts));
+  const counts = connectionCounts(view);
+  const hopR = 0.32;
+  const wireD = (pts: Array<[number, number]>, cross: Array<[number, number]> | undefined) => {
+    let d = "";
+    pts.forEach(([x, y], k) => {
+      if (k === 0) {
+        d += `M${X(x).toFixed(1)},${Y(y).toFixed(1)}`;
+        return;
+      }
+      const [px, py] = pts[k - 1] as [number, number];
+      if (py === y && cross?.length) {
+        // 이 가로 구간 위의 교차점마다 위로 둥근 다리
+        const dir = Math.sign(x - px);
+        const on = cross.filter(([cx, cy]) => cy === y && (cx - px) * dir > 0 && (x - cx) * dir > 0).sort((a, b) => (a[0] - b[0]) * dir);
+        for (const [cx] of on) {
+          d += `L${X(cx - dir * hopR).toFixed(1)},${Y(y).toFixed(1)}`;
+          d += `A${(hopR * cs).toFixed(1)},${(hopR * cs).toFixed(1)} 0 0 ${dir > 0 ? 1 : 0} ${X(cx + dir * hopR).toFixed(1)},${Y(y).toFixed(1)}`;
+        }
+      }
+      d += `L${X(x).toFixed(1)},${Y(y).toFixed(1)}`;
+    });
+    return d;
+  };
   const strokeW = Math.max(1.6, cs * 0.09);
   const selColor = theme.color.accent;
 
@@ -396,7 +425,7 @@ function CircuitBox({ item, ir, interactive }: { item: ObjectItem; ir: CircuitIR
         )}
         {/* 전선 */}
         {wires.map(({ w, i, pts }) => {
-          const d = pts.map(([x, y], k) => `${k ? "L" : "M"}${X(x).toFixed(1)},${Y(y).toFixed(1)}`).join("");
+          const d = wireD(pts as Array<[number, number]>, hops.get(i));
           const on = !electric && netOf(w.a) === 1;
           const isSel = sel?.wire === i;
           const flow = electric && reading ? (reading.wires[i] ?? 0) : 0;
@@ -420,7 +449,15 @@ function CircuitBox({ item, ir, interactive }: { item: ObjectItem; ir: CircuitIR
             <g key={p.id}>
               <g transform={`translate(${X(p.x)},${Y(p.y)}) rotate(${(p.rot ?? 0) * 90}) scale(${cs * (p.size ?? 1)})`}>
                 {glow > 0.02 && <circle r={1.25} fill="#FFD84A" opacity={0.25 + 0.6 * glow} />}
-                <Symbol p={p} on={!!p.on} lv={lv} color={isSel ? selColor : theme.color.ink} glow={glow} />
+                {p.type === "node" ? (
+                  (counts.get(termKey(p.id, 0)) ?? 0) >= 3 ? (
+                    <Symbol p={p} on={!!p.on} lv={lv} color={isSel ? selColor : theme.color.ink} glow={glow} />
+                  ) : interactive ? (
+                    <circle r={0.12} fill={isSel ? selColor : theme.color.asymptote} opacity={isSel ? 1 : 0.35} />
+                  ) : null
+                ) : (
+                  <Symbol p={p} on={!!p.on} lv={lv} color={isSel ? selColor : theme.color.ink} glow={glow} />
+                )}
                 {interactive && <rect data-part={p.id} x={p.type === "node" ? -0.5 : -1.5} y={p.type === "node" ? -0.5 : bodyHalf(p.type) * -1} width={p.type === "node" ? 1 : 3} height={p.type === "node" ? 1 : bodyHalf(p.type) * 2} fill="transparent" style={{ cursor: "grab" }} />}
               </g>
               <PartText p={p} X={X} Y={Y} cs={cs * (p.size ?? 1)} reading={pr} lv={lv} />
@@ -432,7 +469,7 @@ function CircuitBox({ item, ir, interactive }: { item: ObjectItem; ir: CircuitIR
           view.parts.map((p) =>
             terminals(p).map(([tx, ty], k) => (
               <g key={`${p.id}:${k}`}>
-                {p.type !== "node" && <circle cx={X(tx)} cy={Y(ty)} r={Math.max(2.5, cs * 0.13)} fill="#fff" stroke={theme.color.asymptote} strokeWidth={1} />}
+                {p.type !== "node" && (counts.get(termKey(p.id, k)) ?? 0) === 0 && <circle cx={X(tx)} cy={Y(ty)} r={Math.max(2.5, cs * 0.13)} fill="#fff" stroke={theme.color.asymptote} strokeWidth={1} />}
                 <circle data-term={termKey(p.id, k)} cx={X(tx)} cy={Y(ty)} r={Math.max(9, cs * 0.42)} fill="transparent" style={{ cursor: "crosshair" }} />
               </g>
             )),

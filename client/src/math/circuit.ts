@@ -554,3 +554,74 @@ export function hasFeedback(data: CircuitData): boolean {
   };
   return gates.some(visit);
 }
+
+// ─────────────────────────────────────────────────────────── 회로도 그리기 규칙 (실제 회로도처럼)
+
+const cellKey = ([x, y]: XY) => `${x},${y}`;
+
+/** 단자마다 이어진 개수 = 닿은 전선 수 + 같은 칸의 다른 단자 수 */
+export function connectionCounts(data: CircuitData): Map<string, number> {
+  const out = new Map<string, number>();
+  const byCell = new Map<string, string[]>();
+  for (const p of data.parts)
+    terminals(p).forEach((t, k) => {
+      const key = termKey(p.id, k);
+      out.set(key, 0);
+      const c = cellKey(t);
+      byCell.set(c, [...(byCell.get(c) ?? []), key]);
+    });
+  for (const keys of byCell.values()) for (const k of keys) out.set(k, (out.get(k) ?? 0) + keys.length - 1);
+  for (const w of data.wires)
+    for (const end of [w.a, w.b])
+      if (out.has(end)) out.set(end, (out.get(end) ?? 0) + 1);
+  return out;
+}
+
+/**
+ * 아무것도 이어지지 않은 마디(점)와 없는 단자를 가리키는 전선을 치운다 — 부품·전선을 지운 뒤 점이 남지 않게.
+ */
+export function cleanupNodes(data: CircuitData): CircuitData {
+  let d = data;
+  for (let guard = 0; guard < 10; guard++) {
+    const ids = new Set(d.parts.map((p) => p.id));
+    const wires = d.wires.filter((w) => ids.has(w.a.split(":")[0] as string) && ids.has(w.b.split(":")[0] as string));
+    const counts = connectionCounts({ ...d, wires });
+    const parts = d.parts.filter((p) => p.type !== "node" || (counts.get(termKey(p.id, 0)) ?? 0) > 0);
+    if (parts.length === d.parts.length && wires.length === d.wires.length) return d;
+    d = { ...d, parts, wires };
+  }
+  return d;
+}
+
+/**
+ * 이어지지 않은 채 겹치는 전선 — 가로 전선에 반원 다리(hop)를 그린다 (실제 회로도 관례).
+ * 반환: 전선 번호 → 그 전선의 가로 구간 위 교차점들 (격자 좌표)
+ */
+export function wireHops(data: CircuitData, paths: readonly XY[][]): Map<number, XY[]> {
+  type Seg = { w: number; a: XY; b: XY };
+  const hs: Seg[] = [];
+  const vs: Seg[] = [];
+  paths.forEach((pts, w) => {
+    for (let i = 1; i < pts.length; i++) {
+      const a = pts[i - 1] as XY;
+      const b = pts[i] as XY;
+      if (a[1] === b[1] && a[0] !== b[0]) hs.push({ w, a, b });
+      else if (a[0] === b[0] && a[1] !== b[1]) vs.push({ w, a, b });
+    }
+  });
+  const { nodeOf } = nodesOf(data);
+  const nodeOfWire = (w: number) => nodeOf.get((data.wires[w] as Wire).a);
+  const out = new Map<number, XY[]>();
+  const inside = (v: number, p: number, q: number) => v > Math.min(p, q) + 1e-9 && v < Math.max(p, q) - 1e-9;
+  for (const h of hs)
+    for (const v of vs) {
+      if (h.w === v.w) continue;
+      const x = v.a[0];
+      const y = h.a[1];
+      if (!inside(x, h.a[0], h.b[0]) || !inside(y, v.a[1], v.b[1])) continue;
+      // 같은 마디(전기적으로 이어진 전선)끼리는 다리를 놓지 않는다
+      if (nodeOfWire(h.w) === nodeOfWire(v.w)) continue;
+      out.set(h.w, [...(out.get(h.w) ?? []), [x, y]]);
+    }
+  return out;
+}
