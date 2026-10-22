@@ -71,6 +71,8 @@ const STEPS: Partial<Record<PartType, number[]>> = {
   inductor: [10, 50, 100, 500, 1000, 5000],
 };
 const FREQS = [0.2, 0.5, 1, 2, 5];
+/** 부품 크기 단계 */
+const PART_SIZES = [0.5, 0.75, 1, 1.5, 2];
 
 const ONE = "#E0483E"; // 논리 1
 const ZERO = "#9AA3B2";
@@ -106,7 +108,8 @@ function current(item: ObjectItem): CircuitIR | null {
 type Drag =
   | { kind: "part"; id: string; x0: number; y0: number; gx: number; gy: number; px: number; py: number; moved: boolean }
   | { kind: "wire"; from: string; x: number; y: number }
-  | { kind: "tap"; target: "wire" | "empty"; idx: number; px: number; py: number };
+  | { kind: "tap"; target: "wire" | "empty"; idx: number; px: number; py: number }
+  | { kind: "wireMove"; idx: number; gx: number; gy: number };
 
 function CircuitBox({ item, ir, interactive }: { item: ObjectItem; ir: CircuitIR; interactive: boolean }): ReactElement {
   const W = item.transform.scale;
@@ -130,6 +133,8 @@ function CircuitBox({ item, ir, interactive }: { item: ObjectItem; ir: CircuitIR
 
   // 끄는 중인 부품은 그 자리에 미리 보인다 (놓을 때 한 번 기록)
   const view: CircuitData = useMemo(() => {
+    // 끄는 중인 전선은 지나는 점을 바꿔 미리 보여 준다
+    if (drag?.kind === "wireMove") return { ...data, wires: data.wires.map((w, i) => (i === drag.idx ? { ...w, via: [drag.gx, drag.gy] as [number, number] } : w)) };
     if (drag?.kind !== "part" || !drag.moved) return data;
     return { ...data, parts: data.parts.map((p) => (p.id === drag.id ? { ...p, x: drag.gx, y: drag.gy } : p)) };
   }, [data, drag]);
@@ -253,6 +258,8 @@ function CircuitBox({ item, ir, interactive }: { item: ObjectItem; ir: CircuitIR
     if (!d) return;
     const g = toGrid(e);
     if (d.kind === "wire") setDrag({ ...d, x: g.px, y: g.py });
+    else if (d.kind === "tap" && d.target === "wire" && Math.hypot(g.px - d.px, g.py - d.py) > 6) setDrag({ kind: "wireMove", idx: d.idx, gx: clampX(Math.round(g.gx)), gy: clampY(Math.round(g.gy)) });
+    else if (d.kind === "wireMove") setDrag({ ...d, gx: clampX(Math.round(g.gx)), gy: clampY(Math.round(g.gy)) });
     else if (d.kind === "part") {
       const moved = d.moved || Math.hypot(g.px - d.px, g.py - d.py) > 5;
       setDrag({ ...d, gx: clampX(Math.round(g.gx - d.x0)), gy: clampY(Math.round(g.gy - d.y0)), moved });
@@ -263,6 +270,13 @@ function CircuitBox({ item, ir, interactive }: { item: ObjectItem; ir: CircuitIR
     setDrag(null);
     if (!d) return;
     const g = toGrid(e);
+    if (d.kind === "wireMove") {
+      // 전선 옮기기: 놓은 격자 점을 지나게
+      const w = data.wires[d.idx];
+      if (w) commit({ ...data, wires: data.wires.map((x, i) => (i === d.idx ? { ...x, via: [d.gx, d.gy] as [number, number] } : x)) }, "전선 옮기기");
+      setSel({ wire: d.idx });
+      return;
+    }
     if (d.kind === "part") {
       const p = data.parts.find((q) => q.id === d.id);
       if (!p) return;
@@ -302,6 +316,36 @@ function CircuitBox({ item, ir, interactive }: { item: ObjectItem; ir: CircuitIR
 
   const selPart = sel?.part ? data.parts.find((p) => p.id === sel.part) : undefined;
   const selWire = sel?.wire !== undefined ? data.wires[sel.wire] : undefined;
+
+  /** 회로도 전체를 크게·작게 (칸 수는 그대로, 칸이 커진다) */
+  const zoomDiagram = (k: number) => {
+    const now = sessionStore.getState().items.find((i) => i.id === item.id);
+    if (!now) return;
+    const next = Math.min(1600, Math.max(160, item.transform.scale * k));
+    sessionStore.getState().commitScale([item.id], next / item.transform.scale, item.transform.x, item.transform.y, sessionStore.getState().items);
+  };
+  /** 판(격자) 넓히기·줄이기 — 칸 크기는 그대로, 부품이 들어갈 자리가 늘고 준다 */
+  const used = data.parts.reduce((m, p) => {
+    for (const [tx, ty] of terminals(p)) {
+      m.x = Math.max(m.x, Math.ceil(tx));
+      m.y = Math.max(m.y, Math.ceil(ty));
+    }
+    m.x = Math.max(m.x, p.x + 1);
+    m.y = Math.max(m.y, p.y + 1);
+    return m;
+  }, { x: 4, y: 3 });
+  const canShrink = data.w - 2 >= Math.max(6, used.x) && data.h - 2 >= Math.max(4, used.y);
+  const resizeBoard = (d: number) => {
+    const now = current(item);
+    if (!now) return;
+    const w = Math.min(78, Math.max(Math.max(6, used.x), data.w + d));
+    const h = Math.min(58, Math.max(Math.max(4, used.y), data.h + d));
+    if (w === data.w && h === data.h) return;
+    const scale = cs * (w + 1);
+    const grow = cs * (h - data.h);
+    const b = item.bbox;
+    sessionStore.getState().resizeObject(item.id, { ...now, data: { ...now.data, w, h } }, scale, { minX: b.minX, minY: b.minY, maxX: b.minX + scale, maxY: b.maxY + grow }, d > 0 ? "판 넓히기" : "판 줄이기");
+  };
 
   const removePart = (id: string) => {
     commit({ ...data, parts: data.parts.filter((p) => p.id !== id), wires: data.wires.filter((w) => !w.a.startsWith(`${id}:`) && !w.b.startsWith(`${id}:`)) }, "부품 지우기");
@@ -374,12 +418,12 @@ function CircuitBox({ item, ir, interactive }: { item: ObjectItem; ir: CircuitIR
           const lv = !electric ? partLogic(p, netOf) : null;
           return (
             <g key={p.id}>
-              <g transform={`translate(${X(p.x)},${Y(p.y)}) rotate(${(p.rot ?? 0) * 90}) scale(${cs})`}>
+              <g transform={`translate(${X(p.x)},${Y(p.y)}) rotate(${(p.rot ?? 0) * 90}) scale(${cs * (p.size ?? 1)})`}>
                 {glow > 0.02 && <circle r={1.25} fill="#FFD84A" opacity={0.25 + 0.6 * glow} />}
                 <Symbol p={p} on={!!p.on} lv={lv} color={isSel ? selColor : theme.color.ink} glow={glow} />
                 {interactive && <rect data-part={p.id} x={p.type === "node" ? -0.5 : -1.5} y={p.type === "node" ? -0.5 : bodyHalf(p.type) * -1} width={p.type === "node" ? 1 : 3} height={p.type === "node" ? 1 : bodyHalf(p.type) * 2} fill="transparent" style={{ cursor: "grab" }} />}
               </g>
-              <PartText p={p} X={X} Y={Y} cs={cs} reading={pr} lv={lv} />
+              <PartText p={p} X={X} Y={Y} cs={cs * (p.size ?? 1)} reading={pr} lv={lv} />
             </g>
           );
         })}
@@ -436,6 +480,9 @@ function CircuitBox({ item, ir, interactive }: { item: ObjectItem; ir: CircuitIR
                 </button>
               )}
               {selPart.type !== "node" && (
+                <ValueStep value={selPart.size ?? 1} steps={PART_SIZES} show={`크기 ${Math.round((selPart.size ?? 1) * 100)}%`} onChange={(v) => patchPart(selPart.id, { size: v }, "부품 크기")} />
+              )}
+              {selPart.type !== "node" && (
                 <button type="button" style={btn} onClick={() => patchPart(selPart.id, { rot: ((selPart.rot ?? 0) + 1) % 4 }, "돌리기")}>
                   ↻ 돌리기
                 </button>
@@ -478,6 +525,16 @@ function CircuitBox({ item, ir, interactive }: { item: ObjectItem; ir: CircuitIR
               >
                 전선 지우기
               </button>
+              {selWire.via && (
+                <button
+                  type="button"
+                  style={btn}
+                  onClick={() => commit({ ...data, wires: data.wires.map((w, k) => (k === sel?.wire ? { a: w.a, b: w.b } : w)) }, "전선 곧게")}
+                >
+                  전선 곧게
+                </button>
+              )}
+              <span style={{ fontSize: 12, color: theme.color.asymptote, alignSelf: "center" }}>전선을 끌면 옮겨져요</span>
             </div>
           )}
           {/* 부품 더하기 */}
@@ -501,6 +558,24 @@ function CircuitBox({ item, ir, interactive }: { item: ObjectItem; ir: CircuitIR
                 )}
               </>
             )}
+            <button type="button" style={btn} onClick={() => zoomDiagram(1 / 1.2)} aria-label="회로도 작게">
+              회로도 작게
+            </button>
+            <button type="button" style={btn} onClick={() => zoomDiagram(1.2)} aria-label="회로도 크게">
+              회로도 크게
+            </button>
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", alignItems: "center", gap: 6, fontSize: 12.5, color: theme.color.ink }}>
+            판 크기
+            <button type="button" style={btn} disabled={!canShrink} onClick={() => resizeBoard(-2)} aria-label="판 줄이기">
+              − 줄이기
+            </button>
+            <span style={{ fontVariantNumeric: "tabular-nums", color: theme.color.asymptote }}>
+              {data.w}×{data.h}칸
+            </span>
+            <button type="button" style={btn} disabled={data.w >= 78 || data.h >= 58} onClick={() => resizeBoard(2)} aria-label="판 넓히기">
+              + 넓히기
+            </button>
             <button
               type="button"
               style={btn}

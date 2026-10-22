@@ -23,6 +23,20 @@ describe("회로 — 단자·마디", () => {
         for (let i = 1; i < path.length; i++) expect(path[i]![0] === path[i - 1]![0] || path[i]![1] === path[i - 1]![1]).toBe(true);
       }
   });
+  it("부품 크기를 바꾸면 단자 자리도 같이 (0.5배 = 단자가 1칸, 2배 = 4칸)", () => {
+    expect(terminals({ id: "r", type: "resistor", x: 5, y: 5, size: 0.5 })).toEqual([[4, 5], [6, 5]]);
+    expect(terminals({ id: "r", type: "resistor", x: 5, y: 5, size: 2, rot: 1 })).toEqual([[5, 1], [5, 9]]);
+  });
+  it("옮긴 전선은 지나는 점을 거쳐 가로·세로로만 간다", () => {
+    const d = ex("직렬");
+    const w = { ...d.wires[0]!, via: [4, 3] as [number, number] };
+    const path = wirePath(d, w);
+    expect(path).toContainEqual([4, 3]);
+    for (let i = 1; i < path.length; i++) expect(path[i]![0] === path[i - 1]![0] || path[i]![1] === path[i - 1]![1]).toBe(true);
+    // 같은 줄 위 두 단자 사이 전선을 아래로 끌면 ㄷ자로 (왕복하는 가시가 없다)
+    const flat = wirePath(d, { ...d.wires[1]!, via: [8, 4] });
+    expect(flat.map(([, y]) => y)).toEqual([1, 4, 4, 1]);
+  });
   it("직렬 회로는 하나의 고리 (마디 5개)", () => {
     expect(nodesOf(ex("직렬")).count).toBe(5);
   });

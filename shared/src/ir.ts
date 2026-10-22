@@ -410,6 +410,8 @@ const Circuit = z.object({
         x: z.number().int().min(0).max(80),
         y: z.number().int().min(0).max(60),
         rot: z.number().int().min(0).max(3).optional(),
+        /** 부품 크기 배율 (0.5 ~ 2, 없으면 1) — 단자 자리도 같이 줄고 는다 */
+        size: z.number().min(0.5).max(2).optional(),
         value: z.number().positive().optional(),
         on: z.boolean().optional(),
         pos: z.number().min(0).max(1).optional(),
@@ -418,7 +420,8 @@ const Circuit = z.object({
       }),
     )
     .max(120),
-  wires: z.array(z.object({ a: z.string().max(40), b: z.string().max(40) })).max(300),
+  /** via: 끌어서 옮긴 전선이 지나는 격자 점 (없으면 자동으로 한 번 꺾어 잇는다) */
+  wires: z.array(z.object({ a: z.string().max(40), b: z.string().max(40), via: z.tuple([z.number(), z.number()]).optional() })).max(300),
   w: z.number().int().min(4).max(80),
   h: z.number().int().min(3).max(60),
 });

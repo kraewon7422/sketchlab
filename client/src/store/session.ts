@@ -110,6 +110,8 @@ export interface SessionState extends Doc {
   commitObjectIR(id: string, before: SceneIR, after: SceneIR, label: string): void;
   /** 객체의 내용과 자리 상자를 함께 바꾼다 (글 상자 편집). Undo 1단위 */
   replaceObject(id: string, ir: SceneIR, bbox: BBox, label: string): void;
+  /** IR과 배율(transform.scale)·자리 상자를 함께 바꾼다 (Undo 1단계) */
+  resizeObject(id: string, ir: SceneIR, scale: number, bbox: BBox, label: string): void;
   /**
    * 지정한 지점 근처를 지운다. 지운(바뀐) 획 수를 돌려준다.
    *   stroke: 닿은 획을 통째로 (획 지우기)
@@ -275,6 +277,17 @@ export const sessionStore: StoreApi<SessionState> = createStore<SessionState>((s
         draft.items = draft.items.filter((i) => !ids.includes(i.id));
         draft.selection = draft.selection.filter((id) => !ids.includes(id));
         if (draft.activeGroupId && ids.includes(draft.activeGroupId)) draft.activeGroupId = null;
+      });
+    },
+
+    resizeObject(id, ir, scale, bbox, label) {
+      commit(label, (draft) => {
+        const target = draft.items.find((i) => i.id === id);
+        if (target && target.kind === "object") {
+          target.ir = ir;
+          target.transform = { ...target.transform, scale };
+          target.bbox = bbox;
+        }
       });
     },
 

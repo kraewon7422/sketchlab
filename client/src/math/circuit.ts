@@ -57,8 +57,9 @@ export function rot90([x, y]: XY, k: number): XY {
 }
 
 export function terminals(part: Part): XY[] {
+  const k = part.size ?? 1;
   return baseTerminals(part.type).map((t) => {
-    const [dx, dy] = rot90(t, part.rot ?? 0);
+    const [dx, dy] = rot90([t[0] * k, t[1] * k], part.rot ?? 0);
     return [part.x + dx, part.y + dy];
   });
 }
@@ -90,6 +91,40 @@ export function wirePath(data: CircuitData, w: Wire): XY[] {
   if (!A || !B) return [];
   const [ax, ay] = A.p;
   const [bx, by] = B.p;
+  if (w.via) {
+    // 옮긴 전선: 단자에서 나가는 방향으로 먼저 → 지나는 점 → 들어가는 단자 방향으로 (모두 가로·세로)
+    const [vx, vy] = w.via;
+    // 두 가지 길 (가로 먼저 / 세로 먼저) 중 되돌아가는(같은 줄을 왕복하는) 곳이 없고 짧은 길
+    const tidy = (pts: XY[]) => {
+      const out: XY[] = [];
+      for (const p of pts) {
+        const last = out[out.length - 1];
+        if (last && last[0] === p[0] && last[1] === p[1]) continue;
+        const prev = out[out.length - 2];
+        if (prev && last && ((prev[0] === last[0] && last[0] === p[0]) || (prev[1] === last[1] && last[1] === p[1]))) {
+          // 한 줄 위 세 점: 가운데가 양 끝 사이면 빼고, 아니면 왕복 (벌점)
+          out.pop();
+        }
+        out.push(p);
+      }
+      return out;
+    };
+    const cost = (pts: XY[]) => {
+      let len = 0;
+      let back = 0;
+      for (let i = 1; i < pts.length; i++) {
+        const [x0, y0] = pts[i - 1] as XY;
+        const [x1, y1] = pts[i] as XY;
+        len += Math.abs(x1 - x0) + Math.abs(y1 - y0);
+        const q = pts[i + 1];
+        if (q && ((x0 === x1 && x1 === q[0] && Math.sign(y1 - y0) === -Math.sign(q[1] - y1)) || (y0 === y1 && y1 === q[1] && Math.sign(x1 - x0) === -Math.sign(q[0] - x1)))) back++;
+      }
+      return len + back * 1000;
+    };
+    const r1: XY[] = [A.p, [vx, ay], [vx, vy], [vx, by], B.p];
+    const r2: XY[] = [A.p, [ax, vy], [vx, vy], [bx, vy], B.p];
+    return tidy(cost(r1) <= cost(r2) ? r1 : r2);
+  }
   if (ax === bx || ay === by) return [A.p, B.p];
   const bad = (c: XY) => {
     const da = (c[0] - ax) * A.o[0] + (c[1] - ay) * A.o[1];
