@@ -4,7 +4,7 @@ import { ObjectItemView } from "../render/Shape2DView";
 import { ink, penOpts, theme, viewport } from "../render/theme";
 import { createStroke, sessionStore, useSession } from "../store/session";
 import { selectionUi } from "../store/selectionUi";
-import { viewportStore } from "../store/viewport";
+import { moveView, settleView, viewportStore } from "../store/viewport";
 import { paperOf, usePages } from "../store/pages";
 import { inView, useVisibleRect } from "../store/culling";
 import { PageBackground } from "../render/PageBackground";
@@ -99,7 +99,22 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
   /** 월드 좌표 그룹 — 이동·확대는 React를 거치지 않고 이 요소의 transform만 바꾼다 (핀치가 매끄럽게) */
   const worldRef = useRef<SVGGElement>(null);
   useLayoutEffect(() => {
-    const apply = ({ tx, ty, k }: View) => worldRef.current?.setAttribute("transform", `translate(${tx} ${ty}) scale(${k})`);
+    // 이동 중(moving)에는 <g>를 그대로 두고 svg 전체를 CSS로만 옮긴다 — 브라우저가 그려 둔 그림을
+    // GPU로 늘이고 미는 것이라 획이 수천 개여도 프레임마다 다시 그리지 않는다. 멈추면 <g>에 반영해 선명하게.
+    let base: View = viewportStore.getState();
+    const apply = (s: View & { moving: boolean }) => {
+      const g = worldRef.current;
+      const svg = svgRef.current;
+      if (!g || !svg) return;
+      if (s.moving) {
+        const sc = s.k / base.k;
+        svg.style.transform = `translate(${s.tx - sc * base.tx}px, ${s.ty - sc * base.ty}px) scale(${sc})`;
+        return;
+      }
+      base = { tx: s.tx, ty: s.ty, k: s.k };
+      g.setAttribute("transform", `translate(${s.tx} ${s.ty}) scale(${s.k})`);
+      svg.style.transform = "";
+    };
     apply(viewportStore.getState());
     return viewportStore.subscribe(apply);
   }, []);
@@ -124,6 +139,8 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
     if (!svg) return;
 
     const rejector = createPalmRejector();
+    /** 화면에서 캔버스 자리 — svg 자체는 이동 중 CSS로 옮겨지므로(moving) 움직이지 않는 부모 상자로 잰다 */
+    const frameRect = (): DOMRect => (svg.parentElement ?? svg).getBoundingClientRect();
 
     /** 진행 중인 획. null이면 그리는 중이 아니다. */
     let drawing: {
@@ -500,7 +517,7 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
         if (!selectionUi.getState().lifting) selectionUi.setState({ lifting: true });
         sessionStore.getState().previewTranslate(m.ids, dx / m.view.k, dy / m.view.k, m.base);
       }
-      else viewportStore.getState().setView({ ...m.view, tx: m.view.tx + dx, ty: m.view.ty + dy });
+      else moveView({ ...m.view, tx: m.view.tx + dx, ty: m.view.ty + dy });
     };
 
     const finishManip = (event: PointerEvent): void => {
@@ -610,7 +627,7 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
     const showHover = (event: PointerEvent): void => {
       const dot = hoverRef.current;
       if (!dot) return;
-      rect ??= svg.getBoundingClientRect();
+      rect ??= frameRect();
       const { x, y } = toWorld(event.clientX, event.clientY, rect, view());
       dot.setAttribute("cx", String(x));
       dot.setAttribute("cy", String(y));
@@ -662,6 +679,8 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
     const TAIL_EVERY = 48;
     const TAIL_OVERLAP = 6;
     let frozenUpTo = 0;
+    /** 굳힌 조각들의 path — 새 조각만 만들어 뒤에 붙인다 (매번 처음부터 다시 만들면 긴 획일수록 느려진다) */
+    let prefixD = "";
     const paint = (): void => {
       frame = null;
       const tail = liveTailRef.current;
@@ -680,8 +699,12 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
       // 붓(양 끝이 가늘어짐)·점선은 획 전체를 봐야 모양이 맞다 — 두 조각으로 나누지 않고 통째로
       const whole = look.brush === "brush" || look.brush === "fountain" || look.brush === "pencil" || look.brush === "custom" || isLineDrawn(look);
       if (!whole && pts.length - frozenUpTo > TAIL_EVERY + TAIL_OVERLAP) {
-        frozenUpTo = pts.length - TAIL_OVERLAP;
-        livePrefixRef.current?.setAttribute("d", strokeD(pts.slice(0, frozenUpTo + 1), look));
+        const upTo = pts.length - TAIL_OVERLAP;
+        // 조각마다 끝이 가늘어지면 획 중간이 잘록해진다 — 굳힌 조각은 고른 굵기, 가는 끝은 끝부분에서만
+        const chunkLook = look.line === "taper" ? { ...look, line: "solid" as const } : look;
+        prefixD += strokeD(pts.slice(Math.max(0, frozenUpTo - TAIL_OVERLAP), upTo + 1), chunkLook);
+        frozenUpTo = upTo;
+        livePrefixRef.current?.setAttribute("d", prefixD);
       }
       // 예측 점은 그릴 때만 덧붙인다 — 다음 프레임에 실제 점으로 대체된다
       const recent = whole ? pts : pts.slice(Math.max(0, frozenUpTo - TAIL_OVERLAP));
@@ -703,6 +726,7 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
       livePrefixRef.current?.setAttribute("d", "");
       liveTailRef.current?.setAttribute("d", "");
       frozenUpTo = 0;
+      prefixD = "";
     };
 
     /** 이번에 문지르는 동작의 이름 — 같은 동작의 지우기는 Undo 1단계로 합친다 */
@@ -763,7 +787,7 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
     const startGesture = (): void => {
       const f = gestureFrame();
       if (!f) return;
-      rect = svg.getBoundingClientRect();
+      rect = frameRect();
       gesture = { dist: f.dist, mx: f.mx - rect.left, my: f.my - rect.top, view: { ...view() }, lastMx: f.mx - rect.left, lastMy: f.my - rect.top };
       gestureLock = true;
     };
@@ -783,20 +807,20 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
       g.lastMy = my;
       // 시작 화면에서 중점 아래 있던 점을 기준으로 확대한 뒤, 손가락 중점이 움직인 만큼 옮긴다
       const zoomed = zoomAbout(g.view, g.mx, g.my, g.view.k * (f.dist / g.dist), viewport.minZoom, viewport.maxZoom);
-      viewportStore.getState().setView({ k: zoomed.k, tx: zoomed.tx + (mx - g.mx), ty: zoomed.ty + (my - g.my) });
+      moveView({ k: zoomed.k, tx: zoomed.tx + (mx - g.mx), ty: zoomed.ty + (my - g.my) });
     };
 
     const onWheel = (event: WheelEvent): void => {
       event.preventDefault();
-      rect ??= svg.getBoundingClientRect();
+      rect ??= frameRect();
       const v = view();
       const unit = event.deltaMode === 1 ? 16 : 1;
       if (event.ctrlKey) {
         // Ctrl+휠, 트랙패드 핀치(브라우저가 ctrlKey로 보낸다)
         const nk = v.k * Math.exp(-event.deltaY * unit * viewport.wheelZoom);
-        viewportStore.getState().setView(zoomAbout(v, event.clientX - rect.left, event.clientY - rect.top, nk, viewport.minZoom, viewport.maxZoom));
+        moveView(zoomAbout(v, event.clientX - rect.left, event.clientY - rect.top, nk, viewport.minZoom, viewport.maxZoom));
       } else {
-        viewportStore.getState().setView({ ...v, tx: v.tx - event.deltaX * unit, ty: v.ty - event.deltaY * unit });
+        moveView({ ...v, tx: v.tx - event.deltaX * unit, ty: v.ty - event.deltaY * unit });
       }
     };
 
@@ -807,7 +831,7 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
       const onPick = eyedropperStore.getState().onPick;
       if (onPick) {
         event.preventDefault();
-        rect = svg.getBoundingClientRect();
+        rect = frameRect();
         const v = view();
         const w = toWorld(event.clientX, event.clientY, rect, v);
         const c = colorAt(sessionStore.getState().items, w.x, w.y, ink.tapSlop / v.k);
@@ -855,6 +879,7 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
       if (event.pointerType === "pen" && manip?.kind === "pan" && manip.pointerType === "touch") {
         // 손바닥이 먼저 닿아 화면을 밀고 있었다 — 밀린 만큼 되돌리고 펜으로 쓴다
         viewportStore.getState().setView(manip.view);
+        settleView();
         release(manip.pointerId);
         touches.delete(manip.pointerId);
         manip = null;
@@ -862,6 +887,7 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
       if (event.pointerType === "pen" && gesture) {
         // 손바닥 두 군데가 확대를 시작했다 — 되돌리고 펜으로 쓴다
         viewportStore.getState().setView(gesture.view);
+        settleView();
         gesture = null;
         touches.clear();
         gestureLock = false;
@@ -873,7 +899,7 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
         resetAll();
       }
       lastActivity = event.timeStamp;
-      rect = svg.getBoundingClientRect();
+      rect = frameRect();
       {
         const v = view();
         const w = toWorld(event.clientX, event.clientY, rect, v);
@@ -916,7 +942,7 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
       }
 
       event.preventDefault();
-      rect = svg.getBoundingClientRect();
+      rect = frameRect();
 
       if (toolRef.current === "text" && !isBarrelPressed(event)) {
         // 글 상자 도구: 누른 자리에 새 글 상자, 기존 글 상자 위면 그 글 상자 고치기
@@ -1044,6 +1070,7 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
 
       styleLive(style);
       frozenUpTo = 0;
+      prefixD = "";
       livePrefixRef.current?.setAttribute("d", "");
       liveTailRef.current?.setAttribute("d", strokeD([first], style));
     };
@@ -1124,9 +1151,23 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
       // 보정이 걸려 있는 동안(천천히 그을 때)은 예측 점을 쓰지 않는다 — 늦게 따라가는 선 앞에 예측이 붙으면 끝이 튄다.
       // 빨리 쓸 때는 보정이 거의 꺼지므로 예측 점으로 체감 지연을 줄인다.
       if (drawing.stabilizer.currentRadius() < 0.5) {
-        for (const raw of next) {
-          const point = sample(raw, drawing.startedAt);
-          if (point) predicted.push(point);
+        // 예측은 한 점만, 진행 방향으로, 마지막 한 걸음보다 멀지 않게 — 크게 빗나간 예측이 붙었다 떨어지면 획 끝이 흔들린다
+        const pts = drawing.points;
+        const tip = queued[queued.length - 1] ?? pts[pts.length - 1];
+        const prev = queued[queued.length - 2] ?? pts[pts.length - (queued.length > 0 ? 1 : 2)];
+        const raw = next[0];
+        const point = raw ? sample(raw, drawing.startedAt) : null;
+        if (point && tip && prev) {
+          const sx = tip.x - prev.x;
+          const sy = tip.y - prev.y;
+          const px = point.x - tip.x;
+          const py = point.y - tip.y;
+          const step = Math.hypot(sx, sy);
+          const ahead = Math.hypot(px, py);
+          if (step > 0 && ahead > 0 && sx * px + sy * py > 0) {
+            const f = Math.min(1, step / ahead);
+            predicted.push({ ...point, x: tip.x + px * f, y: tip.y + py * f });
+          }
         }
       }
       schedulePaint();
@@ -1137,6 +1178,8 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
     const onRawUpdate = (event: PointerEvent): void => {
       if (!drawing || drawing.pointerId !== event.pointerId) return;
       rawSeen = true;
+      // 지난 pointermove의 예측 점은 이제 펜촉보다 뒤에 있다 — 그대로 두면 끝이 앞으로 갔다 뒤로 튀어 깜빡인다
+      predicted = [];
       addSamples(event);
       schedulePaint();
     };
@@ -1167,6 +1210,7 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
               // 다시 움직였다 → 반듯한 도형을 풀고 손글씨 그대로 이어 그린다
               drawing.snap = undefined;
               frozenUpTo = 0;
+              prefixD = "";
               livePrefixRef.current?.setAttribute("d", "");
               schedulePaint();
             }
@@ -1229,6 +1273,7 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
         if (Math.abs(v.k - 1) < viewport.snapToOne && v.k !== 1) {
           viewportStore.getState().setView(zoomAbout(v, gesture.lastMx, gesture.lastMy, 1, viewport.minZoom, viewport.maxZoom));
         }
+        settleView(); // 손을 떼면 기다리지 않고 바로 선명하게
         gesture = null;
       }
       const wasLocked = gestureLock;
@@ -1321,7 +1366,7 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
 
     const resizeObserver = new ResizeObserver(() => {
       // 창 크기가 바뀌면 캐시해 둔 rect가 낡는다.
-      rect = svg.getBoundingClientRect();
+      rect = frameRect();
     });
     resizeObserver.observe(svg);
 
@@ -1358,6 +1403,9 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
         position: "absolute",
         inset: 0,
         display: "block",
+        // 늘 GPU 층 — 핀치를 시작하는 순간 층을 새로 만드느라 멈칫하지 않게 (안쪽 <g>가 바뀌면 선명하게 다시 그린다)
+        transformOrigin: "0 0",
+        willChange: "transform",
         // 브라우저의 스크롤·핀치 기본동작을 끄고 우리가 전부 처리한다 (함정 #1).
         touchAction: "none",
         cursor: tool === "eraser" || tool === "style" ? "cell" : tool === "text" ? "text" : "crosshair",

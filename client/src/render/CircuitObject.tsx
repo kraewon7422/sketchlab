@@ -28,6 +28,7 @@ import {
   type PartType,
 } from "../math/circuit";
 import { sessionStore } from "../store/session";
+import { viewportStore } from "../store/viewport";
 import { btn, onBtn } from "./figureKit";
 import { isFresh } from "./Shape2DView";
 import { theme } from "./theme";
@@ -217,7 +218,8 @@ function CircuitBox({ item, ir, interactive }: { item: ObjectItem; ir: CircuitIR
           while (hist.length > 2 && (hist[0] as { t: number }).t < t - 6) hist.shift();
         }
         // 화면은 두 번에 한 번 (30 fps)
-        if (frame++ % 2 === 0) setReading({ r, wires });
+        // 화면을 옮기는 중에는 회로 그림을 다시 그리지 않는다 (계산은 계속 — 멈추면 바로 따라잡는다)
+        if (frame++ % 2 === 0 && !viewportStore.getState().moving) setReading({ r, wires });
       }
       raf = requestAnimationFrame(tick);
     };

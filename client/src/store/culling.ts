@@ -58,8 +58,9 @@ export function useVisibleRect(): BBox | null {
         })
       : null;
     if (main) ro?.observe(main);
-    const stop = viewportStore.subscribe(() =>
-      setRect((prev) => {
+    // 손가락으로 옮기는 중에는 다시 그리지 않는다 (그림째 옮기는 중) — 멈추면 한 번
+    const stop = viewportStore.subscribe((s) =>
+      s.moving ? undefined : setRect((prev) => {
         const next = rectNow();
         return same(prev, next) ? prev : next;
       }),

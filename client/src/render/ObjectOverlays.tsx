@@ -118,8 +118,13 @@ export function ObjectOverlays({ interactive }: { interactive: boolean }): React
   // 이동·확대는 React를 거치지 않고 transform만 바꾼다 (그래프 수십 개가 있어도 핀치가 매끄럽게)
   const layerRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
-    const apply = ({ tx, ty, k }: { tx: number; ty: number; k: number }) => {
-      if (layerRef.current) layerRef.current.style.transform = `translate(${tx}px, ${ty}px) scale(${k})`;
+    const apply = ({ tx, ty, k, moving }: { tx: number; ty: number; k: number; moving: boolean }) => {
+      const el = layerRef.current;
+      if (!el) return;
+      el.style.transform = `translate(${tx}px, ${ty}px) scale(${k})`;
+      // 이동 중에만 GPU 층으로 (손글씨 층과 같은 박자로 그림째 옮긴다). 멈추면 풀어서
+      // 새 배율로 다시 그리게 한다 — 계속 켜 두면 확대해도 처음 배율의 흐릿한 그림이 남는다.
+      el.style.willChange = moving ? "transform" : "auto";
     };
     apply(viewportStore.getState());
     return viewportStore.subscribe(apply);
@@ -128,7 +133,7 @@ export function ObjectOverlays({ interactive }: { interactive: boolean }): React
   return (
     <div style={{ position: "absolute", inset: 0, pointerEvents: "none", overflow: "hidden" }}>
       {/* 캔버스와 같은 이동·확대 (화면 = 월드 × k + t) */}
-      <div ref={layerRef} data-overlay-layer style={{ position: "absolute", left: 0, top: 0, transformOrigin: "0 0", willChange: "transform" }}>
+      <div ref={layerRef} data-overlay-layer style={{ position: "absolute", left: 0, top: 0, transformOrigin: "0 0" }}>
       <ErrorBoundary area="graphs">
         <Suspense fallback={null}>
           {overlays.map((item) => (

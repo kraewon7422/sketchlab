@@ -147,6 +147,16 @@ describe("음함수·적분", () => {
     expect(lines.length).toBeLessThanOrEqual(2);
   });
 
+  it("하트 (x²+y²−1)³ = x²y³: 격자점(±1,0)·(0,±1)을 지나도 끊기지 않은 닫힌 곡선 하나", () => {
+    const F = (x: number, y: number) => (x * x + y * y - 1) ** 3 - x * x * y ** 3;
+    const lines = marchingSquares(F, { xmin: -5, xmax: 5, ymin: -3.5, ymax: 3.5 }, 140, 98);
+    expect(lines.length).toBe(1);
+    const line = lines[0] ?? [];
+    expect(line[0]).toEqual(line[line.length - 1]);
+    // 점이 곡선 위에 붙어 있다 (이분법)
+    for (const [x, y] of line) expect(Math.abs(F(x, y))).toBeLessThan(1e-3);
+  });
+
   it("∫₀² x² dx = 8/3", () => {
     expect(simpson((x) => x * x, 0, 2)).toBeCloseTo(8 / 3, 10);
   });
