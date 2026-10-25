@@ -11,6 +11,8 @@ import { IDENTITY_VIEW, type View } from "../ink/geometry";
  */
 export interface ViewportState extends View {
   moving: boolean;
+  /** 펜으로 획을 긋는 중 — 돌아가는 회로처럼 계속 다시 그리는 것들이 잠깐 쉰다 */
+  inking: boolean;
   setView(view: View): void;
   reset(): void;
 }
@@ -18,6 +20,7 @@ export interface ViewportState extends View {
 export const viewportStore = createStore<ViewportState>((set) => ({
   ...IDENTITY_VIEW,
   moving: false,
+  inking: false,
   setView: (view) => set({ tx: view.tx, ty: view.ty, k: view.k }),
   reset: () => set({ ...IDENTITY_VIEW, moving: false }),
 }));

@@ -24,7 +24,7 @@ import { markFresh } from "../render/Shape2DView";
 import { distance, toWorld, zoomAbout, type View } from "./geometry";
 import { simplifyEpsilonAt, simplifyRDP } from "./simplify";
 import { snapShape } from "./holdShape";
-import { isLineDrawn, strokeAttrs, strokeD, inkFilterMarkup } from "./brushes";
+import { FLICK_MAX, fountainDynamics, fountainOutlineD, isLineDrawn, strokeAttrs, strokeD, inkFilterMarkup } from "./brushes";
 import { createPalmRejector } from "./palmRejection";
 import type { InkItem, Point } from "./types";
 
@@ -696,19 +696,35 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
 
       const pts = drawing.points;
       const look = drawing.style;
-      // 붓(양 끝이 가늘어짐)·점선은 획 전체를 봐야 모양이 맞다 — 두 조각으로 나누지 않고 통째로
-      const whole = look.brush === "brush" || look.brush === "fountain" || look.brush === "pencil" || look.brush === "custom" || isLineDrawn(look);
-      if (!whole && pts.length - frozenUpTo > TAIL_EVERY + TAIL_OVERLAP) {
-        const upTo = pts.length - TAIL_OVERLAP;
+      // 점선은 획 전체를 봐야 무늬가 맞다 — 나누지 않고 통째로
+      const whole = isLineDrawn(look);
+      // 만년필: 굵기 흐름(속도·필압 저역 필터)은 처음부터 이어서 계산하고(산수라 싸다), 비싼 외곽선만 조각으로
+      const fountain = look.tool === "pen" && look.brush === "fountain" && look.line !== "thin";
+      const all = predicted.length > 0 ? [...pts, ...predicted] : pts;
+      const src = fountain ? fountainDynamics(all) : all;
+      const outline = (seg: readonly Point[]) => (fountain ? fountainOutlineD(seg, look) : strokeD(seg, look));
+      // 끝이 가늘어지는 구간(만년필 FLICK_MAX)은 굳히지 않는다 — 계속 쓰면 그 자리는 다시 굵어진다
+      let freezable = pts.length - TAIL_OVERLAP;
+      if (fountain) {
+        let run = 0;
+        let i = pts.length - 1;
+        while (i > 0 && run < FLICK_MAX) {
+          run += distance((pts[i] as Point).x, (pts[i] as Point).y, (pts[i - 1] as Point).x, (pts[i - 1] as Point).y);
+          i--;
+        }
+        freezable = Math.min(freezable, i);
+      }
+      if (!whole && freezable - frozenUpTo > TAIL_EVERY) {
+        const upTo = freezable;
         // 조각마다 끝이 가늘어지면 획 중간이 잘록해진다 — 굳힌 조각은 고른 굵기, 가는 끝은 끝부분에서만
         const chunkLook = look.line === "taper" ? { ...look, line: "solid" as const } : look;
-        prefixD += strokeD(pts.slice(Math.max(0, frozenUpTo - TAIL_OVERLAP), upTo + 1), chunkLook);
+        const seg = src.slice(Math.max(0, frozenUpTo - TAIL_OVERLAP), upTo + 1);
+        prefixD += fountain ? fountainOutlineD(seg, chunkLook) : strokeD(seg, chunkLook);
         frozenUpTo = upTo;
         livePrefixRef.current?.setAttribute("d", prefixD);
       }
       // 예측 점은 그릴 때만 덧붙인다 — 다음 프레임에 실제 점으로 대체된다
-      const recent = whole ? pts : pts.slice(Math.max(0, frozenUpTo - TAIL_OVERLAP));
-      tail.setAttribute("d", strokeD(predicted.length > 0 ? [...recent, ...predicted] : recent, look));
+      tail.setAttribute("d", outline(whole ? src : src.slice(Math.max(0, frozenUpTo - TAIL_OVERLAP))));
     };
 
     const schedulePaint = (): void => {
@@ -727,6 +743,7 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
       liveTailRef.current?.setAttribute("d", "");
       frozenUpTo = 0;
       prefixD = "";
+      if (viewportStore.getState().inking) viewportStore.setState({ inking: false });
     };
 
     /** 이번에 문지르는 동작의 이름 — 같은 동작의 지우기는 Undo 1단계로 합친다 */
@@ -1071,6 +1088,7 @@ export function PointerCanvas({ tool, onHoldSnap, onTextTap }: PointerCanvasProp
       styleLive(style);
       frozenUpTo = 0;
       prefixD = "";
+      viewportStore.setState({ inking: true });
       livePrefixRef.current?.setAttribute("d", "");
       liveTailRef.current?.setAttribute("d", strokeD([first], style));
     };

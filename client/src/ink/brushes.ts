@@ -64,6 +64,9 @@ export const isRasterBrush = (look: StrokeLook): boolean => look.tool === "pen" 
  * 만년필 손맛: 필압에 비례, 속도에 반비례 (빨리 쓰면 가늘게) + 굵기를 부드럽게 (저역 필터 0.8/0.2)
  * + 획 끝에서 튕기듯 가늘어짐. 결과는 필압 자리에 넣어 그대로 외곽선 계산에 쓴다.
  */
+/** 만년필 끝의 튕기듯 가늘어지는 구간 최대 길이 — 고정 길이라서 그리는 동안 앞부분을 굳혀 둘 수 있다 */
+export const FLICK_MAX = 40;
+
 export function fountainDynamics(points: readonly Point[]): Point[] {
   if (points.length < 3) return [...points];
   const out: Point[] = [];
@@ -81,9 +84,10 @@ export function fountainDynamics(points: readonly Point[]): Point[] {
     // 6px 움직일 때마다 목표의 약 20 %씩 따라간다 (표본 간격과 무관)
     const a = 1 - Math.exp(-d / 27);
     w = w < 0 ? target : w + (target - w) * a;
-    // 끝 15 %: 튕기듯 가늘어짐
+    // 끝 15 % (길어도 FLICK_MAX까지): 튕기듯 가늘어짐
     const left = total - run;
-    const flick = total > 0 && left < total * 0.15 ? Math.max(0.2, (left / (total * 0.15)) ** 0.6) : 1;
+    const zone = Math.min(total * 0.15, FLICK_MAX);
+    const flick = zone > 0 && left < zone ? Math.max(0.2, (left / zone) ** 0.6) : 1;
     out.push({ ...p, p: w * flick });
   }
   return out;
@@ -125,6 +129,11 @@ export function strokeD(points: readonly Point[], look: StrokeLook): string {
   if (look.tool === "pen" && look.brush === "calligraphy" && look.line !== "thin") return nibStrokePath(points, w * 1.8, -Math.PI / 4, w * 0.22);
   if (look.tool === "pen" && look.brush === "fountain") return smoothStrokePath(fountainDynamics(points), outlineOptions(look, w));
   return smoothStrokePath(points, outlineOptions(look, w));
+}
+
+/** 만년필: 이미 fountainDynamics를 거친 점으로 외곽선만 (그리는 중 조각마다 굵기 흐름이 끊기지 않게) */
+export function fountainOutlineD(dynamicPoints: readonly Point[], look: StrokeLook): string {
+  return smoothStrokePath(dynamicPoints, outlineOptions(look, look.width ?? 2.6));
 }
 
 // ─────────────────────────────────────────────────────────── 질감 (종이 결)
